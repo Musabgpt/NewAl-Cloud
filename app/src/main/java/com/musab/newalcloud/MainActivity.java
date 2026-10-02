@@ -154,8 +154,9 @@ public class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> p) {}
         });
         providerSpinner.setSelection(Math.max(0, Math.min(Providers.ALL.length - 1, prefs.getInt("provider", 0))));
-        if (keyField.getText().length() > 0) settingsBox.setVisibility(View.GONE);
-        status.setText("أدخل مفتاح API من ⚙ ثم اكتب طلبك");
+        // Zero-setup mode: all routing fields are preconfigured and the settings panel stays hidden.
+        settingsBox.setVisibility(View.GONE);
+        status.setText("جاهز • FreeLLMAPI Auto Free — لا يحتاج API key");
     }
 
     private EditText field(String hint, boolean secret) {
@@ -215,20 +216,16 @@ public class MainActivity extends Activity {
         String q = input.getText().toString().trim();
         if (q.isEmpty()) return;
         saveFields();
-        final String endpoint = endpointField.getText().toString().trim();
-        final String model = modelField.getText().toString().trim();
-        final String key = keyField.getText().toString().trim();
-        if (endpoint.isEmpty() || model.isEmpty() || key.isEmpty()) {
-            status.setText("أكمل الرابط والنموذج والمفتاح من ⚙");
-            settingsBox.setVisibility(View.VISIBLE);
-            return;
-        }
+        // FreeLLMAPI/Kilo keyless route: no provider setup or API key is required.
+        final String endpoint = Providers.ENDPOINT;
+        final String model = Providers.MODEL;
+        final String key = "";
         input.setText("");
         history.add(new RemoteChat.Msg("user", q));
         transcript.append("🧑 ").append(q).append("\n\n🤖 ");
         synchronized (live) { live.setLength(0); }
         setBusy(true);
-        status.setText("…");
+        status.setText("جاري التوجيه تلقائياً إلى نموذج مجاني…");
         render();
 
         final List<RemoteChat.Msg> turns = new ArrayList<>();
