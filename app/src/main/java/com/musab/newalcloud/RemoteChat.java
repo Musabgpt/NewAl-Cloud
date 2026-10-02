@@ -78,7 +78,9 @@ final class RemoteChat {
             c.setReadTimeout(60_000);
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json");
-            c.setRequestProperty("Authorization", "Bearer " + apiKey);
+            if (apiKey != null && !apiKey.trim().isEmpty()) {
+                c.setRequestProperty("Authorization", "Bearer " + apiKey);
+            }
             c.setRequestProperty("Accept", "text/event-stream");
             try (OutputStream o = c.getOutputStream()) { o.write(payload); }
 
