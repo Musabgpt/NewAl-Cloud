@@ -18,7 +18,9 @@ anchor = '''            if path == "/api/cloud":
                 from . import cloud
                 return self._json({"tasks": cloud.listing(q.get("root") or None)})'''
 insert = '''            if path == "/api/cloud/workspace":
-                return self._json({"workspaces": _cloud_workspaces()})'''
+                return self._json({"workspaces": _cloud_workspaces()})
+            if path == "/api/connectors":
+                return self._json(_connector_status())'''
 if anchor not in text:
     raise SystemExit("GET cloud anchor changed; refusing to patch")
 text = text.replace(anchor, insert + "\n" + anchor, 1)
@@ -77,6 +79,25 @@ def _create_cloud_workspace(title):
 ",
         encoding="utf-8")
     return {"id": wid, "root": str(d), "title": _safe_title(title), "cloud": True}
+
+def _connector_status():
+    # Only report a connector as connected when a real auth source exists.
+    try:
+        from . import github
+        a = github.account()
+        gh = bool(a.get("connected"))
+    except Exception:
+        gh = False
+    ids = [
+        "github","google-drive","gmail","google-calendar","google-docs","google-sheets","notion",
+        "figma","gitlab","slack","discord","dropbox","onedrive","outlook","teams","trello",
+        "linear","jira","asana","replit","kaggle","hugging-face","vercel","netlify","firebase",
+        "supabase","sentry"
+    ]
+    return {i: {"connected": gh if i == "github" else False,
+                "kind": "native-oauth" if i != "github" else "github-cli-oauth",
+                "configured": True if i == "github" else False}
+            for i in ids}
 
 def _cloud_workspaces():
     base = _cloud_root()
