@@ -54,6 +54,13 @@ jobs:
           ! grep -n "Starting a repository-backed cloud task" desktop/newal_code/ui/app.js
           grep -n "githubLogin" desktop/newal_code/ui/app.js
           grep -n "api/cloud/workspace" desktop/newal_code/ui/app.js
+      - name: Apply real connector architecture
+        run: |
+          python3 newal-autonomy/apply_connector_hub.py
+          python3 -m py_compile newal-autonomy/apply_connector_hub.py
+          grep -n "Phone shortcuts — not agent connectors" desktop/newal_code/ui/app.js
+          grep -n "mcp.figma.com/mcp" desktop/newal_code/ui/app.js
+          grep -n "drivemcp.googleapis.com/mcp/v1" desktop/newal_code/ui/app.js
       - name: Apply standalone Cloud Workspace layer
         run: |
           python3 newal-autonomy/apply_cloud_session.py
