@@ -1,7 +1,7 @@
 name: NewAl-Cloud — exact Action #43 + cloud heart
 on:
   push:
-    branches: ["merge/action43-cloud"]
+    branches: ["merge/action43-cloud", "musabai-v2-superagent"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -57,11 +57,11 @@ jobs:
       - name: Build exact Action #43 APK
         run: |
           gradle -p android-lite :app:assembleRelease --stacktrace
-          cp android-lite/app/build/outputs/apk/release/app-release.apk NewAl-Cloud-Action43.apk
-          ls -lh NewAl-Cloud-Action43.apk
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Action43.apk
+          ls -lh MusabAI-Action43.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: NewAl-Cloud-Action43
+          name: MusabAI-Action43
           path: NewAl-Cloud-Action43.apk
           compression-level: 0
           retention-days: 14
