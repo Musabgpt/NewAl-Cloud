@@ -44,6 +44,11 @@ def t_self_evolve(ctx, goal, checks=None, promote=False):
     if default not in text:
         raise SystemExit("Action #43 tools.py default tool set changed; refusing an unsafe patch")
     text = text.replace(default, default + '    names += ["memory_recall", "self_evolve"]\n', 1)
+    learned_anchor = "        parts += extra_context\\n        parts.append(text)\\n"
+    learned_repl = "        parts += extra_context\\n        learned = self.memory.recall(text, 4)\\n        if learned:\\n            parts.append(\"<learned-memory>\\\\n\" + \"\\\\n\".join(\"- %s: %s\" % (x[\"topic\"], x[\"lesson\"]) for x in learned) + \"\\\\n</learned-memory>\")\\n        parts.append(text)\\n"
+    if learned_anchor not in text:
+        raise SystemExit("user-content anchor changed; refusing an unsafe patch")
+    text = text.replace(learned_anchor, learned_repl, 1)
     open(path, "w", encoding="utf-8", newline="").write(text)
 
 def main():
