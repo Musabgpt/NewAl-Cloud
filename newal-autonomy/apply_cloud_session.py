@@ -86,9 +86,7 @@ def _cloud_workspaces():
             if d.is_dir() and (d / ".musabai-cloud").exists()]
 
 '''
-    anchor = "
-def _changes_summary(s):
-"
+    anchor = "\n\ndef _changes_summary(s):\n"
     if anchor not in text:
         raise SystemExit("helper anchor not found")
     text = text.replace(anchor, "
