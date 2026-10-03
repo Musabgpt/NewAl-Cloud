@@ -63,6 +63,11 @@ jobs:
           grep -n "self_evolve" desktop/newal_code/tools.py
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
+      - name: Real standalone Cloud end-to-end smoke test
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python3 newal-autonomy/smoke_cloud.py
       - name: Prepare exact Action #43 Android runtime
         run: |
           chmod +x android-lite/native/prepare.sh
