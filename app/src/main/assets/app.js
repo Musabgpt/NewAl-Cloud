@@ -301,13 +301,28 @@
   let creating = null;
   async function ensureSession() {
     if (S.current) return S.current;
-    if (!S.root) { await new Promise(res => pickFolder(r => { setRoot(r); res(); })); }
+    const cloudMode = pref("env") === "cloud";
+    if (!S.root && cloudMode) {
+      const w = await api("/api/cloud/workspace", { title: $("#input").value.trim().slice(0, 80) || "New cloud workspace" });
+      setRoot(w.root);
+      S.cloudWorkspace = true;
+      $("#project-chip").textContent = "☁ " + base(w.root);
+    } else if (!S.root) {
+      await new Promise(res => pickFolder(r => { setRoot(r); res(); }));
+    }
     if (S.current) return S.current;
     if (creating) return creating;             // (already being made: while the first message was typed)
     creating = (async () => {
-      const d = await api("/api/sessions", { root: S.root, model: pref("model"), mode: pref("mode"), worktree: pref("env") === "worktree" });
+      const cloudMode = pref("env") === "cloud";
+      const d = await api("/api/sessions", {
+        root: S.root,
+        model: cloudMode ? "kilo-auto/free" : pref("model"),
+        mode: pref("mode"),
+        worktree: pref("env") === "worktree"
+      });
       S.current = d.id;
       S.meta = d.meta;
+      S.cloudWorkspace = !!d.meta.cloud_workspace;
       localStorage.setItem("nc.session", d.id);
       if (pref("reasoning") && pref("reasoning") !== "auto")
         await api("/api/sessions/" + d.id + "/settings", { reasoning: pref("reasoning") }).catch(() => {});
@@ -860,7 +875,9 @@
     text = (text != null ? text : $("#input").value).trim();
     if (!text && !S.attachments.length) return;
     if (S.current && S.busy.has(S.current)) return;
-    if (!S.current && pref("env") === "cloud" && !text.startsWith("/")) return sendToCloud(text);
+    if (!S.current && pref("env") === "cloud" && !text.startsWith("/")) {
+      // Cloud is a first-class session. GitHub is an optional connector used only when the user asks to publish/sync.
+    }
     let sid;
     try { sid = await ensureSession(); } catch (e) { toast(e.message); return; }
     $("#input").value = "";
@@ -890,9 +907,9 @@
   // ------------------------------------------------------------------ cloud tasks
   async function sendToCloud(text) {
     if (!S.root) { await new Promise(res => pickFolder(r => { setRoot(r); res(); })); }
-    toast("Starting a cloud task…");
+    toast("Starting a repository-backed cloud task…");
     try {
-      const rec = await api("/api/cloud", { root: S.root, task: text, model: pref("model") || "auto" });
+      const rec = await api("/api/cloud", { root: S.root, task: text, model: pref("model") || "kilo-auto/free" });
       $("#input").value = "";
       autoGrow();
       toast("Cloud task started on " + rec.repo);
@@ -1043,12 +1060,12 @@
     document.querySelector("#reasoning-picker .label").textContent = (REASONING.find(r => r[0] === reasoning) || REASONING[0])[1];
     document.querySelector("#model-picker .label").textContent = modelName(model);
     pickerMenu("mode-picker", MODES.map(([v, t, s]) => ({ value: v, title: t, sub: s, checked: v === mode })), v => setOpt("mode", v));
-    const env = S.meta ? (S.meta.worktree ? "worktree" : "local") : (localStorage.getItem("nc.pref.env") || "local");
+    const env = S.meta ? (S.meta.cloud_workspace ? "cloud" : (S.meta.worktree ? "worktree" : "local")) : (localStorage.getItem("nc.pref.env") || "local");
     document.querySelector("#env-picker .label").textContent = { worktree: "Worktree", cloud: "Cloud" }[env] || "Local";
     pickerMenu("env-picker", [{ label: "New threads work" },
       { value: "local", title: "Local", sub: "In the project folder itself", checked: env === "local" },
       { value: "worktree", title: "Worktree", sub: "In a git worktree of the project; apply the changes when they are good", checked: env === "worktree" },
-      { value: "cloud", title: "Cloud", sub: "On GitHub Actions, with the repository: review the diff here, apply it or open a pull request", checked: env === "cloud" }],
+      { value: "cloud", title: "Cloud", sub: "Independent cloud-AI workspace; no GitHub or Git remote required", checked: env === "cloud" }],
       v => { localStorage.setItem("nc.pref.env", v); if (S.meta) toast("Applies to the next new thread"); updatePickers(); });
     pickerMenu("reasoning-picker", [{ label: "Reasoning" }].concat(REASONING.map(([v, t, s]) => ({ value: v, title: t, sub: s, checked: v === reasoning }))),
       v => setOpt("reasoning", v));
@@ -1999,40 +2016,72 @@
 
   
   // ------------------------------------------------------------------ MusabAI Hub
+  // Hub has two different things on purpose:
+  //  - Connectors: real agent integrations (OAuth/native auth/API), never fake launch buttons.
+  //  - Apps/tools: real Android/browser launchers, clearly labelled as launchers.
+  const HUB_CONNECTORS = [
+    ["github","GitHub","Repos, issues, commits, PRs","oauth"],
+    ["google-drive","Google Drive","Files, folders and document access","oauth"],
+    ["gmail","Gmail","Read, search and send mail","oauth"],
+    ["google-calendar","Google Calendar","Events and scheduling","oauth"],
+    ["google-docs","Google Docs","Documents and content","oauth"],
+    ["google-sheets","Google Sheets","Spreadsheets and data","oauth"],
+    ["notion","Notion","Pages and databases","oauth"],
+    ["figma","Figma","Files, designs and comments","oauth"],
+    ["gitlab","GitLab","Repositories and merge requests","oauth"],
+    ["slack","Slack","Channels and messages","oauth"],
+    ["discord","Discord","Servers and messages","oauth"],
+    ["dropbox","Dropbox","Files and folders","oauth"],
+    ["onedrive","OneDrive","Files and folders","oauth"],
+    ["outlook","Microsoft Outlook","Mail and calendar","oauth"],
+    ["teams","Microsoft Teams","Chats and teams","oauth"],
+    ["trello","Trello","Boards and cards","oauth"],
+    ["linear","Linear","Issues and projects","oauth"],
+    ["jira","Jira","Issues and projects","oauth"],
+    ["asana","Asana","Tasks and projects","oauth"],
+    ["replit","Replit","Projects and deployments","oauth"],
+    ["kaggle","Kaggle","Datasets, notebooks and models","oauth"],
+    ["hugging-face","Hugging Face","Models and datasets","oauth"],
+    ["vercel","Vercel","Projects and deployments","oauth"],
+    ["netlify","Netlify","Sites and deployments","oauth"],
+    ["firebase","Firebase","Projects and services","oauth"],
+    ["supabase","Supabase","Projects, DB and edge functions","oauth"],
+    ["sentry","Sentry","Errors and releases","oauth"]
+  ];
   const HUB_APPS = [
-    ["Google Drive","Cloud files","com.google.android.apps.docs","https://drive.google.com/"],
-    ["Gmail","Email","com.google.android.gm","https://mail.google.com/"],
-    ["WhatsApp","Messages","com.whatsapp","https://web.whatsapp.com/"],
-    ["Telegram","Messages","org.telegram.messenger","https://web.telegram.org/"],
-    ["Discord","Community","com.discord","https://discord.com/app"],
-    ["Slack","Work chat","com.Slack","https://app.slack.com/client/"],
-    ["GitHub","Code hosting","com.github.android","https://github.com/"],
-    ["GitLab","Code hosting","com.gitlab.mobile","https://gitlab.com/"],
-    ["Figma","Design","com.figma.mirror","https://www.figma.com/"],
-    ["Notion","Knowledge","notion.id","https://www.notion.so/"],
-    ["Replit","Cloud IDE","com.replit.app","https://replit.com/"],
-    ["Kaggle","ML & data","com.kaggle.android","https://www.kaggle.com/"],
+    ["Google Drive","Open app","com.google.android.apps.docs","https://drive.google.com/"],
+    ["Gmail","Open app","com.google.android.gm","https://mail.google.com/"],
+    ["WhatsApp","Open app","com.whatsapp","https://web.whatsapp.com/"],
+    ["Telegram","Open app","org.telegram.messenger","https://web.telegram.org/"],
+    ["Discord","Open app","com.discord","https://discord.com/app"],
+    ["Slack","Open app","com.Slack","https://app.slack.com/client/"],
+    ["GitHub","Open app","com.github.android","https://github.com/"],
+    ["GitLab","Open app","com.gitlab.mobile","https://gitlab.com/"],
+    ["Figma","Open app","com.figma.mirror","https://www.figma.com/"],
+    ["Notion","Open app","notion.id","https://www.notion.so/"],
+    ["Replit","Open app","com.replit.app","https://replit.com/"],
+    ["Kaggle","Open app","com.kaggle.android","https://www.kaggle.com/"],
     ["Chrome","Browser","com.android.chrome","https://www.google.com/"],
-    ["YouTube","Video","com.google.android.youtube","https://youtube.com/"],
+    ["YouTube","Browser/app","com.google.android.youtube","https://youtube.com/"],
     ["Google Maps","Maps","com.google.android.apps.maps","https://maps.google.com/"],
     ["Google Calendar","Calendar","com.google.android.calendar","https://calendar.google.com/"],
-    ["Google Docs","Documents","com.google.android.apps.docs.editors.docs","https://docs.google.com/"],
-    ["Google Sheets","Spreadsheets","com.google.android.apps.docs.editors.sheets","https://sheets.google.com/"],
+    ["Google Docs","Docs","com.google.android.apps.docs.editors.docs","https://docs.google.com/"],
+    ["Google Sheets","Sheets","com.google.android.apps.docs.editors.sheets","https://sheets.google.com/"],
     ["Google Keep","Notes","com.google.android.keep","https://keep.google.com/"],
     ["Termux","Dev shell","com.termux","https://termux.dev/"],
     ["Dropbox","Cloud files","com.dropbox.android","https://www.dropbox.com/"],
     ["OneDrive","Cloud files","com.microsoft.skydrive","https://onedrive.live.com/"],
-    ["Microsoft Outlook","Email","com.microsoft.office.outlook","https://outlook.live.com/"],
-    ["Microsoft Teams","Work chat","com.microsoft.teams","https://teams.microsoft.com/"],
+    ["Outlook","Email","com.microsoft.office.outlook","https://outlook.live.com/"],
+    ["Teams","Work chat","com.microsoft.teams","https://teams.microsoft.com/"],
     ["Firefox","Browser","org.mozilla.firefox","https://www.mozilla.org/firefox/"],
     ["Brave","Browser","com.brave.browser","https://brave.com/"],
-    ["Microsoft Edge","Browser","com.microsoft.emmx","https://www.microsoft.com/edge"],
+    ["Edge","Browser","com.microsoft.emmx","https://www.microsoft.com/edge"],
     ["Gemini","AI","com.google.android.apps.bard","https://gemini.google.com/"],
     ["ChatGPT","AI","com.openai.chatgpt","https://chatgpt.com/"],
     ["Claude","AI","com.anthropic.claude","https://claude.ai/"],
     ["Perplexity","AI","ai.perplexity.app.android","https://www.perplexity.ai/"],
-    ["Google AI Studio","AI dev","", "https://aistudio.google.com/"],
-    ["Hugging Face","AI models","co.huggingface.app","https://huggingface.co/"],
+    ["Google AI Studio","AI development","", "https://aistudio.google.com/"],
+    ["Hugging Face","Models","co.huggingface.app","https://huggingface.co/"],
     ["Google Colab","Notebooks","", "https://colab.research.google.com/"],
     ["Stack Overflow","Developer Q&A","", "https://stackoverflow.com/"],
     ["npm","Packages","", "https://www.npmjs.com/"],
@@ -2048,7 +2097,7 @@
     ["Linear","Issues","", "https://linear.app/"],
     ["Asana","Projects","", "https://app.asana.com/"],
     ["Google Photos","Media","com.google.android.apps.photos","https://photos.google.com/"],
-    ["Google Meet","Video calls","com.google.android.apps.tachyon","https://meet.google.com/"],
+    ["Google Meet","Video","com.google.android.apps.tachyon","https://meet.google.com/"],
     ["Google Translate","Translation","com.google.android.apps.translate","https://translate.google.com/"],
     ["Google Play","Apps","com.android.vending","https://play.google.com/"],
     ["Android Settings","System","com.android.settings",""],
@@ -2062,7 +2111,7 @@
     ["Open files","Import PDF, ZIP, HTML, MD, PY, Office and any other document","pickFiles"],
     ["Create file","Create HTML / MD / PY / TXT / JSON / CSV and more","createFile"],
     ["Open folder","Choose a workspace folder for MusabAI","pickFolder"],
-    ["Google Drive","Open your cloud files in one tap","drive"]
+    ["New cloud workspace","Start Cloud without GitHub or a Git remote","cloudWorkspace"]
   ];
   function hubOpenApp(pkg, url) {
     try {
@@ -2070,7 +2119,24 @@
       if (url) location.href = url;
     } catch (_) { if (url) location.href = url; }
   }
-  function hubAction(action) {
+  async function hubConnect(id, title) {
+    if (id === "github") {
+      if (window.NewAlPhone && NewAlPhone.termuxRun) {
+        try {
+          const r = NewAlPhone.termuxRun("command -v gh >/dev/null 2>&1 || pkg install -y gh; gh auth login --web --git-protocol https");
+          toast(r === "started" ? "GitHub login opened in the browser. Finish it there; MusabAI will use the saved login." : String(r), 7000);
+          return;
+        } catch (_) {}
+      }
+      try {
+        const d = await api("/api/github/connect", { auto: true });
+        toast("GitHub connected" + (d.login ? " as @" + d.login : ""), 5000);
+        return;
+      } catch (e) { toast(e.message + " — install/connect GitHub CLI in Termux first", 8000); return; }
+    }
+    toast(title + " connector is not configured in this build yet. The Hub will never pretend it is connected.", 6000);
+  }
+  async function hubAction(action) {
     if (action === "pickFiles") return NewAlPhone.pickFiles();
     if (action === "pickFolder") return NewAlPhone.pickFolder();
     if (action === "createFile") {
@@ -2082,30 +2148,30 @@
       const mime=({html:"text/html",htm:"text/html",md:"text/markdown",py:"text/x-python",js:"text/javascript",json:"application/json",css:"text/css",xml:"application/xml",csv:"text/csv",txt:"text/plain"}[ext]||"text/plain");
       return NewAlPhone.createFile(name,mime,content);
     }
-    if (action === "drive") return hubOpenApp("com.google.android.apps.docs","https://drive.google.com/");
-    if (action === "termux") return hubOpenApp("com.termux","https://termux.dev/");
-    if (action === "newThread") { newThread(); return; }
+    if (action === "cloudWorkspace") {
+      localStorage.setItem("nc.pref.env","cloud"); updatePickers(); newThread(); closeHub(); $("#input").focus(); return;
+    }
     if (action === "evolve") {
       const task = "Act as MusabAI's maintenance agent. Inspect the current MusabAI/Action #43 runtime, run tests, identify safe improvements, implement them, verify them, and prepare a new tested version. Do not overwrite a working version until the candidate passes checks.";
-      newThread();
-      $("#input").value = task;
-      autoGrow(); send();
+      newThread(); $("#input").value = task; autoGrow(); send();
     }
   }
-  function renderHub() {
+  async function renderHub() {
     const body=$("#hub-body"); if(!body) return;
-    body.innerHTML = '<div class="hub-grid"></div><div class="hub-note">MusabAI can use Android intents for installed apps and the system document picker for cloud/local providers.</div>';
-    const grid=body.querySelector(".hub-grid");
-    HUB_APPS.forEach(a => {
-      const b=h("button","hub-card-item",'<span class="hub-icon">↗</span><span><b>'+esc(a[0])+'</b><small>'+esc(a[1])+'</small></span>');
-      b.onclick=()=>hubOpenApp(a[2],a[3]); grid.appendChild(b);
+    body.innerHTML = '<div class="hub-scroll"><div class="hub-section"><h3>Connectors</h3><p class="hub-note">Only real authenticated connectors appear as connected. Apps below are launchers, not fake agent integrations.</p><div class="hub-grid" id="hub-connectors"></div></div><div class="hub-section"><h3>Files & workspaces</h3><div class="hub-grid" id="hub-files"></div></div><div class="hub-section"><h3>Apps & services</h3><div class="hub-grid" id="hub-apps"></div></div><div class="hub-section"><h3>Development & AI</h3><div class="hub-grid" id="hub-dev"></div></div><div class="hub-section"><h3>Self-development</h3><div class="hub-grid" id="hub-self"></div></div></div>';
+    const cs=body.querySelector("#hub-connectors");
+    let states={}; try { states=(await api("/api/connectors")).connectors||{}; } catch(_){}
+    HUB_CONNECTORS.forEach(a => {
+      const connected=!!(states[a[0]]&&states[a[0]].connected);
+      const b=h("button","hub-card-item"+(connected?" connected":""),'<span class="hub-icon">'+(connected?"✓":"↗")+'</span><span><b>'+esc(a[1])+'</b><small>'+esc(a[2])+(connected?" · Connected":" · Connect")+'</small></span>');
+      b.onclick=()=>hubConnect(a[0],a[1]); cs.appendChild(b);
     });
-    HUB_FILES.forEach(a => {
-      const b=h("button","hub-card-item",'<span class="hub-icon">+</span><span><b>'+esc(a[0])+'</b><small>'+esc(a[1])+'</small></span>');
-      b.onclick=()=>hubAction(a[2]); grid.appendChild(b);
-    });
-    const evo=h("button","hub-card-item hub-wide","<span class='hub-icon'>✦</span><span><b>Improve MusabAI</b><small>Start a verified maintenance/build cycle in the agent workspace</small></span>");
-    evo.onclick=()=>hubAction("evolve"); grid.appendChild(evo);
+    const fill=(id,list,actionable)=>{ const g=body.querySelector("#"+id); list.forEach(a=>{const b=h("button","hub-card-item",'<span class="hub-icon">'+(actionable?"+":"↗")+'</span><span><b>'+esc(a[0])+'</b><small>'+esc(a[1])+'</small></span>'); b.onclick=()=>actionable?hubAction(a[2]):hubOpenApp(a[2],a[3]); g.appendChild(b);}); };
+    fill("hub-files",HUB_FILES,true);
+    fill("hub-apps",HUB_APPS.slice(0,28),false);
+    fill("hub-dev",HUB_APPS.slice(28),false);
+    const evo=h("button","hub-card-item hub-wide","<span class='hub-icon'>✦</span><span><b>Improve MusabAI</b><small>Run a verified maintenance/build cycle; candidate changes are not silently installed</small></span>");
+    evo.onclick=()=>hubAction("evolve"); body.querySelector("#hub-self").appendChild(evo);
   }
   function openHub() { renderHub(); $("#musabai-hub").hidden=false; }
   function closeHub() { $("#musabai-hub").hidden=true; }
@@ -2116,15 +2182,13 @@
     $("#musabai-hub") && $("#musabai-hub").addEventListener("click",e=>{if(e.target.id==="musabai-hub")closeHub();});
     window.onNativeFiles = raw => {
       try {
-        const fs=JSON.parse(raw||"[]");
-        if (!fs.length) return;
-        const lines=fs.map(f=>"• "+f.name+" ("+Math.round((f.size||0)/1024)+" KB)"+(f.text ? "\\n"+f.text : "")).join("\\n");
-        const input=$("#input");
-        input.value=(input.value?input.value+"\\n\\n":"")+"[MusabAI files]\\n"+lines+"\\n\\n";
-        autoGrow(); input.focus(); closeHub(); toast(fs.length+" file(s) attached",3000);
+        const fs=JSON.parse(raw||"[]"); if (!fs.length) return;
+        const lines=fs.map(f=>"• "+f.name+" ("+Math.round((f.size||0)/1024)+" KB)"+(f.text ? "\n"+f.text : "")).join("\n");
+        const input=$("#input"); input.value=(input.value?input.value+"\n\n":"")+"[MusabAI files]\n"+lines+"\n\n"; autoGrow(); input.focus(); closeHub(); toast(fs.length+" file(s) attached",3000);
       } catch (_) {}
     };
     window.onNativeCreatedFile = name => { closeHub(); toast("Created: "+name,3500); };
   }
+  
 window.addEventListener("DOMContentLoaded", () => { wire(); hubWire(); phoneLayout(); boot().catch(e => toast("Cannot start: " + e.message, 8000)); });
 })();
