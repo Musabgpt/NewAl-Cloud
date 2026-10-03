@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
-p=Path("desktop/newal_code/app.js")
+p=Path("desktop/newal_code/ui/app.js")
 if not p.exists():
     raise SystemExit("Action #43 app.js not found")
 
