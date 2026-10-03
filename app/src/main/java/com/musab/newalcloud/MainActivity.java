@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> web.evaluateJavascript(code, null));
     }
 
-    @Override public void onBackPressed() {
+    @Override protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) { super.onActivityResult(requestCode, resultCode, data); if (phone != null) phone.handleActivityResult(requestCode, resultCode, data); }\n\n    @Override public void onBackPressed() {
         if (web.canGoBack()) web.goBack(); else super.onBackPressed();
     }
 }
