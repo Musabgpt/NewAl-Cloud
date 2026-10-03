@@ -176,6 +176,61 @@ final class WebBridge {
         }
     }
 
+    /** Starts GitHub's official gh browser/device login and captures its completion result internally. */
+    @JavascriptInterface
+    public String githubLogin() {
+        if (!Termux.installed(act)) return "Termux is not installed";
+        if (!Termux.allowed(act)) return "Termux RUN_COMMAND permission is not allowed";
+        try {
+            Termux.runWithResult(act,
+                    "gh auth login --hostname github.com --git-protocol https --web --clipboard " +
+                    "--skip-ssh-key </dev/null");
+            return "started";
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        }
+    }
+
+    /** Pulls the completed gh auth result and securely hands the token to the local Action #43 server. */
+    @JavascriptInterface
+    public String githubSync() {
+        final String raw = Termux.result();
+        if (raw == null || raw.trim().isEmpty() || raw.startsWith("-1\\n")) return "pending";
+        final int nl = raw.indexOf('\\n');
+        final int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl)) : -1;
+        final String out = nl > 0 ? raw.substring(nl + 1) : "";
+        if (exit != 0) return "failed: " + out.trim();
+        String token = "";
+        for (String line : out.split("\\R")) {
+            String x = line.trim();
+            // gh auth token is printed by the final command below; never surface it.
+            if (x.startsWith("gho_") || x.startsWith("github_pat_")) token = x;
+        }
+        if (token.isEmpty()) return "pending";
+        return postGithubToken(token);
+    }
+
+    private String postGithubToken(String token) {
+        try {
+            java.net.URL u = new java.net.URL("http://127.0.0.1:" + Setup.PORT + "/api/github/connect");
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(8000);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Authorization", "Bearer " + key);
+            c.setRequestProperty("Content-Type", "application/json");
+            String body = new JSONObject().put("token", token).toString();
+            try (java.io.OutputStream o = c.getOutputStream()) {
+                o.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            int code = c.getResponseCode();
+            return code >= 200 && code < 300 ? "connected" : "server error " + code;
+        } catch (Exception e) {
+            return "sync failed: " + e.getClass().getSimpleName();
+        }
+    }
+
     /** Speech to text for the composer: Android's recognizer (lang: "" for the phone's language). */
     @JavascriptInterface
     public void listen(String lang) {
