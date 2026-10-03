@@ -2126,5 +2126,5 @@
     };
     window.onNativeCreatedFile = name => { closeHub(); toast("Created: "+name,3500); };
   }
-\nwindow.addEventListener("DOMContentLoaded", () => { wire(); hubWire(); phoneLayout(); boot().catch(e => toast("Cannot start: " + e.message, 8000)); });
+window.addEventListener("DOMContentLoaded", () => { wire(); hubWire(); phoneLayout(); boot().catch(e => toast("Cannot start: " + e.message, 8000)); });
 })();
