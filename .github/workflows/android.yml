@@ -29,6 +29,8 @@ jobs:
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
       - name: Supply exact Action #43 Python engine
         run: |
+          rm -rf /tmp/newal-autonomy
+          cp -a desktop/autonomy /tmp/newal-autonomy
           rm -rf desktop
           cp -a newal-source/desktop .
           test -f desktop/newal_code/agent.py
@@ -36,8 +38,8 @@ jobs:
           test -f desktop/newal_code/tools.py
       - name: Apply autonomous memory and self-evolution layer
         run: |
-          cp -a desktop/autonomy/. newal-autonomy/
-          cp -a newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
+          cp -a /tmp/newal-autonomy/. newal-autonomy/
+          cp -a /tmp/newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
           python3 newal-autonomy/apply_autonomy.py desktop/newal_code/agent.py
           python3 -m py_compile desktop/newal_code/autonomy.py desktop/newal_code/agent.py desktop/newal_code/tools.py
           grep -n "NEWAL_CLOUD_AUTONOMY_V1" desktop/newal_code/agent.py
