@@ -195,8 +195,8 @@ final class WebBridge {
     @JavascriptInterface
     public String githubSync() {
         final String raw = Termux.result();
-        if (raw == null || raw.trim().isEmpty() || raw.startsWith("-1\\n")) return "pending";
-        final int nl = raw.indexOf('\\n');
+        if (raw == null || raw.trim().isEmpty() || raw.startsWith("-1\n")) return "pending";
+        final int nl = raw.indexOf('\n');
         final int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl)) : -1;
         final String out = nl > 0 ? raw.substring(nl + 1) : "";
         if (exit != 0) return "failed: " + out.trim();
