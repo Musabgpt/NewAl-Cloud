@@ -1,4 +1,4 @@
-name: NewAl-Cloud — exact Action #43 + cloud heart
+name: NewAl-Cloud — exact Action #43 + cloud heart + verified OAuth/Cloud Session
 on:
   push:
     branches: ["merge/action43-cloud", "musabai-v2-superagent"]
