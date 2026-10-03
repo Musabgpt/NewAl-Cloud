@@ -108,15 +108,15 @@ public final class WebBridge {
         String zip = "https://github.com/Musabgpt/NewAl/archive/refs/heads/ccr-e40af0a0-eec37q.zip";
         String command =
                 "pkg install -y python curl unzip >/dev/null 2>&1 && " +
-                "H=\$HOME/.newal-cloud && rm -rf \$H && mkdir -p \$H/config && " +
-                "curl -L --fail --retry 5 '" + zip + "' -o \$H/newal.zip && " +
-                "python -c \"import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])\" \$H/newal.zip \$H && " +
-                "mv \$H/NewAl-ccr-e40af0a0-eec37q \$H/src && rm -f \$H/newal.zip && " +
-                "printf '%s' '" + key + "' > \$H/key && chmod 600 \$H/key && " +
-                "PYTHONPATH=\$H/src/desktop NEWAL_CODE_HOME=\$H/config python -c \"from newal_code import settings; settings.save({'model':'kilo-auto/free','models':{'kilo-auto/free':{'provider':'openai','base_url':'https://api.kilo.ai/api/gateway/v1','model':'kilo-auto/free','api_key':'','name':'FreeLLMAPI • Auto Free','context':256000}},'mode':'auto-edit','verify':True,'test_after_edit':True,'auto_context':True,'web':True})\" && " +
-                "printf '#!/data/data/com.termux/files/usr/bin/bash\\nH=\$HOME/.newal-cloud\\nexport PYTHONPATH=\$H/src/desktop NEWAL_CODE_HOME=\$H/config NEWAL_SERVER_KEY=\$(cat \$H/key)\\nexec python -m newal_code \"\$@\"\\n' > \$PREFIX/bin/newal && chmod 700 \$PREFIX/bin/newal && " +
+                "H=\\$HOME/.newal-cloud && rm -rf \\$H && mkdir -p \\$H/config && " +
+                "curl -L --fail --retry 5 '" + zip + "' -o \\$H/newal.zip && " +
+                "python -c \"import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])\" \\$H/newal.zip \\$H && " +
+                "mv \\$H/NewAl-ccr-e40af0a0-eec37q \\$H/src && rm -f \\$H/newal.zip && " +
+                "printf '%s' '" + key + "' > \\$H/key && chmod 600 \\$H/key && " +
+                "PYTHONPATH=\\$H/src/desktop NEWAL_CODE_HOME=\\$H/config python -c \"from newal_code import settings; settings.save({'model':'kilo-auto/free','models':{'kilo-auto/free':{'provider':'openai','base_url':'https://api.kilo.ai/api/gateway/v1','model':'kilo-auto/free','api_key':'','name':'FreeLLMAPI • Auto Free','context':256000}},'mode':'auto-edit','verify':True,'test_after_edit':True,'auto_context':True,'web':True})\" && " +
+                "printf '#!/data/data/com.termux/files/usr/bin/bash\\nH=\\$HOME/.newal-cloud\\nexport PYTHONPATH=\\$H/src/desktop NEWAL_CODE_HOME=\\$H/config NEWAL_SERVER_KEY=\\$(cat \\$H/key)\\nexec python -m newal_code \"\\$@\"\\n' > \\$PREFIX/bin/newal && chmod 700 \\$PREFIX/bin/newal && " +
                 "pkill -f 'newal_code app --port 8791' >/dev/null 2>&1 || true; " +
-                "cd \$HOME && nohup env PYTHONPATH=\$H/src/desktop NEWAL_CODE_HOME=\$H/config NEWAL_SERVER_KEY=\$(cat \$H/key) python -m newal_code app --port 8791 --no-browser >\$H/server.log 2>&1 & " +
+                "cd \\$HOME && nohup env PYTHONPATH=\\$H/src/desktop NEWAL_CODE_HOME=\\$H/config NEWAL_SERVER_KEY=\\$(cat \\$H/key) python -m newal_code app --port 8791 --no-browser >\\$H/server.log 2>&1 & " +
                 "echo 'NewAl Cloud linked: full Action #43 engine is starting on port 8791.'";
         return new JSONObject().put("command", command).put("key", key).put("port", 8791).toString();
     }
