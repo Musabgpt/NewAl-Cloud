@@ -184,7 +184,7 @@ final class WebBridge {
         try {
             Termux.runWithResult(act,
                     "gh auth login --hostname github.com --git-protocol https --web --clipboard " +
-                    "--skip-ssh-key </dev/null");
+                    "--skip-ssh-key </dev/null && gh auth token");
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
