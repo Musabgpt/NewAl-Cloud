@@ -183,8 +183,8 @@ final class WebBridge {
         if (!Termux.allowed(act)) return "Termux RUN_COMMAND permission is not allowed";
         try {
             Termux.runWithResult(act,
-                    "gh auth login --hostname github.com --git-protocol https --web --clipboard " +
-                    "--skip-ssh-key </dev/null && gh auth token");
+                    "gh auth login --hostname github.com --git-protocol https --web " +
+                    "--skip-ssh-key </dev/null && gh auth status --active --hostname github.com --json hosts");
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
@@ -200,17 +200,11 @@ final class WebBridge {
         final int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl)) : -1;
         final String out = nl > 0 ? raw.substring(nl + 1) : "";
         if (exit != 0) return "failed: " + out.trim();
-        String token = "";
-        for (String line : out.split("\\R")) {
-            String x = line.trim();
-            // gh auth token is printed by the final command below; never surface it.
-            if (x.startsWith("gho_") || x.startsWith("github_pat_")) token = x;
-        }
-        if (token.isEmpty()) return "pending";
-        return postGithubToken(token);
+        // Authentication is complete; the local server detects the saved gh credential. No token crosses the WebView.
+        return postGithubDetected();
     }
 
-    private String postGithubToken(String token) {
+    private String postGithubDetected() {
         try {
             java.net.URL u = new java.net.URL("http://127.0.0.1:" + Setup.PORT + "/api/github/connect");
             java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
@@ -220,7 +214,7 @@ final class WebBridge {
             c.setDoOutput(true);
             c.setRequestProperty("Authorization", "Bearer " + key);
             c.setRequestProperty("Content-Type", "application/json");
-            String body = new JSONObject().put("token", token).toString();
+            String body = new JSONObject().put("auto", true).toString();
             try (java.io.OutputStream o = c.getOutputStream()) {
                 o.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
