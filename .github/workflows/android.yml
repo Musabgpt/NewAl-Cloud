@@ -34,8 +34,8 @@ jobs:
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
-      - name: Patch only the model heart
-        run: python3 tools/patch_cloud_heart.py
+      - name: Verify cloud heart
+        run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
       - name: Prepare exact Action #43 Android runtime
         run: android-lite/native/prepare.sh arm64-v8a x86_64
       - uses: gradle/actions/setup-gradle@v4
