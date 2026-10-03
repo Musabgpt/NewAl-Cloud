@@ -16,7 +16,9 @@ if "from pathlib import Path" not in text:
 # Remove the legacy POST /api/cloud submission implementation. Cloud Session is never repository-backed.
 legacy = '''            if path == "/api/cloud" or path.startswith("/api/cloud/"):
                 return self._json(*_cloud_post(path, b))'''
-replacement = '''            if path == "/api/cloud":
+replacement = '''            if path == "/api/cloud/workspace":
+                return self._json(_create_cloud_workspace(b.get("title") or "New cloud workspace"))
+            if path == "/api/cloud":
                 # Compatibility endpoint: old clients must enter the standalone Cloud Session,
                 # never the legacy GitHub Actions cloud-task implementation.
                 title = str(b.get("title") or "New cloud workspace")
