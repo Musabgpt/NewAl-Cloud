@@ -46,6 +46,12 @@ jobs:
           cp app/src/main/assets/style.css desktop/newal_code/ui/style.css
           grep -n "MusabAI Hub" desktop/newal_code/ui/index.html
           grep -n "MusabAI" desktop/newal_code/ui/app.js
+      - name: Apply standalone Cloud Workspace layer
+        run: |
+          python3 newal-autonomy/apply_cloud_session.py
+          python3 -m py_compile desktop/newal_code/server.py
+          grep -n "standalone Cloud Session" desktop/newal_code/server.py
+          grep -n "/api/cloud/workspace" desktop/newal_code/server.py
       - name: Apply autonomous memory and self-evolution layer
         run: |
           cp -a /tmp/newal-autonomy/. newal-autonomy/
