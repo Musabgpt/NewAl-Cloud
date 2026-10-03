@@ -431,3 +431,15 @@ pre.cmd-out.failed { border-color: var(--del-fg); }
 }
 .health .bad { color: #b3261e; font-weight: 700; }
 .health .good { font-weight: 700; }
+
+/* MusabAI Hub */
+.hub-card { width:min(920px,100%); }
+.hub-card #hub-body { padding:16px; }
+.hub-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; }
+.hub-card-item { min-height:72px; border:1px solid var(--border); background:var(--bg-soft); color:var(--fg); border-radius:14px; padding:12px; display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; }
+.hub-card-item:hover { background:var(--bg-hover); border-color:var(--border-strong); transform:translateY(-1px); }
+.hub-card-item b { display:block; font-size:13px; }
+.hub-card-item small { display:block; color:var(--fg-faint); font-size:11px; margin-top:3px; line-height:1.35; }
+.hub-icon { width:30px; height:30px; display:grid; place-items:center; border-radius:9px; background:var(--bg-hover); flex:none; font-weight:700; }
+.hub-wide { grid-column:1/-1; }
+.hub-note { margin-top:14px; color:var(--fg-faint); font-size:11.5px; line-height:1.45; }
