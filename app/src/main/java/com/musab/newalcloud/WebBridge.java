@@ -111,7 +111,7 @@ public final class WebBridge {
                 "H=\$HOME/.newal-cloud && rm -rf \$H && mkdir -p \$H/config && " +
                 "curl -L --fail --retry 5 '" + zip + "' -o \$H/newal.zip && " +
                 "python -c \"import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])\" \$H/newal.zip \$H && " +
-                "mv \$H/NewAl-ccr-e40af0a0-eec37q3 \$H/src && rm -f \$H/newal.zip && " +
+                "mv \$H/NewAl-ccr-e40af0a0-eec37q \$H/src && rm -f \$H/newal.zip && " +
                 "printf '%s' '" + key + "' > \$H/key && chmod 600 \$H/key && " +
                 "PYTHONPATH=\$H/src/desktop NEWAL_CODE_HOME=\$H/config python -c \"from newal_code import settings; settings.save({'model':'kilo-auto/free','models':{'kilo-auto/free':{'provider':'openai','base_url':'https://api.kilo.ai/api/gateway/v1','model':'kilo-auto/free','api_key':'','name':'FreeLLMAPI • Auto Free','context':256000}},'mode':'auto-edit','verify':True,'test_after_edit':True,'auto_context':True,'web':True})\" && " +
                 "printf '#!/data/data/com.termux/files/usr/bin/bash\\nH=\$HOME/.newal-cloud\\nexport PYTHONPATH=\$H/src/desktop NEWAL_CODE_HOME=\$H/config NEWAL_SERVER_KEY=\$(cat \$H/key)\\nexec python -m newal_code \"\$@\"\\n' > \$PREFIX/bin/newal && chmod 700 \$PREFIX/bin/newal && " +
