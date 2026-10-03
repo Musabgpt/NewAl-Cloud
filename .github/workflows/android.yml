@@ -36,6 +36,16 @@ jobs:
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
+      - name: Apply MusabAI mobile UI layer
+        run: |
+          test -f app/src/main/assets/index.html
+          test -f app/src/main/assets/app.js
+          test -f app/src/main/assets/style.css
+          cp app/src/main/assets/index.html desktop/newal_code/ui/index.html
+          cp app/src/main/assets/app.js desktop/newal_code/ui/app.js
+          cp app/src/main/assets/style.css desktop/newal_code/ui/style.css
+          grep -n "MusabAI Hub" desktop/newal_code/ui/index.html
+          grep -n "MUSABAI" desktop/newal_code/ui/app.js
       - name: Apply autonomous memory and self-evolution layer
         run: |
           cp -a /tmp/newal-autonomy/. newal-autonomy/
