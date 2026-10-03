@@ -82,5 +82,32 @@ s=s[:old_start]+new+s[old_end:]
 s=s.replace('''    $("#open-cloud").onclick = () => openCloud();''',
             '''    $("#open-cloud").onclick = () => { localStorage.setItem("nc.pref.env","cloud"); updatePickers(); newThread(); $("#input").focus(); };''')
 
+# Standalone Cloud Session: replace Action #43's legacy GitHub Actions cloud-task submit path.
+legacy_start = s.find("  async function sendToCloud(text) {")
+if legacy_start < 0:
+    raise SystemExit("Action #43 sendToCloud anchor changed; refusing to patch")
+legacy_end = s.find("\n  }", legacy_start)
+if legacy_end < 0:
+    raise SystemExit("Action #43 sendToCloud end anchor changed; refusing to patch")
+legacy_end += len("\n  }")
+standalone = r'''  async function sendToCloud(text) {
+    // Cloud Session is a normal Action #43 session in a standalone workspace.
+    // Never call /api/cloud here: that legacy API intentionally requires a GitHub repository.
+    try {
+      localStorage.setItem("nc.pref.env", "cloud");
+      const sid = await ensureSession();
+      await api("/api/sessions/" + sid + "/send", {
+        text: text,
+        lang: (S.state && S.state.settings.lang) || ""
+      });
+    } catch (e) {
+      toast("Cloud Session failed: " + e.message, 9000);
+    }
+  }'''
+s = s[:legacy_start] + standalone + s[legacy_end:]
+s = s.replace('$("#open-cloud").onclick = () => openCloud();',
+              '$("#open-cloud").onclick = () => { localStorage.setItem("nc.pref.env","cloud"); updatePickers(); newThread(); $("#input").focus(); };')
+s = s.replace('{ value: "cloud", title: "Cloud", sub: "On GitHub Actions, with the repository: review the diff here, apply it or open a pull request", checked: env === "cloud" }',
+              '{ value: "cloud", title: "Cloud Session", sub: "Independent cloud workspace — no GitHub or Git remote required", checked: env === "cloud" }')
 p.write_text(s,encoding="utf-8")
 print("patched",p)
