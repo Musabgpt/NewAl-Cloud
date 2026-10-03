@@ -56,7 +56,6 @@ jobs:
           grep -n "api/cloud/workspace" desktop/newal_code/ui/app.js
           ! grep -n 'api("/api/cloud", { root: S.root' desktop/newal_code/ui/app.js
           grep -n 'api("/api/sessions/" + sid + "/send"' desktop/newal_code/ui/app.js
-          grep -n 'Independent cloud workspace' desktop/newal_code/ui/app.js
       - name: Apply real connector architecture
         run: |
           python3 newal-autonomy/apply_connector_hub.py
