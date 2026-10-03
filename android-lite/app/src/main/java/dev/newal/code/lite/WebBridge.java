@@ -16,6 +16,12 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 /**
  * What NewAl Code's web interface may ask of the phone (window.NewAlPhone): the clipboard (a copied API key), links
  * in the browser (an API key page, GitHub), whether screen control and Termux are on, and the way to them. Only
@@ -209,6 +215,42 @@ final class WebBridge {
             int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl).trim()) : -1;
             if (exit != 0) return "failed: " + (nl > 0 ? raw.substring(nl + 1).trim() : "GitHub login failed");
             return postGithubDetected();
+        } catch (Exception e) {
+            return "sync failed: " + e.getClass().getSimpleName();
+        }
+    }
+
+    /** Completes GitHub OAuth by reading the token from Termux and handing it only to the local server. */
+    private String postGithubDetected() {
+        try {
+            String token = Termux.runResultOnce(act, "gh auth token 2>/dev/null || true");
+            if (token == null) return "pending";
+            token = token.trim();
+            if (token.isEmpty() || token.contains("\\n") || token.contains("PENDING")) return "failed: GitHub token was not returned";
+            if (!(token.startsWith("gho_") || token.startsWith("ghp_") || token.startsWith("github_pat_"))) {
+                return "failed: unexpected GitHub credential";
+            }
+            URL url = new URL("http://127.0.0.1:" + Setup.PORT + "/api/github/connect?key=" + Uri.encode(key));
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(10000);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            JSONObject body = new JSONObject();
+            body.put("token", token);
+            byte[] bytes = body.toString().getBytes("UTF-8");
+            try (OutputStream out = c.getOutputStream()) { out.write(bytes); }
+            int code = c.getResponseCode();
+            BufferedReader in = new BufferedReader(new InputStreamReader(
+                    code >= 200 && code < 400 ? c.getInputStream() : c.getErrorStream(), "UTF-8"));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) response.append(line);
+            in.close();
+            if (code < 200 || code >= 300) return "failed: GitHub server rejected connection";
+            JSONObject result = new JSONObject(response.toString());
+            return result.optBoolean("connected", false) || result.optBoolean("ok", false) ? "connected" : "failed: GitHub connection was not accepted";
         } catch (Exception e) {
             return "sync failed: " + e.getClass().getSimpleName();
         }
