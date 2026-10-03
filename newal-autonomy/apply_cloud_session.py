@@ -4,7 +4,6 @@ import json
 import os
 import re
 import time
-import uuid
 
 root = Path(__file__).resolve().parents[1]
 server = root / "desktop" / "newal_code" / "server.py"
@@ -57,7 +56,7 @@ def _safe_title(value):
     return re.sub(r"\\s+", " ", value)[:70] or "New cloud workspace"
 
 def _create_cloud_workspace(title):
-    wid = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    wid = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(4)
     d = _cloud_root() / wid
     d.mkdir(parents=True, exist_ok=False)
     (d / ".musabai-cloud").write_text(
