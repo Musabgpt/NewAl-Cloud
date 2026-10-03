@@ -36,33 +36,16 @@ jobs:
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
-      - name: Apply MusabAI mobile UI layer
+      - name: Restore exact Action #43 UI, then apply only minimal cloud/OAuth changes
         run: |
-          test -f app/src/main/assets/index.html
-          test -f app/src/main/assets/app.js
-          test -f app/src/main/assets/style.css
-          cp app/src/main/assets/index.html desktop/newal_code/ui/index.html
-          cp app/src/main/assets/app.js desktop/newal_code/ui/app.js
-          cp app/src/main/assets/style.css desktop/newal_code/ui/style.css
-          grep -n "MusabAI Hub" desktop/newal_code/ui/index.html
-          grep -n "MusabAI" desktop/newal_code/ui/app.js
-      - name: Remove legacy GitHub login and repository-backed Cloud UI path
-        run: |
-          python3 newal-autonomy/apply_root_fix.py
-          python3 -m py_compile newal-autonomy/apply_root_fix.py
+          python3 newal-autonomy/apply_stable_action43_ui.py
+          python3 -m py_compile newal-autonomy/apply_stable_action43_ui.py
+          grep -n "Plugins &amp; skills" desktop/newal_code/ui/index.html
+          grep -n "async function githubSection" desktop/newal_code/ui/app.js
+          grep -n "Cloud Session" desktop/newal_code/ui/app.js
           ! grep -n "GitHub login opened in the browser" desktop/newal_code/ui/app.js
-          ! grep -n "Starting a repository-backed cloud task" desktop/newal_code/ui/app.js
-          grep -n "githubLogin" desktop/newal_code/ui/app.js
-          grep -n "api/cloud/workspace" desktop/newal_code/ui/app.js
           ! grep -n 'api("/api/cloud", { root: S.root' desktop/newal_code/ui/app.js
           grep -n 'api("/api/sessions/" + sid + "/send"' desktop/newal_code/ui/app.js
-      - name: Apply real connector architecture
-        run: |
-          python3 newal-autonomy/apply_connector_hub.py
-          python3 -m py_compile newal-autonomy/apply_connector_hub.py
-          grep -n "Phone shortcuts — not agent connectors" desktop/newal_code/ui/app.js
-          grep -n "mcp.figma.com/mcp" desktop/newal_code/ui/app.js
-          grep -n "drivemcp.googleapis.com/mcp/v1" desktop/newal_code/ui/app.js
       - name: Apply standalone Cloud Workspace layer
         run: |
           python3 newal-autonomy/apply_cloud_session.py
