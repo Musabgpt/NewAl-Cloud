@@ -86,11 +86,12 @@ def _cloud_workspaces():
             if d.is_dir() and (d / ".musabai-cloud").exists()]
 
 '''
-    anchor = "\n\ndef _changes_summary(s):\n"
+    anchor = '''
+def _changes_summary(s):
+'''
     if anchor not in text:
         raise SystemExit("helper anchor not found")
-    text = text.replace(anchor, "
-"+helpers+anchor, 1)
+    text = text.replace(anchor, helpers + anchor, 1)
 
 # Ensure GET workspace exists even if older patch shape is present.
 if 'if path == "/api/cloud/workspace":' not in text:
