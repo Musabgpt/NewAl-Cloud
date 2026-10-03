@@ -85,6 +85,18 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           python3 newal-autonomy/smoke_cloud.py
+      - name: Sync patched UI into the APK assets
+        run: |
+          # The Android WebView loads app/src/main/assets/*, not desktop/newal_code/ui/*.
+          # Keep the packaged APK identical to the tested, patched runtime UI.
+          cp desktop/newal_code/ui/index.html app/src/main/assets/index.html
+          cp desktop/newal_code/ui/app.js app/src/main/assets/app.js
+          cp desktop/newal_code/ui/style.css app/src/main/assets/style.css
+          ! grep -n "GitHub login opened in the browser" app/src/main/assets/app.js
+          ! grep -n "Starting a repository-backed cloud task" app/src/main/assets/app.js
+          grep -n "githubLogin" app/src/main/assets/app.js
+          grep -n "api/sessions/" app/src/main/assets/app.js
+
       - name: Prepare exact Action #43 Android runtime
         run: |
           chmod +x android-lite/native/prepare.sh
