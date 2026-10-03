@@ -72,6 +72,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: MusabAI-Action43
-          path: NewAl-Cloud-Action43.apk
+          path: MusabAI-Action43.apk
           compression-level: 0
           retention-days: 14
