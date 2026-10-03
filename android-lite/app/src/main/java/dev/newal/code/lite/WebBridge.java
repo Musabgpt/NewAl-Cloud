@@ -182,9 +182,13 @@ final class WebBridge {
         if (!Termux.installed(act)) return "Termux is not installed";
         if (!Termux.allowed(act)) return "Termux RUN_COMMAND permission is not allowed";
         try {
-            Termux.runWithResult(act,
-                    "gh auth login --hostname github.com --git-protocol https --web " +
-                    "--skip-ssh-key </dev/null && gh auth status --active --hostname github.com --json hosts");
+            // Run the browser login independently: it may stay alive while the user authorizes in Chrome.
+            // Completion is written to a private Termux file; no token is copied into the WebView.
+            String cmd = "rm -f ~/.musabai-gh-login-status ~/.musabai-gh-login-exit; " +
+                    "(GH_BROWSER=termux-open-url gh auth login --hostname github.com --git-protocol https --web " +
+                    "--skip-ssh-key </dev/null && gh auth status --active --hostname github.com --json hosts > " +
+                    "~/.musabai-gh-login-status 2>&1; echo $? > ~/.musabai-gh-login-exit) &";
+            Termux.run(act, cmd);
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
@@ -194,32 +198,17 @@ final class WebBridge {
     /** Pulls the completed gh auth result and securely hands the token to the local Action #43 server. */
     @JavascriptInterface
     public String githubSync() {
-        final String raw = Termux.result();
-        if (raw == null || raw.trim().isEmpty() || raw.startsWith("-1\n")) return "pending";
-        final int nl = raw.indexOf('\n');
-        final int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl)) : -1;
-        final String out = nl > 0 ? raw.substring(nl + 1) : "";
-        if (exit != 0) return "failed: " + out.trim();
-        // Authentication is complete; the local server detects the saved gh credential. No token crosses the WebView.
-        return postGithubDetected();
-    }
-
-    private String postGithubDetected() {
+        if (!Termux.allowed(act)) return "not allowed";
         try {
-            java.net.URL u = new java.net.URL("http://127.0.0.1:" + Setup.PORT + "/api/github/connect");
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
-            c.setConnectTimeout(3000);
-            c.setReadTimeout(8000);
-            c.setRequestMethod("POST");
-            c.setDoOutput(true);
-            c.setRequestProperty("Authorization", "Bearer " + key);
-            c.setRequestProperty("Content-Type", "application/json");
-            String body = new JSONObject().put("auto", true).toString();
-            try (java.io.OutputStream o = c.getOutputStream()) {
-                o.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            }
-            int code = c.getResponseCode();
-            return code >= 200 && code < 300 ? "connected" : "server error " + code;
+            String raw = Termux.runResultOnce(act,
+                    "if [ -f ~/.musabai-gh-login-exit ]; then cat ~/.musabai-gh-login-exit; " +
+                    "cat ~/.musabai-gh-login-status 2>/dev/null || true; else echo PENDING; fi");
+            if (raw == null || raw.trim().isEmpty() || raw.contains("PENDING")) return "pending";
+            if (raw.startsWith("-1\\n")) return "pending";
+            int nl = raw.indexOf('\\n');
+            int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl).trim()) : -1;
+            if (exit != 0) return "failed: " + (nl > 0 ? raw.substring(nl + 1).trim() : "GitHub login failed");
+            return postGithubDetected();
         } catch (Exception e) {
             return "sync failed: " + e.getClass().getSimpleName();
         }
