@@ -1,10 +1,5 @@
 package com.musab.newalcloud;
 
-/**
- * Zero-setup FreeLLMAPI-compatible free router configuration.
- * FreeLLMAPI registers Kilo Gateway as a keyless provider, and Kilo's
- * kilo-auto/free route dynamically selects an available free model.
- */
 final class Providers {
     static final class P {
         final String name, endpoint, model, keyUrl;
@@ -18,7 +13,7 @@ final class Providers {
 
     static final P FREE = new P(
             "FreeLLMAPI • Auto Free",
-            "https://api.kilo.ai/api/gateway/v1/chat/completions",
+            "https://api.kilo.ai/api/gateway/chat/completions",
             "kilo-auto/free",
             "");
 
