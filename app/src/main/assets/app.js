@@ -384,8 +384,9 @@
     const has = $("#messages").children.length > 0;
     $("#empty").hidden = has;
     if (has) return;
-    $("#empty-title").textContent = S.root ? "What should we build in " + base(S.root) + "?" : "What should we build?";
-    $("#empty-sub").textContent = S.root ? S.root : "Open a project folder, then describe the change. MusabAI reads, edits, runs and checks it.";
+    const cloudMode = pref("env") === "cloud" && !S.current;
+    $("#empty-title").textContent = S.root ? (S.cloudWorkspace ? "What should we build in the Cloud workspace?" : "What should we build in " + base(S.root) + "?") : (cloudMode ? "What should we build in the Cloud?" : "What should we build?");
+    $("#empty-sub").textContent = S.root ? S.root : (cloudMode ? "Independent cloud-AI workspace. No GitHub or Git remote is required to start." : "Open a project folder, then describe the change. MusabAI reads, edits, runs and checks it.");
     const ideas = S.root ? [
       ["Explain this project", "Explain what this project does and how its code is organized."],
       ["Find and fix a bug", "Run the tests, find what fails, and fix it."],
