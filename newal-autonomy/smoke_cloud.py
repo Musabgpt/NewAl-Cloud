@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 
 HOME = tempfile.mkdtemp(prefix="musabai-cloud-smoke-")
 os.environ["HOME"] = HOME
@@ -39,8 +40,11 @@ headers = {"Authorization":"Bearer smoke-key-0123456789abcdef","Content-Type":"a
 def call(method, path, body=None, timeout=60):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(base+path, data=data, method=method, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(e.read().decode("utf-8", "replace")[:2000])
 
 try:
     # The workspace endpoint must succeed without Git.
