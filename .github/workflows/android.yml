@@ -34,6 +34,15 @@ jobs:
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
+      - name: Apply autonomous memory and self-evolution layer
+        run: |
+          cp -a desktop/autonomy/. newal-autonomy/
+          cp -a newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
+          python3 newal-autonomy/apply_autonomy.py desktop/newal_code/agent.py
+          python3 -m py_compile desktop/newal_code/autonomy.py desktop/newal_code/agent.py desktop/newal_code/tools.py
+          grep -n "NEWAL_CLOUD_AUTONOMY_V1" desktop/newal_code/agent.py
+          grep -n "memory_recall" desktop/newal_code/tools.py
+          grep -n "self_evolve" desktop/newal_code/tools.py
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
       - name: Prepare exact Action #43 Android runtime
