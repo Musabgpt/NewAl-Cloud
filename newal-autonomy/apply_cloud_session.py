@@ -8,6 +8,8 @@ import time
 root = Path(__file__).resolve().parents[1]
 server = root / "desktop" / "newal_code" / "server.py"
 text = server.read_text(encoding="utf-8")
+if "from pathlib import Path" not in text:
+    text = text.replace("import queue\n", "import queue\nfrom pathlib import Path\n", 1)
 
 anchor = '''            if path == "/api/cloud":
                 from . import cloud
