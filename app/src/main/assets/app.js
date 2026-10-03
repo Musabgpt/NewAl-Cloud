@@ -288,8 +288,13 @@
   }
 
   async function newThread(root) {
+    if (pref("env") === "cloud" && !root) {
+      S.root = "";
+      S.cloudWorkspace = true;
+      localStorage.removeItem("nc.root");
+    }
     root = root || S.root;
-    if (!root) return pickFolder(r => newThread(r));
+    if (!root && pref("env") !== "cloud") return pickFolder(r => newThread(r));
     hideSidebarOnPhone();
     S.current = null;
     localStorage.removeItem("nc.session");
@@ -1066,7 +1071,13 @@
       { value: "local", title: "Local", sub: "In the project folder itself", checked: env === "local" },
       { value: "worktree", title: "Worktree", sub: "In a git worktree of the project; apply the changes when they are good", checked: env === "worktree" },
       { value: "cloud", title: "Cloud", sub: "Independent cloud-AI workspace; no GitHub or Git remote required", checked: env === "cloud" }],
-      v => { localStorage.setItem("nc.pref.env", v); if (S.meta) toast("Applies to the next new thread"); updatePickers(); });
+      v => {
+        localStorage.setItem("nc.pref.env", v);
+        if (!S.current && v === "cloud") { S.root = ""; S.cloudWorkspace = true; localStorage.removeItem("nc.root"); clearThread(); }
+        if (!S.current && v !== "cloud" && S.cloudWorkspace) { S.root = ""; S.cloudWorkspace = false; localStorage.removeItem("nc.root"); }
+        if (S.meta) toast("Applies to the next new thread");
+        updatePickers();
+      });
     pickerMenu("reasoning-picker", [{ label: "Reasoning" }].concat(REASONING.map(([v, t, s]) => ({ value: v, title: t, sub: s, checked: v === reasoning }))),
       v => setOpt("reasoning", v));
     const entries = [{ value: "auto", title: "Auto", sub: "The best local model for this computer" + (S.models ? " (" + S.models.recommended + ")" : ""), checked: model === "auto" }];
