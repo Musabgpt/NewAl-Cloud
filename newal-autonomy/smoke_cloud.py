@@ -6,6 +6,7 @@ It deliberately uses a directory with NO .git metadata and exercises:
 """
 import json
 import os
+import sys
 import tempfile
 import time
 import urllib.request
@@ -13,7 +14,7 @@ import urllib.request
 HOME = tempfile.mkdtemp(prefix="musabai-cloud-smoke-")
 os.environ["HOME"] = HOME
 os.environ["NEWAL_SERVER_KEY"] = "smoke-key-0123456789abcdef"
-os.environ["PYTHONPATH"] = os.path.abspath("desktop")
+sys.path.insert(0, os.path.abspath("desktop"))
 
 cfg = os.path.join(HOME, ".newal-code")
 os.makedirs(cfg, exist_ok=True)
