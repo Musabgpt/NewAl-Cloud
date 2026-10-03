@@ -112,4 +112,11 @@ final class Termux {
         i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pi);
         if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i); else c.startService(i);
     }
+
+    /** Starts a short result command and gives the callback a moment to complete; callers may poll. */
+    static String runResultOnce(Context c, String command) {
+        runWithResult(c, command);
+        try { Thread.sleep(180); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        return result();
+    }
 }
