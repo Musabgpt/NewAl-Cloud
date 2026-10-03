@@ -41,7 +41,7 @@ final class NewAlPhone {
                     .put("allowed", Termux.allowed(activity));
             return new JSONObject()
                     .put("sdk", android.os.Build.VERSION.SDK_INT)
-                    .put("accessibility", false)
+                    .put("accessibility", accessibilityEnabled())
                     .put("termux", t)
                     .toString();
         } catch (Exception e) { return "{}"; }
