@@ -1,43 +1,56 @@
-name: Android CI
-
+name: NewAl-Cloud — exact Action #43 + cloud heart
 on:
   push:
-    branches: ["main"]
+    branches: ["merge/action43-cloud"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout NewAl-Cloud
+        uses: actions/checkout@v4
+      - name: Checkout exact Action #43 source
+        uses: actions/checkout@v4
         with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
+          repository: Musabgpt/NewAl
+          ref: ccr-e40af0a0-eec37q
+          path: newal-source
+          fetch-depth: 1
+      - name: Install Android SDK + NDK
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724" >/dev/null
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+      - name: Supply exact Action #43 Python engine
+        run: |
+          rm -rf desktop
+          cp -a newal-source/desktop .
+          test -f desktop/newal_code/agent.py
+          test -f desktop/newal_code/server.py
+          test -f desktop/newal_code/tools.py
+      - name: Verify cloud heart
+        run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
+      - name: Prepare exact Action #43 Android runtime
+        run: |
+          chmod +x android-lite/native/prepare.sh
+          android-lite/native/prepare.sh arm64-v8a x86_64
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Install Android SDK
-        shell: bash
+      - name: Build exact Action #43 APK
         run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
-          fi
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
-        run: gradle :app:assembleDebug
+          gradle -p android-lite :app:assembleRelease --stacktrace
+          cp android-lite/app/build/outputs/apk/release/app-release.apk NewAl-Cloud-Action43.apk
+          ls -lh NewAl-Cloud-Action43.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: NewAl-Cloud-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: NewAl-Cloud-Action43
+          path: NewAl-Cloud-Action43.apk
+          compression-level: 0
           retention-days: 14
