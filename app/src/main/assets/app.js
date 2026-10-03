@@ -2148,20 +2148,38 @@
   }
   async function hubConnect(id, title) {
     if (id === "github") {
-      if (window.NewAlPhone && NewAlPhone.termuxRun) {
+      if (window.NewAlPhone && NewAlPhone.githubLogin) {
         try {
-          const r = NewAlPhone.termuxRun("command -v gh >/dev/null 2>&1 || pkg install -y gh; gh auth login --web --git-protocol https");
-          toast(r === "started" ? "GitHub login opened in the browser. Finish it there; MusabAI will use the saved login." : String(r), 7000);
+          const r = NewAlPhone.githubLogin();
+          if (r !== "started") { toast(String(r), 7000); return; }
+          toast("GitHub sign-in started. Approve MusabAI in the browser; MusabAI will finish the connection automatically.", 6000);
+          let done = false;
+          for (let i = 0; i < 90 && !done; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            const q = NewAlPhone.githubSync();
+            if (q === "connected") {
+              done = true;
+              toast("GitHub connected successfully — no token was entered.", 5000);
+              await renderHub();
+              break;
+            }
+            if (q.startsWith("failed") || q.startsWith("sync failed") || q.startsWith("server error")) {
+              toast(q, 8000); break;
+            }
+          }
+          if (!done) toast("GitHub authorization is still pending. Open Hub again to check the connection.", 7000);
           return;
-        } catch (_) {}
+        } catch (e) { toast(String(e), 8000); return; }
       }
       try {
         const d = await api("/api/github/connect", { auto: true });
-        toast("GitHub connected" + (d.login ? " as @" + d.login : ""), 5000);
+        if (d.login) toast("GitHub connected as @" + d.login, 5000);
+        else toast("GitHub CLI is not authenticated on this device.", 7000);
+        await renderHub();
         return;
-      } catch (e) { toast(e.message + " — install/connect GitHub CLI in Termux first", 8000); return; }
+      } catch (e) { toast(e.message + " — enable Termux RUN_COMMAND first", 8000); return; }
     }
-    toast(title + " connector is not configured in this build yet. The Hub will never pretend it is connected.", 6000);
+    toast(title + " is an app launcher until its real OAuth/API credentials are configured. MusabAI will never show it as Connected without a verified account.", 7000);
   }
   async function hubAction(action) {
     if (action === "pickFiles") return NewAlPhone.pickFiles();
