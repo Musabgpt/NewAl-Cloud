@@ -56,6 +56,24 @@ final class WebBridge {
     }
 
     @JavascriptInterface
+    public void openApp(String packageName, String fallbackUrl) {
+        act.runOnUiThread(() -> {
+            try {
+                Intent i = new Intent(Intent.ACTION_MAIN);
+                i.addCategory(Intent.CATEGORY_LAUNCHER);
+                if (packageName != null && !packageName.isEmpty()) i.setPackage(packageName);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                act.startActivity(i);
+                return;
+            } catch (Exception ignored) {
+            }
+            if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                try { act.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl))); } catch (Exception ignored) {}
+            }
+        });
+    }
+
+    @JavascriptInterface
     public void openUrl(String url) {
         if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) {
             return;
