@@ -139,12 +139,31 @@ final class Setup {
         env.put("NEWAL_TERMUX_PORT", String.valueOf(Termux.PORT));
         // NewAl-Cloud: Action #43 agent/runtime is unchanged; only the model/API heart is replaced.
         File cfg = new File(home, ".newal-code/config.json");
-        if (!cfg.exists()) {
-            cfg.getParentFile().mkdirs();
-            write(cfg, "{\n" +
-                    " \"model\": \"kilo-auto/free\",\n" +
-                    " \"models\": { \"kilo-auto/free\": {\"id\":\"kilo-auto/free\",\"name\":\"FreeLLMAPI • Auto Free\",\"provider\":\"openai\",\"base_url\":\"https://api.kilo.ai/api/gateway\",\"model\":\"kilo-auto/free\",\"api_key\":\"\",\"context\":256000} },\n" +
-                    " \"mode\": \"auto-edit\", \"verify\": true, \"test_after_edit\": true, \"auto_context\": true, \"web\": true\n}");
+        cfg.getParentFile().mkdirs();
+        String desired = "{\n" +
+                " \"model\": \"kilo-auto/free\",\n" +
+                " \"models\": { \"kilo-auto/free\": {\"id\":\"kilo-auto/free\",\"name\":\"FreeLLMAPI • Auto Free\",\"provider\":\"openai\",\"base_url\":\"https://api.kilo.ai/api/gateway\",\"model\":\"kilo-auto/free\",\"api_key\":\"\",\"context\":256000} },\n" +
+                " \"mode\": \"auto-edit\", \"verify\": true, \"test_after_edit\": true, \"auto_context\": true, \"web\": true, \"musabai_cloud_heart\": 2\n}";
+        try {
+            String existing = cfg.exists() ? read(cfg) : "";
+            // Migrate only the MusabAI-managed heart. Never overwrite a user's deliberate model choice.
+            if (existing.isEmpty() || existing.contains("\"musabai_cloud_heart\"") ||
+                    existing.contains("\"kilo-auto/free\"") ||
+                    existing.contains("\"model\": \"auto\"")) {
+                write(cfg, desired);
+            } else {
+                org.json.JSONObject j = new org.json.JSONObject(existing);
+                org.json.JSONObject ms = j.optJSONObject("models");
+                if (ms == null) { ms = new org.json.JSONObject(); j.put("models", ms); }
+                ms.put("kilo-auto/free", new org.json.JSONObject()
+                        .put("id","kilo-auto/free").put("name","FreeLLMAPI • Auto Free")
+                        .put("provider","openai").put("base_url","https://api.kilo.ai/api/gateway")
+                        .put("model","kilo-auto/free").put("api_key","").put("context",256000));
+                j.put("musabai_cloud_heart", 2);
+                write(cfg, j.toString(2));
+            }
+        } catch (Exception ignored) {
+            if (!cfg.exists()) write(cfg, desired);
         }
         // The phone's shared storage: its GGUF files are models once the user lets the app read it.
         env.put("NEWAL_SHARED_STORAGE", android.os.Environment.getExternalStorageDirectory().getPath());
