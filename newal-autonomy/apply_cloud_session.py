@@ -1,5 +1,7 @@
 """Patch exact Action #43 server with MusabAI's standalone Cloud Workspace API."""
 from pathlib import Path
+import json
+import os
 import re
 import time
 import uuid
