@@ -1,4 +1,4 @@
-// NewAl Code: the Codex-style web app. Talks to server.py (JSON API + one event stream).
+// MusabAI: the Codex-style web app. Talks to server.py (JSON API + one event stream).
 (function () {
   "use strict";
 
@@ -73,12 +73,12 @@
     return data;
   }
   function keyNeeded() {
-    // The address without NewAl Code's key (a bookmark in another browser, a web page): say where the key is.
+    // The address without MusabAI's key (a bookmark in another browser, a web page): say where the key is.
     if (document.getElementById("key-needed")) return;
     const d = document.createElement("div");
     d.id = "key-needed";
     d.className = "key-needed";
-    d.textContent = "This page needs NewAl Code's key: open NewAl Code from its app, or the address it printed " +
+    d.textContent = "This page needs MusabAI's key: open MusabAI from its app, or the address it printed " +
       "when it started (it ends in ?key=...).";
     document.body.prepend(d);
   }
@@ -145,7 +145,7 @@
     if (last && S.sessions.find(x => x.id === last)) await openSession(last);
     else if (lastRoot) setRoot(lastRoot);
     else if (S.state.projects.length) setRoot(S.state.projects[0]);
-    // A folder to open (Explorer's "Open with NewAl Code", `newal-code app DIR`): a new thread there.
+    // A folder to open (Explorer's "Open with MusabAI", `newal-code app DIR`): a new thread there.
     const openRoot = new URLSearchParams(location.search).get("root");
     if (openRoot) { history.replaceState(null, "", location.pathname); setRoot(openRoot); newThread(openRoot); }
     updatePickers();
@@ -164,7 +164,7 @@
     phoneBars();
   }
   function phoneBars() {
-    // NewAl Code Lite paints the phone's status and navigation bars in the page's colour, with icons that show on it.
+    // MusabAI Lite paints the phone's status and navigation bars in the page's colour, with icons that show on it.
     try {
       if (!(window.NewAlPhone && NewAlPhone.theme)) return;
       const root = document.documentElement;
@@ -363,7 +363,7 @@
     $("#empty").hidden = has;
     if (has) return;
     $("#empty-title").textContent = S.root ? "What should we build in " + base(S.root) + "?" : "What should we build?";
-    $("#empty-sub").textContent = S.root ? S.root : "Open a project folder, then describe the change. NewAl Code reads, edits, runs and checks it.";
+    $("#empty-sub").textContent = S.root ? S.root : "Open a project folder, then describe the change. MusabAI reads, edits, runs and checks it.";
     const ideas = S.root ? [
       ["Explain this project", "Explain what this project does and how its code is organized."],
       ["Find and fix a bug", "Run the tests, find what fails, and fix it."],
@@ -749,9 +749,9 @@
         S.live = null;
         if (!replay && document.hidden && window.NewAlPhone && NewAlPhone.notifyDone) {
           // the phone: Android's notification (a WebView has no Notification API); a tap brings the app back
-          NewAlPhone.notifyDone((S.meta && S.meta.title) || "NewAl Code", (ev.answer || "Done").slice(0, 300));
+          NewAlPhone.notifyDone((S.meta && S.meta.title) || "MusabAI", (ev.answer || "Done").slice(0, 300));
         } else if (!replay && document.hidden && window.Notification && Notification.permission === "granted") {
-          new Notification("NewAl Code", { body: (ev.answer || "Done").slice(0, 160), icon: "icon.svg" });
+          new Notification("MusabAI", { body: (ev.answer || "Done").slice(0, 160), icon: "icon.svg" });
         }
         if (!replay) {
           setBusyUI(false);
@@ -778,7 +778,7 @@
     const what = ev.tool === "bash" ? a.command : ev.tool === "web_fetch" ? a.url :
       ev.tool === "apply_patch" ? a.patch : (a.path ? a.path + (a.old != null ? "\n- " + String(a.old).slice(0, 600) + "\n+ " + String(a.new || "").slice(0, 600) : "") : JSON.stringify(a, null, 1));
     const verb = { bash: "run", edit: "edit", write: "write", apply_patch: "patch", web_fetch: "fetch" }[ev.tool] || "use " + ev.tool;
-    const card = h("div", "approval", '<div class="q">NewAl Code wants to ' + esc(verb) + ":</div><pre>" + esc(String(what || "").slice(0, 3000)) +
+    const card = h("div", "approval", '<div class="q">MusabAI wants to ' + esc(verb) + ":</div><pre>" + esc(String(what || "").slice(0, 3000)) +
       '</pre><div class="why">' + esc(ev.reason || "") + (ev.rule ? " · “always” allows " + esc(ev.rule) : "") +
       '</div><div class="acts"><button class="btn primary" data-a="once">Allow</button><button class="btn" data-a="always">Always allow</button><button class="btn danger" data-a="deny">Deny</button></div>');
     card.id = "ap-" + cssId(ev.id);
@@ -1193,7 +1193,7 @@
       body.innerHTML = '<div class="form-row"><input type="text" id="fp-path" value="' + esc(d.path) + '"><button class="btn" id="fp-go">Go</button></div>' +
         '<div class="form-row places">' + places.filter(p => p[1]).map(p => '<button class="btn small" data-p="' + esc(p[1]) + '">' + esc(p[0]) + "</button>").join("") + "</div>" +
         '<div class="browse-list"><div data-p="' + esc(d.parent) + '">⬆ ..</div>' + d.dirs.map(n => '<div data-p="' + esc(join(d.path, n)) + '">📁 ' + esc(n) + "</div>").join("") + files + "</div>" +
-        (gguf ? (files ? "" : '<div class="muted">No GGUF file in this folder' + (S.state && S.state.storage && d.path.startsWith(S.state.storage) ? " (or NewAl Code may not read the phone's files yet)" : "") + ".</div>") :
+        (gguf ? (files ? "" : '<div class="muted">No GGUF file in this folder' + (S.state && S.state.storage && d.path.startsWith(S.state.storage) ? " (or MusabAI may not read the phone's files yet)" : "") + ".</div>") :
           '<div class="section-title">Recent</div><div class="browse-list recent">' + ((S.state && S.state.projects) || []).map(p => '<div data-p="' + esc(p) + '">' + esc(p) + "</div>").join("") + "</div>" +
           '<div class="form-row"><input type="text" id="fp-new" placeholder="New folder in ' + esc(base(d.path)) + '"><button class="btn" id="fp-mk">Make it</button></div>' +
           '<div class="form-row" style="justify-content:flex-end"><button class="btn primary" id="fp-open">' + (window.NCi18n ? NCi18n.t("Open") : "Open") + " " + esc(base(d.path)) + (d.is_git ? " (git)" : "") + "</button></div>");
@@ -1230,15 +1230,15 @@
     updateAccessChip();
     // On the phone, Android's own permissions follow, one after another (files, screen, notifications, Termux).
     if (on && window.NewAlPhone && NewAlPhone.fullAccess) NewAlPhone.fullAccess();
-    toast(on ? "Full access: NewAl Code works without asking (commands that would wipe a drive or your home folder are still refused)"
-      : "NewAl Code asks again before anything outside the project", 5000);
+    toast(on ? "Full access: MusabAI works without asking (commands that would wipe a drive or your home folder are still refused)"
+      : "MusabAI asks again before anything outside the project", 5000);
     return true;
   }
   function accessSection(box) {
     const on = fullAccess();
     box.innerHTML = '<div class="form-row"><span class="' + (on ? "good" : "muted") + '">' + (on
       ? "Full access: new threads work without the sandbox and without asking. Commands that would wipe a drive or your home folder are still refused."
-      : "Edits and commands in the project; NewAl Code asks before anything outside it.") + '</span><button class="btn' + (on ? "" : " primary") +
+      : "Edits and commands in the project; MusabAI asks before anything outside it.") + '</span><button class="btn' + (on ? "" : " primary") +
       '" id="ac-toggle">' + (on ? "Ask me first again" : "Give full access") + "</button></div>";
     box.querySelector("#ac-toggle").onclick = async () => { await setFullAccess(!on); accessSection(box); };
   }
@@ -1261,7 +1261,7 @@
       (on ? "on" : "off") + '</span><button class="btn small" data-sys="' + key + '" data-on="' + (on ? "0" : "1") + '">' + (on ? "Remove" : "Add") +
       "</button>" + (note ? '<span class="muted small-note">' + note + "</span>" : "") + "</div>";
     box.innerHTML = row("path", "newal in every terminal", st.path, esc(st.bin)) +
-      (st.windows ? row("explorer", "Explorer's right-click menu", st.explorer, "Open with NewAl Code · NewAl Code terminal here") +
+      (st.windows ? row("explorer", "Explorer's right-click menu", st.explorer, "Open with MusabAI · MusabAI terminal here") +
         row("terminal", "Windows Terminal profile", st.terminal, "") : "") +
       '<div class="form-row"><label>Shells</label><span class="muted">' + esc([st.git_bash ? "Git Bash" : "", st.powershell ? "PowerShell (" + base(st.powershell) + ")" : ""]
         .filter(Boolean).join(" · ") || "sh") + '</span><button class="btn small" id="sys-term">Open a terminal here</button></div>';
@@ -1273,7 +1273,7 @@
   }
 
   async function openHealth() {
-    // Check everything: what NewAl Code needs here, each with its fix, and a report to copy (to send when asking
+    // Check everything: what MusabAI needs here, each with its fix, and a report to copy (to send when asking
     // for help). On the phone, Android's permissions and Termux too.
     const body = h("div", "health", '<div class="muted">Checking…</div>');
     modal("Check everything", body);
@@ -1286,7 +1286,7 @@
       items.push({ key: "files", ok: !!st.files, title: "The phone's files", detail: st.files ? "readable (your GGUF files are models)" : "not readable", fix: st.files ? "" : "files" });
       items.push({ key: "screen", ok: st.accessibility ? true : null, title: "Screen control", detail: st.accessibility ? "on" : "off (the agent cannot see or tap the screen)", fix: st.accessibility ? "" : "screen" });
       items.push({ key: "notifications", ok: st.notifications ? true : null, title: "Notifications", detail: st.notifications ? "on" : "off (no notice when a task finishes)", fix: st.notifications ? "" : "fullaccess" });
-      items.push({ key: "termux", ok: t.up ? true : null, title: "Termux", detail: !t.installed ? "not installed" : t.up ? "NewAl Code runs in Termux" : "installed, not linked or not running", fix: t.up ? "" : "termux" });
+      items.push({ key: "termux", ok: t.up ? true : null, title: "Termux", detail: !t.installed ? "not installed" : t.up ? "MusabAI runs in Termux" : "installed, not linked or not running", fix: t.up ? "" : "termux" });
     }
     const mark = ok => ok === true ? '<span class="good">✓</span>' : ok === false ? '<span class="bad">✗</span>' : '<span class="muted">–</span>';
     const labels = { download: "Download", connect: "Connect an API", github: "Connect GitHub", install: "Add", access: "Give full access",
@@ -1338,20 +1338,20 @@
         ? "The model this phone's memory fits runs on the phone, offline. An API model (Gemini, DeepSeek…) is much faster and smarter: one tap with your key."
         : "A local model runs on this computer, free and offline. Or an API model with your key, in one tap.") +
       '</p><div class="card-list" id="wl-model"></div><div class="provider-row" id="wl-providers"></div></div>' +
-      '<div class="step"><h3>2 · Access</h3><p>One permission: with full access NewAl Code edits, runs commands' + (phone
+      '<div class="step"><h3>2 · Access</h3><p>One permission: with full access MusabAI edits, runs commands' + (phone
         ? ", uses the phone (apps, screen, files) and Termux" : windows ? " (bash and PowerShell) and works anywhere on this computer" : " and works anywhere on this computer") +
       " without asking each time. Commands that would wipe a drive or your home folder are always refused." + (phone
         ? " Android then asks for its own permissions, one after another: files, screen control, notifications and Termux." : "") +
       '</p><div class="choice"><button class="btn primary" id="wl-full">Give full access</button><button class="btn" id="wl-ask">Ask me first</button><span id="wl-access-state"></span></div></div>' +
       '<div class="step"><h3>3 · GitHub <span class="muted">(optional)</span></h3><div id="wl-github"></div></div>' +
-      (phone ? "" : '<div class="step"><h3>4 · Your terminal</h3><p>newal in every terminal' + (windows ? " (PowerShell, cmd, Git Bash), \"Open with NewAl Code\" in Explorer and a Windows Terminal profile" : "") +
+      (phone ? "" : '<div class="step"><h3>4 · Your terminal</h3><p>newal in every terminal' + (windows ? " (PowerShell, cmd, Git Bash), \"Open with MusabAI\" in Explorer and a Windows Terminal profile" : "") +
         '.</p><div class="choice"><button class="btn" id="wl-install">Add them</button><span id="wl-install-state"></span></div></div>') +
       '<div class="form-row" style="justify-content:flex-end"><button class="btn primary" id="wl-start">Start</button></div>';
-    modal("Welcome to NewAl Code", body);
+    modal("Welcome to MusabAI", body);
     const done = () => { if (S.state) S.state.settings.onboarded = true; api("/api/system", { action: "onboarded" }).catch(() => {}); };
     $("#modal-close").addEventListener("click", done, { once: true });
     body.querySelector("#wl-start").onclick = () => { done(); closeModal(); $("#input").focus(); };
-    const accessState = () => { body.querySelector("#wl-access-state").innerHTML = fullAccess() ? '<span class="done">✓ Full access</span>' : '<span class="muted">NewAl Code will ask first</span>'; };
+    const accessState = () => { body.querySelector("#wl-access-state").innerHTML = fullAccess() ? '<span class="done">✓ Full access</span>' : '<span class="muted">MusabAI will ask first</span>'; };
     body.querySelector("#wl-full").onclick = async () => { await setFullAccess(true); accessState(); };
     body.querySelector("#wl-ask").onclick = async () => { await setFullAccess(false); accessState(); };
     const gh = body.querySelector("#wl-github");
@@ -1414,7 +1414,7 @@
   function waitForKey(p, connectFn) {
     connectFn = connectFn || connectProvider;
     const body = h("div", "connect-sheet",
-      '<p>Make a key on the ' + esc(p.title) + ' page that opened and copy it, then come back here: NewAl Code takes ' +
+      '<p>Make a key on the ' + esc(p.title) + ' page that opened and copy it, then come back here: MusabAI takes ' +
       'it from the clipboard and connects.</p>' +
       '<div class="form-row"><input id="ck-key" type="text" placeholder="…or paste the key here" autocomplete="off" spellcheck="false">' +
       '<button class="btn primary" id="ck-go">Connect</button><button class="btn" id="ck-page">Open the key page again</button></div>' +
@@ -1458,7 +1458,7 @@
     const other = d.models.filter(m => !m.catalog && !own.includes(m));
     const phone = !!(window.NewAlPhone && NewAlPhone.storage);
     body.innerHTML = '<div class="section-title">An API in one tap</div><div class="provider-row" id="providers"></div>' +
-      '<div class="muted small-note">Copy your key (Gemini, DeepSeek…) and tap its name; without a key copied, its key page opens and NewAl Code connects when you come back with it.</div>' +
+      '<div class="muted small-note">Copy your key (Gemini, DeepSeek…) and tap its name; without a key copied, its key page opens and MusabAI connects when you come back with it.</div>' +
       '<div class="section-title">Your GGUF files</div><div class="card-list" id="mine"></div><div class="form-row wrap" id="gguf-actions"></div>' +
       '<div class="section-title">This ' + (phone ? "phone" : "computer") + '</div><div class="card"><div class="grow"><div class="name">' + esc(hw.cpu) +
       '</div><div class="desc">' + hw.cores + " cores · " + hw.ram_gb + " GB RAM (" + hw.free_gb + " GB free) · " + esc(hw.tier) +
@@ -1479,7 +1479,7 @@
       " · " + (m.size / 1e9).toFixed(2) + " GB</div></div>" + (m.fits === false ? '<span class="badge warn">needs more RAM</span>' : "") +
       '<button class="btn small" data-use="' + esc(m.id) + '">Use</button>')));
     if (!own.length) mine.appendChild(h("div", "muted", phone
-      ? "None found yet. Once NewAl Code may read the phone's files, the GGUF files in Download, Documents (and other folders) appear here; or pick one, or copy one into the app."
+      ? "None found yet. Once MusabAI may read the phone's files, the GGUF files in Download, Documents (and other folders) appear here; or pick one, or copy one into the app."
       : "None yet: GGUF files in " + esc(d.models_dir || "the models folder") + " appear here, or pick one anywhere."));
     ggufActions(body.querySelector("#gguf-actions"), d);
     const cat = body.querySelector("#cat");
@@ -1538,7 +1538,7 @@
   function ggufActions(box, d) {
     const st = phoneStorage();
     const add = (label, fn, primary) => { const b = h("button", "btn" + (primary ? " primary" : ""), label); b.onclick = fn; box.appendChild(b); };
-    if (st && !st.granted) add("Let NewAl Code read the phone's files", () => {
+    if (st && !st.granted) add("Let MusabAI read the phone's files", () => {
       // Android's "All files access" page opens; coming back, the list is made again with what is now readable.
       NewAlPhone.allowStorage();
       const back = () => { if (document.hidden) return; document.removeEventListener("visibilitychange", back); setTimeout(openModels, 600); };
@@ -1568,7 +1568,7 @@
 
   // ------------------------------------------------------------------ speaking a request
   function voiceInput() {
-    // The phone: Android's speech recognition (NewAl Code Lite); a computer: the browser's, where it has one.
+    // The phone: Android's speech recognition (MusabAI Lite); a computer: the browser's, where it has one.
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     const phone = window.NewAlPhone && NewAlPhone.listen;
     $("#mic").hidden = !phone && !Rec;
@@ -1607,7 +1607,7 @@
     $("#input").value = parts.join("\n\n") + "\n\n";
     autoGrow();
     $("#input").focus();
-    toast("Shared with NewAl Code: say what to do with it", 5000);
+    toast("Shared with MusabAI: say what to do with it", 5000);
   }
   function takeAction() {
     // A shortcut on the app's icon: a new thread, or one started by voice.
@@ -1619,7 +1619,7 @@
   }
   window.onPhoneShared = () => { takeShared(); takeAction(); };
   function termuxAutoStart() {
-    // NewAl Code in Termux, once linked, starts with the app (Termux's RUN_COMMAND, when the app may use it).
+    // MusabAI in Termux, once linked, starts with the app (Termux's RUN_COMMAND, when the app may use it).
     const st = phoneStatus();
     const t = st && st.termux;
     if (!t) return;
@@ -1628,7 +1628,7 @@
   }
 
   window.onPhoneImport = ev => {
-    // NewAl Code Lite copying a GGUF file the user picked into NewAl Code's models folder.
+    // MusabAI Lite copying a GGUF file the user picked into MusabAI's models folder.
     if (ev.state === "copying") toast("Copying " + ev.name + "… " + (ev.total ? Math.round(100 * ev.done / ev.total) + "%" : Math.round(ev.done / 1e6) + " MB"), 4000);
     else if (ev.state === "done") addGguf(ev.path);
     else if (ev.state === "error") toast("Not copied: " + ev.error, 9000);
@@ -1712,7 +1712,7 @@
     return d;
   }
   async function openGitHub() {
-    const body = h("div", "", '<div id="gh-box"></div><p class="muted small-note">Connected, NewAl Code lists your repositories to clone as projects, pushes with git (on a phone too) and opens pull requests from Commit.</p>');
+    const body = h("div", "", '<div id="gh-box"></div><p class="muted small-note">Connected, MusabAI lists your repositories to clone as projects, pushes with git (on a phone too) and opens pull requests from Commit.</p>');
     modal("GitHub", body);
     githubSection(body.querySelector("#gh-box"), openGitHub);
   }
@@ -1733,7 +1733,7 @@
       box.querySelector("#gh-off").onclick = async () => { await api("/api/github/disconnect", {}); githubSection(box); };
     } else {
       box.appendChild(h("div", "form-row", '<button class="btn primary" id="gh-on">Connect GitHub</button>' +
-        '<span class="muted">' + (window.NewAlPhone ? "Copy a token and tap (without one, GitHub\'s page for a token opens with the scopes NewAl Code needs)."
+        '<span class="muted">' + (window.NewAlPhone ? "Copy a token and tap (without one, GitHub\'s page for a token opens with the scopes MusabAI needs)."
           : "Uses this computer\'s GitHub login (GitHub CLI or Git Credential Manager, which signs in through the browser); else a token.") + "</span>"));
       const byToken = () => oneTap(GITHUB, async (p, t) => { const d = await connectGitHub(p, t); (after || openSettings)(); return d; });
       box.querySelector("#gh-on").onclick = async () => {
@@ -1780,7 +1780,7 @@
     load("");
   }
 
-  // ------------------------------------------------------------------ the phone (NewAl Code Lite)
+  // ------------------------------------------------------------------ the phone (MusabAI Lite)
   function phoneStatus() {
     try { return window.NewAlPhone ? JSON.parse(NewAlPhone.status()) : null; } catch (_) { return null; }
   }
@@ -1789,19 +1789,19 @@
     if (!st) { box.parentNode.hidden = true; return; }
     const t = st.termux || {};
     const inTermux = location.port === "8791";
-    box.innerHTML = (inTermux ? '<div class="form-row"><label>Workspace</label><span>Termux (this NewAl Code runs inside Termux)</span>' +
+    box.innerHTML = (inTermux ? '<div class="form-row"><label>Workspace</label><span>Termux (this MusabAI runs inside Termux)</span>' +
       '<button class="btn" id="ph-back">Back to the app\'s workspace</button></div>' : "") +
       '<div class="form-row"><label>Screen control</label><span class="' + (st.accessibility ? "good" : "muted") + '">' +
       (st.accessibility ? "on: the agent can see the screen, tap and type (it asks first unless full-auto)" : "off") + "</span>" +
       (st.accessibility ? "" : '<button class="btn" id="ph-a11y">Turn on</button>') + "</div>" +
       (!st.accessibility && st.sdk >= 33 ? '<div class="muted small-note">Android 13 and up: if the switch is greyed out ("Restricted setting"), open App info, tap ⋮ at the top, "Allow restricted settings", then turn it on. <button class="btn small" id="ph-info">App info</button></div>' : "") +
       '<div class="form-row"><label>Termux</label><span class="muted">' +
-      (!t.installed ? "not installed" : t.up ? "NewAl Code runs in Termux" : "installed") + "</span>" +
+      (!t.installed ? "not installed" : t.up ? "MusabAI runs in Termux" : "installed") + "</span>" +
       (!t.installed ? '<button class="btn" id="ph-tx-get">Get Termux</button>' :
         (t.up ? '<button class="btn primary" id="ph-tx-open">Open the Termux workspace</button>' : '<button class="btn primary" id="ph-tx-link">Connect Termux</button>') +
         (t.allowed ? (t.up ? "" : '<button class="btn" id="ph-tx-start">Start in Termux</button>') : '<button class="btn" id="ph-tx-allow">Let this app start it</button>')) +
       "</div>" +
-      '<div class="muted small-note">Connected, NewAl Code also runs inside Termux: its whole Linux (git, compilers, packages), your projects there, this phone\'s model and screen control. The first time, paste one command in Termux.</div>';
+      '<div class="muted small-note">Connected, MusabAI also runs inside Termux: its whole Linux (git, compilers, packages), your projects there, this phone\'s model and screen control. The first time, paste one command in Termux.</div>';
     const files = phoneStorage();
     if (files) box.insertAdjacentHTML("beforeend", '<div class="form-row"><label>The phone\'s files</label><span class="' +
       (files.granted ? "good" : "muted") + '">' + (files.granted ? "readable: GGUF files in Download, Documents… are models (see Models)" : "not readable") +
@@ -1814,12 +1814,12 @@
     on("#ph-tx-get", () => NewAlPhone.termuxSetup(""));
     on("#ph-tx-open", () => NewAlPhone.go("termux"));
     on("#ph-tx-allow", () => { NewAlPhone.termuxAllow(); setTimeout(() => phoneSection(box), 4000); });
-    on("#ph-tx-start", () => { toast(NewAlPhone.termuxStart() === "started" ? "Starting NewAl Code in Termux…" : "Not allowed yet"); setTimeout(() => phoneSection(box), 5000); });
+    on("#ph-tx-start", () => { toast(NewAlPhone.termuxStart() === "started" ? "Starting MusabAI in Termux…" : "Not allowed yet"); setTimeout(() => phoneSection(box), 5000); });
     on("#ph-tx-link", async () => {
       try {
         const d = await api("/api/termux/link", {});
         NewAlPhone.termuxSetup(d.command);
-        const wait = setInterval(() => { const s2 = phoneStatus(); if (s2 && s2.termux && s2.termux.up) { clearInterval(wait); localStorage.setItem("nc.termux.linked", "1"); phoneSection(box); toast("NewAl Code runs in Termux"); } }, 3000);
+        const wait = setInterval(() => { const s2 = phoneStatus(); if (s2 && s2.termux && s2.termux.up) { clearInterval(wait); localStorage.setItem("nc.termux.linked", "1"); phoneSection(box); toast("MusabAI runs in Termux"); } }, 3000);
         setTimeout(() => clearInterval(wait), 600000);
       } catch (e) { toast(e.message); }
     });
@@ -1980,7 +1980,7 @@
     setInterval(() => { if (S.sessions.length) renderSidebar(); }, 60000);
   }
 
-  // Phones (NewAl Code Lite) and narrow windows: the sidebar is a drawer, closed until asked for, and it closes
+  // Phones (MusabAI Lite) and narrow windows: the sidebar is a drawer, closed until asked for, and it closes
   // again once something in it is chosen.
   function narrow() { return window.innerWidth < 700; }
   function hideSidebarOnPhone() { if (narrow()) document.getElementById("app").classList.add("no-sidebar"); }
@@ -1997,5 +1997,88 @@
     });
   }
 
-  window.addEventListener("DOMContentLoaded", () => { wire(); phoneLayout(); boot().catch(e => toast("Cannot start: " + e.message, 8000)); });
+  
+  // ------------------------------------------------------------------ MusabAI Hub
+  const HUB_APPS = [
+    ["Google Drive","Cloud files","com.google.android.apps.docs","https://drive.google.com/"],
+    ["Gmail","Email","com.google.android.gm","https://mail.google.com/"],
+    ["WhatsApp","Messages","com.whatsapp","https://web.whatsapp.com/"],
+    ["Telegram","Messages","org.telegram.messenger","https://web.telegram.org/"],
+    ["Discord","Community","com.discord","https://discord.com/app"],
+    ["Slack","Work chat","com.Slack","https://app.slack.com/client/"],
+    ["GitHub","Code hosting","com.github.android","https://github.com/"],
+    ["GitLab","Code hosting","com.gitlab.mobile","https://gitlab.com/"],
+    ["Figma","Design","com.figma.mirror","https://www.figma.com/"],
+    ["Notion","Knowledge","notion.id","https://www.notion.so/"],
+    ["Replit","Cloud IDE","com.replit.app","https://replit.com/"],
+    ["Kaggle","ML & data","com.kaggle.android","https://www.kaggle.com/"],
+    ["Chrome","Browser","com.android.chrome","https://www.google.com/"],
+    ["YouTube","Video","com.google.android.youtube","https://youtube.com/"],
+    ["Google Maps","Maps","com.google.android.apps.maps","https://maps.google.com/"],
+    ["Google Calendar","Calendar","com.google.android.calendar","https://calendar.google.com/"],
+    ["Google Docs","Documents","com.google.android.apps.docs.editors.docs","https://docs.google.com/"],
+    ["Google Sheets","Spreadsheets","com.google.android.apps.docs.editors.sheets","https://sheets.google.com/"],
+    ["Google Keep","Notes","com.google.android.keep","https://keep.google.com/"],
+    ["Termux","Dev shell","com.termux","https://termux.dev/"]
+  ];
+  const HUB_FILES = [
+    ["Open files","Import PDF, ZIP, HTML, MD, PY, Office and any other document","pickFiles"],
+    ["Create file","Create HTML / MD / PY / TXT / JSON / CSV and more","createFile"],
+    ["Open folder","Choose a workspace folder for MusabAI","pickFolder"],
+    ["Google Drive","Open your cloud files in one tap","drive"]
+  ];
+  function hubOpenApp(pkg, url) {
+    try {
+      if (window.NewAlPhone && NewAlPhone.openApp) return NewAlPhone.openApp(pkg || "", url || "");
+      if (url) location.href = url;
+    } catch (_) { if (url) location.href = url; }
+  }
+  function hubAction(action) {
+    if (action === "pickFiles") return NewAlPhone.pickFiles();
+    if (action === "pickFolder") return NewAlPhone.pickFolder();
+    if (action === "drive") return hubOpenApp("com.google.android.apps.docs","https://drive.google.com/");
+    if (action === "termux") return hubOpenApp("com.termux","https://termux.dev/");
+    if (action === "newThread") { newThread(); return; }
+    if (action === "evolve") {
+      const task = "Act as MusabAI's maintenance agent. Inspect the current MusabAI/Action #43 runtime, run tests, identify safe improvements, implement them, verify them, and prepare a new tested version. Do not overwrite a working version until the candidate passes checks.";
+      newThread();
+      $("#input").value = task;
+      autoGrow(); send();
+    }
+  }
+  function renderHub() {
+    const body=$("#hub-body"); if(!body) return;
+    body.innerHTML = '<div class="hub-grid"></div><div class="hub-note">MusabAI can use Android intents for installed apps and the system document picker for cloud/local providers.</div>';
+    const grid=body.querySelector(".hub-grid");
+    HUB_APPS.forEach(a => {
+      const b=h("button","hub-card-item",'<span class="hub-icon">↗</span><span><b>'+esc(a[0])+'</b><small>'+esc(a[1])+'</small></span>');
+      b.onclick=()=>hubOpenApp(a[2],a[3]); grid.appendChild(b);
+    });
+    HUB_FILES.forEach(a => {
+      const b=h("button","hub-card-item",'<span class="hub-icon">+</span><span><b>'+esc(a[0])+'</b><small>'+esc(a[1])+'</small></span>');
+      b.onclick=()=>hubAction(a[2]); grid.appendChild(b);
+    });
+    const evo=h("button","hub-card-item hub-wide","<span class='hub-icon'>✦</span><span><b>Improve MusabAI</b><small>Start a verified maintenance/build cycle in the agent workspace</small></span>");
+    evo.onclick=()=>hubAction("evolve"); grid.appendChild(evo);
+  }
+  function openHub() { renderHub(); $("#musabai-hub").hidden=false; }
+  function closeHub() { $("#musabai-hub").hidden=true; }
+  function hubWire() {
+    $("#open-hub") && ($("#open-hub").onclick=openHub);
+    $("#open-hub-top") && ($("#open-hub-top").onclick=openHub);
+    $("#hub-close") && ($("#hub-close").onclick=closeHub);
+    $("#musabai-hub") && $("#musabai-hub").addEventListener("click",e=>{if(e.target.id==="musabai-hub")closeHub();});
+    window.onNativeFiles = raw => {
+      try {
+        const fs=JSON.parse(raw||"[]");
+        if (!fs.length) return;
+        const lines=fs.map(f=>"• "+f.name+" ("+Math.round((f.size||0)/1024)+" KB)"+(f.text ? "\\n"+f.text : "")).join("\\n");
+        const input=$("#input");
+        input.value=(input.value?input.value+"\\n\\n":"")+"[MusabAI files]\\n"+lines+"\\n\\n";
+        autoGrow(); input.focus(); closeHub(); toast(fs.length+" file(s) attached",3000);
+      } catch (_) {}
+    };
+    window.onNativeCreatedFile = name => { closeHub(); toast("Created: "+name,3500); };
+  }
+\nwindow.addEventListener("DOMContentLoaded", () => { wire(); hubWire(); phoneLayout(); boot().catch(e => toast("Cannot start: " + e.message, 8000)); });
 })();
