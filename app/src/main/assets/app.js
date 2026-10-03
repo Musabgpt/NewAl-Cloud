@@ -142,7 +142,9 @@
     loadModels();
     const last = localStorage.getItem("nc.session");
     const lastRoot = localStorage.getItem("nc.root");
+    const cloudPref = pref("env") === "cloud";
     if (last && S.sessions.find(x => x.id === last)) await openSession(last);
+    else if (cloudPref) { S.root = ""; S.cloudWorkspace = true; localStorage.removeItem("nc.root"); }
     else if (lastRoot) setRoot(lastRoot);
     else if (S.state.projects.length) setRoot(S.state.projects[0]);
     // A folder to open (Explorer's "Open with MusabAI", `newal-code app DIR`): a new thread there.
@@ -1761,11 +1763,24 @@
       box.querySelector("#gh-off").onclick = async () => { await api("/api/github/disconnect", {}); githubSection(box); };
     } else {
       box.appendChild(h("div", "form-row", '<button class="btn primary" id="gh-on">Connect GitHub</button>' +
-        '<span class="muted">' + (window.NewAlPhone ? "Copy a token and tap (without one, GitHub\'s page for a token opens with the scopes MusabAI needs)."
-          : "Uses this computer\'s GitHub login (GitHub CLI or Git Credential Manager, which signs in through the browser); else a token.") + "</span>"));
+        '<span class="muted">' + (window.NewAlPhone ? "Browser login through GitHub CLI; no token paste." : "Uses this computer's GitHub login through GitHub CLI/Git Credential Manager.") + "</span>"));
+      const byBrowser = async () => {
+        if (window.NewAlPhone && NewAlPhone.termuxRun) {
+          const r = NewAlPhone.termuxRun("command -v gh >/dev/null 2>&1 || pkg install -y gh; gh auth login --web --git-protocol https");
+          toast(r === "started" ? "GitHub browser login started. Finish it in the browser; no token is pasted into MusabAI." : String(r), 8000);
+          return;
+        }
+        try {
+          const d = await api("/api/github/connect", { auto: true });
+          toast("GitHub connected" + (d.login ? " as @" + d.login : ""), 5000);
+          (after || openSettings)();
+        } catch (e) {
+          toast(e.message + " — GitHub CLI web login is required on this device.", 9000);
+        }
+      };
       const byToken = () => oneTap(GITHUB, async (p, t) => { const d = await connectGitHub(p, t); (after || openSettings)(); return d; });
       box.querySelector("#gh-on").onclick = async () => {
-        if (window.NewAlPhone) return byToken();
+        if (window.NewAlPhone) return byBrowser();
         const b = box.querySelector("#gh-on");
         b.disabled = true; b.textContent = "Connecting…";
         try {
