@@ -45,7 +45,7 @@ jobs:
           cp app/src/main/assets/app.js desktop/newal_code/ui/app.js
           cp app/src/main/assets/style.css desktop/newal_code/ui/style.css
           grep -n "MusabAI Hub" desktop/newal_code/ui/index.html
-          grep -n "MUSABAI" desktop/newal_code/ui/app.js
+          grep -n "MusabAI" desktop/newal_code/ui/app.js
       - name: Apply autonomous memory and self-evolution layer
         run: |
           cp -a /tmp/newal-autonomy/. newal-autonomy/
