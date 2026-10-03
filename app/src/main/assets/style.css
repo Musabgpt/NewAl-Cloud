@@ -443,3 +443,22 @@ pre.cmd-out.failed { border-color: var(--del-fg); }
 .hub-icon { width:30px; height:30px; display:grid; place-items:center; border-radius:9px; background:var(--bg-hover); flex:none; font-weight:700; }
 .hub-wide { grid-column:1/-1; }
 .hub-note { margin-top:14px; color:var(--fg-faint); font-size:11.5px; line-height:1.45; }
+
+
+/* MusabAI Hub: the hub itself is a scroll container on phones and desktop. */
+#musabai-hub .hub-card { max-height: calc(100vh - 24px); min-height: 0; }
+#musabai-hub #hub-body { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+#musabai-hub .hub-scroll { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 2px 2px 18px; min-height: 0; }
+#musabai-hub .hub-section { margin-bottom: 22px; }
+#musabai-hub .hub-section h3 { margin: 2px 0 8px; font-size: 14px; }
+#musabai-hub .hub-grid { align-items: stretch; }
+#musabai-hub .hub-card-item { min-width: 0; }
+#musabai-hub .hub-card-item.connected { border-color: var(--add-fg); }
+#musabai-hub .hub-scroll::-webkit-scrollbar { width: 8px; }
+#musabai-hub .hub-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; }
+@media (max-width: 700px) {
+  #musabai-hub .modal-card { max-height: calc(100vh - 12px); height: calc(100vh - 12px); }
+  #musabai-hub #hub-body { flex: 1; }
+  #musabai-hub .hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #musabai-hub .hub-card-item { min-height: 68px; }
+}
