@@ -204,8 +204,8 @@ final class WebBridge {
                     "if [ -f ~/.musabai-gh-login-exit ]; then cat ~/.musabai-gh-login-exit; " +
                     "cat ~/.musabai-gh-login-status 2>/dev/null || true; else echo PENDING; fi");
             if (raw == null || raw.trim().isEmpty() || raw.contains("PENDING")) return "pending";
-            if (raw.startsWith("-1\\n")) return "pending";
-            int nl = raw.indexOf('\\n');
+            if (raw.startsWith("-1\n")) return "pending";
+            int nl = raw.indexOf('\n');
             int exit = nl > 0 ? Integer.parseInt(raw.substring(0, nl).trim()) : -1;
             if (exit != 0) return "failed: " + (nl > 0 ? raw.substring(nl + 1).trim() : "GitHub login failed");
             return postGithubDetected();
