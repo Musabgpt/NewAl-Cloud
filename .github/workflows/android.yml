@@ -46,6 +46,14 @@ jobs:
           cp app/src/main/assets/style.css desktop/newal_code/ui/style.css
           grep -n "MusabAI Hub" desktop/newal_code/ui/index.html
           grep -n "MusabAI" desktop/newal_code/ui/app.js
+      - name: Remove legacy GitHub login and repository-backed Cloud UI path
+        run: |
+          python3 newal-autonomy/apply_root_fix.py
+          python3 -m py_compile newal-autonomy/apply_root_fix.py
+          ! grep -n "GitHub login opened in the browser" desktop/newal_code/ui/app.js
+          ! grep -n "Starting a repository-backed cloud task" desktop/newal_code/ui/app.js
+          grep -n "githubLogin" desktop/newal_code/ui/app.js
+          grep -n "api/cloud/workspace" desktop/newal_code/ui/app.js
       - name: Apply standalone Cloud Workspace layer
         run: |
           python3 newal-autonomy/apply_cloud_session.py
