@@ -3,19 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NewAl Code</title>
+<title>MusabAI</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <aside id="sidebar">
-    <div class="brand"><span class="logo" aria-hidden="true"></span><span>NewAl Code</span></div>
+    <div class="brand"><span class="logo" aria-hidden="true"></span><span>MusabAI</span></div>
     <nav class="side-top">
       <button id="new-thread" class="side-item"><i data-icon="edit"></i><span>New thread</span><kbd>Ctrl N</kbd></button>
       <button id="open-models" class="side-item"><i data-icon="cube"></i><span>Models</span></button>
       <button id="open-extensions" class="side-item"><i data-icon="spark"></i><span>Plugins &amp; skills</span></button>
       <button id="open-cloud" class="side-item"><i data-icon="cloud"></i><span>Cloud tasks</span></button>
+      <button id="open-hub" class="side-item"><i data-icon="spark"></i><span>MusabAI Hub</span></button>
       <button id="open-github" class="side-item"><i data-icon="git"></i><span>GitHub</span></button>
       <button id="open-phone" class="side-item" hidden><i data-icon="phone"></i><span>This phone: Termux, screen, files</span></button>
     </nav>
@@ -50,7 +51,7 @@
         <div id="empty" class="empty">
           <div class="empty-logo"></div>
           <h1 id="empty-title">What should we build?</h1>
-          <p id="empty-sub">Open a project folder, then describe the change. NewAl Code reads, edits, runs and checks it.</p>
+          <p id="empty-sub">Open a project folder, then describe the change. MusabAI reads, edits, runs and checks it.</p>
           <div id="quick" class="quick" hidden></div>
           <div id="suggestions" class="suggestions"></div>
         </div>
@@ -61,11 +62,12 @@
         <div id="todo-pin" hidden></div>
         <form id="composer" autocomplete="off">
           <div id="attachments" hidden></div>
-          <textarea id="input" dir="auto" rows="1" placeholder="Ask NewAl Code anything. @ to add files, / for commands"></textarea>
+          <textarea id="input" dir="auto" rows="1" placeholder="Ask MusabAI anything. @ to add files, / for commands"></textarea>
           <div id="popup" class="popup" hidden></div>
           <div class="composer-bar">
             <div class="left">
-              <button type="button" id="attach" class="icon-btn round" title="Attach an image"><i data-icon="plus"></i></button>
+              <button type="button" id="attach" class="icon-btn round" title="Attach files"><i data-icon="plus"></i></button>
+              <button type="button" id="open-hub-top" class="icon-btn round" title="Tools"><i data-icon="spark"></i></button>
               <div class="picker" id="model-picker"><button type="button" class="picker-btn"><i data-icon="cube"></i><span class="label">auto</span><i data-icon="chevron"></i></button><div class="menu"></div></div>
               <div class="picker" id="reasoning-picker"><button type="button" class="picker-btn"><i data-icon="brain"></i><span class="label">Auto</span><i data-icon="chevron"></i></button><div class="menu"></div></div>
             </div>
@@ -75,12 +77,12 @@
               <button type="submit" id="send" class="send-btn" title="Send (Enter)"><i data-icon="arrow-up"></i></button>
             </div>
           </div>
-          <input type="file" id="file-input" accept="image/*" multiple hidden>
+          <input type="file" id="file-input" accept="*/*" multiple hidden>
         </form>
         <div class="composer-foot">
           <div class="picker" id="env-picker"><button type="button" class="picker-btn small" title="Where a new thread works"><i data-icon="laptop"></i><span class="label">Local</span><i data-icon="chevron"></i></button><div class="menu"></div></div>
           <span id="sandbox-chip" class="foot-chip" title="Commands can write only inside the project" hidden><i data-icon="shield"></i><span>Sandboxed</span></span>
-          <button type="button" id="access-chip" class="foot-chip access" title="Full access: NewAl Code works without the sandbox and without asking (catastrophic commands are still refused). Click to change." hidden><i data-icon="shield"></i><span>Full access</span></button>
+          <button type="button" id="access-chip" class="foot-chip access" title="Full access: MusabAI works without the sandbox and without asking (catastrophic commands are still refused). Click to change." hidden><i data-icon="shield"></i><span>Full access</span></button>
           <span id="ctx-meter" class="foot-chip" hidden></span>
           <span id="speed" class="foot-chip" hidden></span>
           <span id="goal-chip" class="foot-chip goal" hidden></span>
@@ -88,7 +90,7 @@
       </section>
 
       <section id="terminal" hidden>
-        <div class="term-head"><span><i data-icon="terminal"></i> Terminal</span><select id="term-shell" title="The shell" hidden></select><button id="term-ext" class="mini-btn" title="Open a terminal window here, with NewAl Code">⧉</button><button id="term-clear" class="mini-btn" title="Clear">⌫</button><button id="term-close" class="mini-btn" title="Close">×</button></div>
+        <div class="term-head"><span><i data-icon="terminal"></i> Terminal</span><select id="term-shell" title="The shell" hidden></select><button id="term-ext" class="mini-btn" title="Open a terminal window here, with MusabAI">⧉</button><button id="term-clear" class="mini-btn" title="Clear">⌫</button><button id="term-close" class="mini-btn" title="Close">×</button></div>
         <pre id="term-out"></pre>
         <form id="term-form"><span class="prompt" id="term-prompt">$</span><input id="term-input" placeholder="Run a command in the project" autocomplete="off"></form>
       </section>
@@ -126,6 +128,7 @@
   </div>
 </div>
 <div id="toast" hidden></div>
+<div id="musabai-hub" class="modal" hidden><div class="modal-card hub-card"><header><span>MusabAI Hub</span><button id="hub-close" class="icon-btn">×</button></header><div id="hub-body"></div></div></div>
 
 <script src="markdown.js"></script>
 <script src="i18n.js"></script>
