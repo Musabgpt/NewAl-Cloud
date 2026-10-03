@@ -37,7 +37,9 @@ jobs:
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
       - name: Prepare exact Action #43 Android runtime
-        run: android-lite/native/prepare.sh arm64-v8a x86_64
+        run: |
+          chmod +x android-lite/native/prepare.sh
+          android-lite/native/prepare.sh arm64-v8a x86_64
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
