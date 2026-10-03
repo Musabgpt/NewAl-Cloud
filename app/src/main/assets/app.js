@@ -2073,6 +2073,15 @@
   function hubAction(action) {
     if (action === "pickFiles") return NewAlPhone.pickFiles();
     if (action === "pickFolder") return NewAlPhone.pickFolder();
+    if (action === "createFile") {
+      const name = prompt("File name", "index.html");
+      if (!name) return;
+      const content = prompt("File content", "");
+      if (content == null) return;
+      const ext=(name.split(".").pop()||"txt").toLowerCase();
+      const mime=({html:"text/html",htm:"text/html",md:"text/markdown",py:"text/x-python",js:"text/javascript",json:"application/json",css:"text/css",xml:"application/xml",csv:"text/csv",txt:"text/plain"}[ext]||"text/plain");
+      return NewAlPhone.createFile(name,mime,content);
+    }
     if (action === "drive") return hubOpenApp("com.google.android.apps.docs","https://drive.google.com/");
     if (action === "termux") return hubOpenApp("com.termux","https://termux.dev/");
     if (action === "newThread") { newThread(); return; }
