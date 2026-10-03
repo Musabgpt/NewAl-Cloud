@@ -163,6 +163,19 @@ final class WebBridge {
         }
     }
 
+    /** Runs one approved background command in Termux. Used for browser-based OAuth such as GitHub gh auth login. */
+    @JavascriptInterface
+    public String termuxRun(String command) {
+        if (command == null || command.trim().isEmpty()) return "empty command";
+        if (!Termux.allowed(act)) return "not allowed";
+        try {
+            Termux.run(act, command);
+            return "started";
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        }
+    }
+
     /** Speech to text for the composer: Android's recognizer (lang: "" for the phone's language). */
     @JavascriptInterface
     public void listen(String lang) {
