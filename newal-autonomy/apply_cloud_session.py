@@ -41,6 +41,24 @@ post_insert = '''            if path == "/api/models/add":
                 return self._json({"ok": True, "id": mid})
             if path == "/api/cloud/workspace":
                 return self._json(_create_cloud_workspace(b.get("title") or "New cloud workspace"))
+            if path == "/api/connectors/start":
+                cid = str(b.get("id") or "")
+                cat = _connector_catalog().get(cid)
+                if not cat:
+                    return self._json({"error": "Connector requires official setup; no endpoint is configured for " + cid}, 400)
+                if cid == "github":
+                    try:
+                        from . import github
+                        a = github.account()
+                        if a.get("connected"):
+                            return self._json({"connected": True, "login": a.get("login","")})
+                    except Exception:
+                        pass
+                return self._json({"connected": False, "available": True, "url": cat["url"],
+                                   "message": "MCP OAuth endpoint is configured. Browser authorization must be completed by the MCP OAuth bridge; no token field is used."})
+            if path == "/api/connectors/status":
+                cid = str(q.get("id") or "")
+                return self._json(_connector_status().get(cid) or {})
             if path == "/api/cloud" or path.startswith("/api/cloud/"):'''
 if post_anchor not in text:
     raise SystemExit("POST cloud anchor changed; refusing to patch")
@@ -72,6 +90,18 @@ def _create_cloud_workspace(title):
         encoding="utf-8")
     return {"id": wid, "root": str(d), "title": _safe_title(title), "cloud": True}
 
+def _connector_catalog():
+    return {
+        "github": {"url": "https://api.githubcopilot.com/mcp/", "auth": "oauth"},
+        "google-drive": {"url": "https://drivemcp.googleapis.com/mcp/v1", "auth": "oauth"},
+        "gmail": {"url": "https://gmailmcp.googleapis.com/mcp/v1", "auth": "oauth"},
+        "google-calendar": {"url": "https://calendarmcp.googleapis.com/mcp/v1", "auth": "oauth"},
+        "google-docs": {"url": "https://docsmcp.googleapis.com/mcp/v1", "auth": "oauth"},
+        "google-sheets": {"url": "https://sheetsmcp.googleapis.com/mcp/v1", "auth": "oauth"},
+        "figma": {"url": "https://mcp.figma.com/mcp", "auth": "oauth"},
+        "notion": {"url": "https://mcp.notion.com/mcp", "auth": "oauth"},
+    }
+
 def _connector_status():
     try:
         from . import github
@@ -79,16 +109,20 @@ def _connector_status():
         gh = bool(a.get("connected"))
     except Exception:
         gh = False
-    ids = [
-        "github","google-drive","gmail","google-calendar","google-docs","google-sheets","notion",
-        "figma","gitlab","slack","discord","dropbox","onedrive","outlook","teams","trello",
-        "linear","jira","asana","replit","kaggle","hugging-face","vercel","netlify","firebase",
-        "supabase","sentry"
+    catalog = _connector_catalog()
+    ids = list(catalog) + [
+        "gitlab","slack","discord","dropbox","onedrive","outlook","teams","trello",
+        "linear","jira","asana","replit","kaggle","hugging-face","vercel","netlify",
+        "firebase","supabase","sentry"
     ]
-    return {i: {"connected": gh if i == "github" else False,
-                "kind": "github-cli-oauth" if i == "github" else "oauth",
-                "configured": True if i == "github" else False}
-            for i in ids}
+    out = {}
+    for i in ids:
+        configured = i in catalog
+        out[i] = {"connected": gh if i == "github" else False,
+                  "kind": "mcp-oauth" if configured else "oauth",
+                  "configured": configured,
+                  "available": configured}
+    return out
 
 def _cloud_workspaces():
     base = _cloud_root()
