@@ -141,10 +141,10 @@ final class Setup {
         File cfg = new File(home, ".newal-code/config.json");
         if (!cfg.exists()) {
             cfg.getParentFile().mkdirs();
-            write(cfg, "{\\n" +
-                    " \\"model\\": \\"kilo-auto/free\\",\\n" +
-                    " \\"models\\": { \\"kilo-auto/free\\": {\\"id\\":\\"kilo-auto/free\\",\\"name\\":\\"FreeLLMAPI • Auto Free\\",\\"provider\\":\\"openai\\",\\"base_url\\":\\"https://api.kilo.ai/api/gateway\\",\\"model\\":\\"kilo-auto/free\\",\\"api_key\\":\\"\\",\\"context\\":256000} },\\n" +
-                    " \\"mode\\": \\"auto-edit\\", \\"verify\\": true, \\"test_after_edit\\": true, \\"auto_context\\": true, \\"web\\": true\\n}");
+            write(cfg, "{\n" +
+                    " \"model\": \"kilo-auto/free\",\n" +
+                    " \"models\": { \"kilo-auto/free\": {\"id\":\"kilo-auto/free\",\"name\":\"FreeLLMAPI • Auto Free\",\"provider\":\"openai\",\"base_url\":\"https://api.kilo.ai/api/gateway\",\"model\":\"kilo-auto/free\",\"api_key\":\"\",\"context\":256000} },\n" +
+                    " \"mode\": \"auto-edit\", \"verify\": true, \"test_after_edit\": true, \"auto_context\": true, \"web\": true\n}");
         }
         // The phone's shared storage: its GGUF files are models once the user lets the app read it.
         env.put("NEWAL_SHARED_STORAGE", android.os.Environment.getExternalStorageDirectory().getPath());
