@@ -138,7 +138,7 @@ final class WebBridge {
             return "not allowed";
         }
         try {
-            Termux.run(act, "newal-termux start");
+            Termux.run(act, "newal-termux-preview start");
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());

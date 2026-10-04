@@ -9,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.newal.code.lite"
+        applicationId = "dev.newal.code.lite.connectors"
         minSdk = 26
         targetSdk = 35
         versionCode = (System.getenv("NEWAL_BUILD") ?: "1").toInt()

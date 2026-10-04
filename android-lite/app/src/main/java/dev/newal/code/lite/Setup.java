@@ -30,7 +30,7 @@ import java.util.zip.ZipInputStream;
  * WebView shows its interface, as on a computer.
  */
 final class Setup {
-    static final int PORT = 8790;
+    static final int PORT = 8795;
 
     final Context ctx;
     final File files, home, python, app, bin, log;
@@ -137,6 +137,8 @@ final class Setup {
         env.put("NEWAL_PHONE_URL", "http://127.0.0.1:" + PhoneServer.PORT);
         env.put("NEWAL_PHONE_KEY", key());
         env.put("NEWAL_TERMUX_PORT", String.valueOf(Termux.PORT));
+        env.put("NEWAL_PHONE_PORT", String.valueOf(PhoneServer.PORT));
+        env.put("NEWAL_TERMUX_PROFILE", "preview");
         // NewAl-Cloud: Action #43 agent/runtime is unchanged; only the model/API heart is replaced.
         File cfg = new File(home, ".newal-code/config.json");
         if (!cfg.exists()) {

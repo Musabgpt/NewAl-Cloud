@@ -22,6 +22,9 @@ def apply(root):
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
+    # Preview coexists with #125, including its optional legacy Termux engine.
+    replace(package / "termux.py", 'PHONE_PORT = 8793', 'PHONE_PORT = int(os.environ.get("NEWAL_PHONE_PORT") or 8793)')
+    replace(package / "termux.py", '    return SCRIPT.replace("@KEY@", _sh(key))', '    script = SCRIPT\n    if os.environ.get("NEWAL_TERMUX_PROFILE") == "preview":\n        script = script.replace(".newal-code", ".newal-code-preview").replace("newal-termux", "newal-termux-preview").replace(\'$PREFIX/bin/newal"\', \'$PREFIX/bin/newal-preview"\')\n        script = script.replace("export PYTHONPATH=", "export NEWAL_TERMUX_PROFILE=preview NEWAL_TERMUX_PORT=8798 NEWAL_PHONE_PORT=8796 PYTHONPATH=")\n    return script.replace("@KEY@", _sh(key))')
     replace(package / "tools.py", "# ------------------------------------------------------------------ tool sets\n", "# MUSAB_CONNECTORS_V1: register after Tool/registry definitions\nfrom . import connectors as _connectors\n\n# ------------------------------------------------------------------ tool sets\n")
     replace(package / "agent.py", "        return self._schemas\n", """        from . import connectors
         available = connectors.names()

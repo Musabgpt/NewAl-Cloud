@@ -17,7 +17,7 @@ import java.net.Socket;
 final class Termux {
     static final String PKG = "com.termux";
     static final String PERMISSION = "com.termux.permission.RUN_COMMAND";
-    static final int PORT = 8791;
+    static final int PORT = 8798;
     private static final String BASH = "/data/data/com.termux/files/usr/bin/bash";
 
     private Termux() {

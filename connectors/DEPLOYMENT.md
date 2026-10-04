@@ -113,3 +113,9 @@ the expected stdout and exit code zero produces Connected.
 Offline mock tests are evidence for code contracts. They are **not evidence that
 live OAuth registrations, remote hosting, Android device tests or all providers are
 working**. Until those gates pass this is a development build, not a completed release.
+
+## Preview installation and signing
+
+This build uses package `dev.newal.code.lite.connectors`, label MusabAI Preview, and ports 8795 (engine), 8796 (phone bridge), 8798 (optional Termux engine). It installs beside Action #125; existing app data stays in its original package. The optional Termux setup uses `.newal-code-preview` and commands `newal-preview` / `newal-termux-preview`. No automatic data migration is performed.
+
+The build runner debug signing certificate differs from #125. A direct update of the original package requires the original private signing key. A stable owner-controlled release signing key must be configured before distributing upgradeable releases; this preview is a test artifact.
