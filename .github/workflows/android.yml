@@ -40,6 +40,8 @@ jobs:
           npm test --prefix connectors
       - name: Install test runner
         run: python3 -m pip install pytest
+      - name: Install PDF reader for the packaged engine
+        run: python3 -m pip install --no-deps --target /tmp/newal-pdf pypdf==5.9.0
       - name: Install Android SDK
         run: |
           SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
@@ -77,6 +79,7 @@ jobs:
           NEWAL_TEST_WATCHDOG: "180"
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Download exact Action 125 native baseline
         uses: actions/download-artifact@v4

@@ -129,7 +129,17 @@ final class Setup {
         Map<String, String> env = pb.environment();
         env.put("HOME", home.getPath());
         env.put("PYTHONHOME", python.getPath());
-        env.put("PYTHONPATH", app.getPath());
+        String enginePath = app.getPath();
+        File active = new File(home, ".newal-code/evolution/active.json");
+        if (active.isFile()) {
+            try {
+                File candidate = new File(new org.json.JSONObject(read(active)).getString("path")).getCanonicalFile();
+                String allowed = new File(home, ".newal-code/evolution/candidates").getCanonicalPath() + File.separator;
+                if (candidate.getPath().startsWith(allowed) && new File(candidate, "newal_code/server.py").isFile())
+                    enginePath = candidate.getPath() + File.pathSeparator + enginePath;
+            } catch (Exception ignored) { } // malformed selection falls back to the packaged engine
+        }
+        env.put("PYTHONPATH", enginePath);
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());

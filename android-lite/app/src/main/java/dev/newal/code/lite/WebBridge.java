@@ -198,6 +198,11 @@ final class WebBridge {
         return Shared.takeAction();
     }
 
+    @JavascriptInterface
+    public void saveDocument(String url, String name, String mime) {
+        act.runOnUiThread(() -> act.saveDocument(url, name, mime));
+    }
+
     /** What another app shared ({"text", "files"}), once; "" when nothing. */
     @JavascriptInterface
     public String takeShared() {

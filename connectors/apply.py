@@ -20,12 +20,15 @@ def apply(root):
     package = root / "desktop/newal_code"
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
+    for name in ("documents", "evolution", "document_tests", "evolution_tests"):
+        shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
+    shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
     replace(package / "termux.py", 'PHONE_PORT = 8793', 'PHONE_PORT = int(os.environ.get("NEWAL_PHONE_PORT") or 8793)')
     replace(package / "termux.py", '    return SCRIPT.replace("@KEY@", _sh(key))', '    script = SCRIPT\n    if os.environ.get("NEWAL_TERMUX_PROFILE") == "preview":\n        script = script.replace(".newal-code", ".newal-code-preview").replace("newal-termux", "newal-termux-preview").replace(\'$PREFIX/bin/newal"\', \'$PREFIX/bin/newal-preview"\')\n        script = script.replace("export PYTHONPATH=", "export NEWAL_TERMUX_PROFILE=preview NEWAL_TERMUX_PORT=8798 NEWAL_PHONE_PORT=8796 PYTHONPATH=")\n    return script.replace("@KEY@", _sh(key))')
-    replace(package / "tools.py", "# ------------------------------------------------------------------ tool sets\n", "# MUSAB_CONNECTORS_V1: register after Tool/registry definitions\nfrom . import connectors as _connectors\n\n# ------------------------------------------------------------------ tool sets\n")
+    replace(package / "tools.py", "# ------------------------------------------------------------------ tool sets\n", "# MUSAB_CONNECTORS_V1: register after Tool/registry definitions\nfrom . import connectors as _connectors\nfrom . import documents as _documents, evolution as _evolution\n\n# ------------------------------------------------------------------ tool sets\n")
     replace(package / "agent.py", "        return self._schemas\n", """        from . import connectors
         available = connectors.names()
         allowed = (self.agent_def or {}).get("tools")
@@ -46,19 +49,26 @@ def apply(root):
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
             return self._json({"ok": True})
-        from . import connectors
+        from . import connectors, documents, evolution
+        if documents.route(self, "GET", path) or evolution.route(self, "GET", path):
+            return
         if connectors.route(self, "GET", path):
             return
         svc = self.service
 ''')
     replace(package / "server.py", '        b = self._body()\n        svc = self.service\n', '''        b = self._body()
-        from . import connectors
+        from . import connectors, documents, evolution
+        if documents.route(self, "POST", path, b) or evolution.route(self, "POST", path, b):
+            return
         if connectors.route(self, "POST", path, b):
             return
         svc = self.service
 ''')
     replace(package / "ui/index.html", '<link rel="stylesheet" href="style.css">', '<link rel="stylesheet" href="style.css">\n<link rel="stylesheet" href="connectors.css">')
-    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>')
+    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>')
+    replace(package / "tools.py", '    names += ["memory_recall", "self_evolve"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES\n')
+    replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')
+    replace(package / "agent.py", '        parts.append(text)\n', '        parts.append("For document tasks use document_create/read/download and archive_pack/extract. Save a real file and report its path; do not claim a file exists without checking. For self-improvement use self_evolve, edit the isolated candidate, then self_evolve_verify. Never claim an untested candidate improved intelligence. Remember supported preferences with memory_learn.")\n        parts.append(text)\n')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });

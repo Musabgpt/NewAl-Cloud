@@ -88,7 +88,7 @@ class MemoryStore:
             self.db.commit()
 
     def recall(self, query="", limit=12):
-        terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_\-]{3,}", query or "")[:8]]
+        terms = [t.lower() for t in re.findall(r"[\w\-]{2,}", query or "")[:8]]
         with self.lock:
             rows = self.db.execute(
                 "SELECT topic,lesson,evidence,hits,last_used FROM learnings "

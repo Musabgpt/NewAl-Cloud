@@ -30,6 +30,8 @@ public class MainActivity extends Activity {
     static final int PICK_MODEL = 7;
     static final int VOICE = 8;
     static final int FILES = 9;
+    static final int SAVE_DOCUMENT = 10;
+    private java.io.File saveTemp;
     private android.webkit.ValueCallback<Uri[]> files;
     private static final String HOME = "http://127.0.0.1:" + Setup.PORT + "/";
     private FrameLayout root;
@@ -80,6 +82,11 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
+                if ("newal".equals(u.getScheme()) && "original".equals(u.getHost())) {
+                    new java.io.File(new Setup(MainActivity.this).home, ".newal-code/evolution/active.json").delete();
+                    startAgent(true);
+                    return true;
+                }
                 if ("newal".equals(u.getScheme()) && "retry".equals(u.getHost())) {
                     startAgent(true);
                     return true;
@@ -239,7 +246,7 @@ public class MainActivity extends Activity {
                 + ";color:" + (night ? "#ececf0" : "#222") + "'><h2>" + Html.escapeHtml(title)
                 + "</h2><pre style='white-space:pre-wrap;color:" + (night ? "#a9a9b2" : "#555") + "'>"
                 + Html.escapeHtml(text) + "</pre>"
-                + (retry ? "<a href='newal://retry' style='display:inline-block;padding:14px 24px;background:#90d8b0;color:#10141d;border-radius:12px;text-decoration:none'>إعادة المحاولة</a>" : "")
+                + (retry ? "<a href='newal://retry' style='display:inline-block;padding:14px 24px;background:#90d8b0;color:#10141d;border-radius:12px;text-decoration:none'>إعادة المحاولة</a><p><a href='newal://original'>الرجوع للمحرّك الأصلي</a></p>" : "")
                 + "</body></html>";
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
@@ -268,10 +275,61 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> web.evaluateJavascript(js, null));
     }
 
+    void saveDocument(String url, String name, String mime) {
+        Uri uri = Uri.parse(url);
+        if (!"http".equals(uri.getScheme()) || !"127.0.0.1".equals(uri.getHost()) || uri.getPort() != Setup.PORT
+                || !"/api/documents/download".equals(uri.getPath())) return;
+        if (saveTemp != null) return;
+        java.io.File temp;
+        try { temp = java.io.File.createTempFile("document-", ".tmp", getCacheDir()); saveTemp = temp; }
+        catch (Exception e) { return; }
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setInstanceFollowRedirects(false); conn.setConnectTimeout(15000); conn.setReadTimeout(30000);
+                conn.setRequestProperty("X-NewAl-Key", key);
+                if (conn.getResponseCode() != 200) throw new java.io.IOException("Download failed");
+                try (java.io.InputStream in = conn.getInputStream(); java.io.OutputStream out = new java.io.FileOutputStream(temp)) {
+                    byte[] buf = new byte[8192]; int total = 0;
+                    for (int n; (n = in.read(buf)) != -1;) {
+                        total += n; if (total > 32 * 1024 * 1024) throw new java.io.IOException("File exceeds 32 MB");
+                        out.write(buf, 0, n);
+                    }
+                }
+                runOnUiThread(() -> {
+                    if (isDestroyed()) { temp.delete(); saveTemp = null; return; }
+                    Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType(mime).putExtra(Intent.EXTRA_TITLE, name.replaceAll("[/\\\\]", "_"));
+                    try { startActivityForResult(pick, SAVE_DOCUMENT); }
+                    catch (Exception e) { temp.delete(); saveTemp = null; }
+                });
+            } catch (Exception e) {
+                temp.delete(); saveTemp = null;
+                runOnUiThread(() -> android.widget.Toast.makeText(this, "تعذّر حفظ الملف: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show());
+            } finally { if (conn != null) conn.disconnect(); }
+        }, "document-save").start();
+    }
+
     /** A GGUF file the user picked (the Models page's "Copy a GGUF into the app"): copied into the models folder. */
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == SAVE_DOCUMENT && saveTemp != null) {
+            java.io.File source = saveTemp;
+            if (result != RESULT_OK || data == null || data.getData() == null) { source.delete(); saveTemp = null; return; }
+            Uri destination = data.getData();
+            new Thread(() -> {
+                try (java.io.InputStream in = new java.io.FileInputStream(source);
+                     java.io.OutputStream out = getContentResolver().openOutputStream(destination)) {
+                    if (out == null) throw new java.io.IOException("Cannot open destination");
+                    byte[] buf = new byte[8192]; for (int n; (n = in.read(buf)) != -1;) out.write(buf, 0, n);
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, "تم حفظ الملف", android.widget.Toast.LENGTH_LONG).show());
+                } catch (Exception e) {runOnUiThread(() -> android.widget.Toast.makeText(this, "تعذّر حفظ الملف", android.widget.Toast.LENGTH_LONG).show());}
+                finally { source.delete(); saveTemp = null; }
+            }, "document-copy").start();
+            return;
+        }
         if (request == PICK_MODEL && result == RESULT_OK && data != null && data.getData() != null) {
             ModelImport.start(this, web, data.getData());
         }

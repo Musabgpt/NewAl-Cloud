@@ -32,6 +32,12 @@ def package(apk_path, root):
         for file in sorted(source.rglob("*")):
             if file.is_file() and "__pycache__" not in file.parts:
                 engine.write(file, "newal_code/" + file.relative_to(source).as_posix())
+        vendor = Path("/tmp/newal-pdf/pypdf")
+        if not vendor.is_dir():
+            raise SystemExit("Pinned PDF reader must be installed before packaging")
+        for file in sorted(vendor.rglob("*")):
+            if file.is_file() and "__pycache__" not in file.parts:
+                engine.write(file, "pypdf/" + file.relative_to(vendor).as_posix())
     print("Exact Action 125 native baseline retained; current tested engine packaged")
 
 
