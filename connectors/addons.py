@@ -109,6 +109,9 @@ def static_site_build(ctx, folder, files):
 
 def route(handler, method, path, body=None):
     if path != "/api/extensions": return False
+    # The original engine owns /api/extensions for its built-in marketplace.
+    # The MusabAI directory uses an explicit query flag so that endpoint stays intact.
+    if method == "GET" and handler._query().get("directory") != "1": return False
     if method != "GET": handler._json({"error":"Not found"},404); return True
     handler._json({"ok":True,"extensions":DIRECTORY,"policy":"External services are shown as unavailable until a real credential/API test succeeds."})
     return True

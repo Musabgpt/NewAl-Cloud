@@ -40,7 +40,7 @@
     requesting = true;
     const list = document.querySelector("#connector-list"), message = document.querySelector("#connector-message");
     try {
-      const [result, extensionResult] = await Promise.all([api("/api/connectors"), api("/api/extensions")]);
+      const [result, extensionResult] = await Promise.all([api("/api/connectors"), api("/api/extensions?directory=1")]);
       if (!active) return;
       document.querySelector("#connector-heading").textContent = tr("MusabAI connections", "اتصالات MusabAI");
       document.querySelector("#connector-intro").textContent = tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي.");
