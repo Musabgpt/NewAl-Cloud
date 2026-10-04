@@ -100,7 +100,7 @@ jobs:
           gradle-version: "8.7"
       - name: Build exact Action #43 APK
         run: |
-          gradle -p android-lite :app:assembleRelease --stacktrace
+          gradle -p android-lite :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
           cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
           ls -lh MusabAI-Connectors.apk

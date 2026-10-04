@@ -45,7 +45,7 @@
       document.querySelector("#connector-heading").textContent = tr("MusabAI connections", "اتصالات MusabAI");
       document.querySelector("#connector-intro").textContent = tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي.");
       document.querySelector("#open-connectors").textContent = tr("Connections", "الاتصالات");
-      const view = JSON.stringify([ar(), result.connectors]);
+      const view = JSON.stringify([ar(), result.connectors, extensionResult.extensions]);
       if (lastView === view && !pending) {
         list.querySelectorAll("button").forEach(button => { button.disabled = button.dataset.disabled === "true"; });
         return;
@@ -60,6 +60,8 @@
         const label = labels[item.status] || [item.status, item.status];
         detail.append(element("div", tr(...label), "connector-state " + (item.status === "connected" ? "connected" : "")));
         if (item.account) detail.append(element("div", item.account, "muted"));
+        if (item.transport === "mcp" && item.status === "connected")
+          detail.append(element("div", tr("Available tools: ", "الأدوات المتاحة: ") + item.tool_count, "muted"));
         if (item.scopes) { const scopes = element("details"); scopes.append(element("summary", tr("Granted scopes", "الصلاحيات الممنوحة")), element("small", item.scopes)); detail.append(scopes); }
         if (item.error) detail.append(element("div", errorText(item.error), "muted"));
         row.append(detail);
@@ -97,6 +99,8 @@
       if (extensionList) {
         extensionList.replaceChildren();
         for (const item of extensionResult.extensions || []) {
+          const provider = ["notion", "gitlab"].includes(item.id) ? item.id + "mcp" : item.id;
+          if (result.connectors.some(account => account.id === provider)) continue;
           const row = element("section", "", "connector-card extension-card"), detail = element("div");
           detail.append(element("strong", item.name));
           const ready = item.status === "ready";
@@ -157,7 +161,7 @@
     const message = element("p"); message.id = "connector-message"; message.setAttribute("role", "status"); card.append(message);
     const list = element("div"); list.id = "connector-list"; card.append(list); dialog.append(card); document.body.append(dialog);
     card.append(element("h3", tr("Real extensions", "الإضافات الحقيقية")));
-    card.append(element("p", tr("Only built-ins are ready now. External services appear here only after their real API/OAuth setup and test.", "الأدوات المدمجة جاهزة الآن فقط. الخدمات الخارجية لا تصبح متاحة إلا بعد إعداد API/OAuth واختبار حقيقي."), "muted"));
+    card.append(element("p", tr("Connect services above to add their available tools. Built-in tools below need no account.", "اربط الخدمات بالأعلى لإضافة أدواتها المتاحة. الأدوات المدمجة أدناه لا تحتاج حسابًا."), "muted"));
     const extensionList = element("div"); extensionList.id = "extension-list"; card.append(extensionList);
     dialog.addEventListener("keydown", event => {
       if (event.key === "Escape") { event.stopPropagation(); close(); }

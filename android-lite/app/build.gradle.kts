@@ -2,6 +2,11 @@ plugins {
     id("com.android.application")
 }
 
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+}
+
 // The native programs (python, llama-server) and the assets (Python's library, NewAl Code) are made by
 // native/prepare.sh into src/main/jniLibs and build/generated/assets; see README.md.
 android {

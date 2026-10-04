@@ -30,8 +30,8 @@ final class Connectors {
     private JSONObject deployed = new JSONObject();
     private long catalogChecked;
     private String catalogError = "";
-    private static final String[] IDS = {"github", "gitlab", "drive", "gmail", "calendar", "docs", "sheets", "notion", "figma"};
-    private static final String[] NAMES = {"GitHub", "GitLab", "Google Drive", "Gmail", "Google Calendar", "Google Docs", "Google Sheets", "Notion", "Figma"};
+    private static final String[] IDS = {"github", "gitlab", "drive", "gmail", "calendar", "docs", "sheets", "notion", "figma", "notionmcp", "netlify", "miro", "huggingface", "gitlabmcp"};
+    private static final String[] NAMES = {"GitHub", "GitLab API", "Google Drive", "Gmail", "Google Calendar", "Google Docs", "Google Sheets", "Notion API", "Figma", "Notion", "Netlify", "Miro", "Hugging Face", "GitLab"};
 
     private Connectors(Context c) throws Exception {
         ctx = c;
@@ -68,11 +68,12 @@ final class Connectors {
         if (op.equals("connect")) return self.connect(provider);
         if (op.equals("disconnect")) {
             // Cancels pending handoffs as well; removing credentials is immediate.
-            synchronized (self) { self.vault.remove(provider); }
+            synchronized (self) { self.vault.remove(provider); ConnectorMcp.forget(provider); }
             return new JSONObject().put("ok", true).put("revoked_locally", true)
                     .put("text", "Disconnected on this device. Revoke the application's grant in the provider's account settings to remove provider access.");
         }
         if (op.equals("test")) return self.testChecked(provider);
+        if (op.equals("mcp_tools") || op.equals("mcp_call")) return self.mcp(provider, op, a);
         if (op.equals("request")) return self.api(provider, a, true);
         throw new IllegalArgumentException("Unknown connector operation");
     }
@@ -92,6 +93,8 @@ final class Connectors {
         }
         JSONArray list = new JSONArray();
         for (int i = 0; i < IDS.length; i++) {
+            // Prefer Notion's registered official MCP client, retaining existing REST grants.
+            if ((IDS[i].equals("notion") || IDS[i].equals("gitlab")) && deployed.optBoolean(IDS[i] + "mcp") && !vault.get(IDS[i]).has("access_token")) continue;
             JSONObject rec = vault.get(IDS[i]);
             boolean configured = !broker.isEmpty() && deployed.optBoolean(IDS[i]);
             String state = rec.optString("status", configured ? "disconnected" : "not_configured");
@@ -101,7 +104,9 @@ final class Connectors {
             list.put(new JSONObject().put("id", IDS[i]).put("name", NAMES[i]).put("status", state)
                     .put("account", rec.optString("account")).put("scopes", rec.optString("scope"))
                     .put("error", rec.optString("error", configured ? "" : catalogError.isEmpty() ? "OAuth application deployment required" : catalogError))
-                    .put("configured", configured).put("has_credentials", rec.has("access_token")).put("tested_at", rec.optLong("tested_at")));
+                    .put("configured", configured).put("has_credentials", rec.has("access_token")).put("tested_at", rec.optLong("tested_at"))
+                    .put("transport", ConnectorMcp.supports(IDS[i]) ? "mcp" : "rest")
+                    .put("generation", rec.optString("generation")).put("tool_count", rec.optInt("tool_count")));
         }
         JSONObject termux = vault.get("termux");
         boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
@@ -143,9 +148,13 @@ final class Connectors {
 
     private static String authHost(String provider) {
         if (provider.equals("github")) return "github.com";
-        if (provider.equals("gitlab")) return "gitlab.com";
+        if (provider.equals("gitlab") || provider.equals("gitlabmcp")) return "gitlab.com";
         if (provider.equals("notion")) return "api.notion.com";
         if (provider.equals("figma")) return "www.figma.com";
+        if (provider.equals("notionmcp")) return "mcp.notion.com";
+        if (provider.equals("netlify")) return "mcp.netlify.com";
+        if (provider.equals("miro")) return "mcp.miro.com";
+        if (provider.equals("huggingface")) return "huggingface.co";
         return "accounts.google.com";
     }
 
@@ -248,6 +257,19 @@ final class Connectors {
     private JSONObject test(String provider) throws Exception {
         JSONObject rec = vault.get(provider);
         if (!rec.has("access_token")) throw new IllegalStateException("Connect this account first");
+        if (ConnectorMcp.supports(provider)) {
+            JSONObject catalog = mcp(provider, "mcp_tools", new JSONObject()).getJSONObject("data");
+            int count = catalog.getJSONArray("tools").length();
+            if (count == 0) throw new IllegalStateException("Service did not provide any tools");
+            synchronized (this) {
+                JSONObject current = vault.get(provider);
+                if (!current.has("access_token") || !current.optString("generation").equals(rec.optString("generation")))
+                    throw new IllegalStateException("Connection was removed during verification");
+                current.put("status", "connected").put("tool_count", count).put("tested_at", System.currentTimeMillis());
+                current.remove("error"); vault.put(provider, current);
+            }
+            return new JSONObject().put("ok", true).put("status", "connected").put("tool_count", count);
+        }
         String path;
         switch (provider) {
             case "github": path = "/user"; break;
@@ -293,6 +315,34 @@ final class Connectors {
             vault.put(provider, current);
         }
         return new JSONObject().put("ok", true).put("status", "connected");
+    }
+
+    private synchronized JSONObject freshCredentials(String provider) throws Exception {
+        JSONObject rec = vault.get(provider);
+        if (!rec.has("access_token")) throw new IllegalStateException("Account is disconnected");
+        if (rec.optLong("expires_at") > 0 && rec.optLong("expires_at") < System.currentTimeMillis() + 30000) {
+            refresh(provider); rec = vault.get(provider);
+        }
+        return rec;
+    }
+
+    private JSONObject mcp(String provider, String op, JSONObject args) throws Exception {
+        if (!ConnectorMcp.supports(provider)) throw new IllegalArgumentException("Provider does not use MCP");
+        JSONObject rec = freshCredentials(provider);
+        try {
+            JSONObject data = op.equals("mcp_tools") ? ConnectorMcp.tools(provider, rec.getString("access_token")) :
+                    ConnectorMcp.call(provider, rec.getString("access_token"), args.getString("name"), args.optJSONObject("arguments"));
+            return new JSONObject().put("ok", true).put("data", data);
+        } catch (ConnectorMcp.Failure failure) {
+            if (failure.status == 401) synchronized (this) {
+                JSONObject current = vault.get(provider);
+                if (current.has("access_token") && current.optString("generation").equals(rec.optString("generation"))) {
+                    current.put("status", "reauthorize").put("error", "Account verification failed; test again or reconnect");
+                    vault.put(provider, current);
+                }
+            }
+            throw failure;
+        }
     }
 
     private JSONObject api(String provider, JSONObject args, boolean retry) throws Exception {

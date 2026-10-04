@@ -4,9 +4,12 @@ Each operation has a fixed provider/method/path and a permission kind. API URLs,
 authorization headers and access tokens are never supplied by the model.
 """
 import base64
+import hashlib
 import json
 import os
+import re
 import secrets
+import threading
 import time
 import urllib.parse
 from email.message import EmailMessage
@@ -14,8 +17,12 @@ from . import phone, settings, tools
 
 CATALOG = {"github": "GitHub", "gitlab": "GitLab", "drive": "Google Drive", "gmail": "Gmail",
            "calendar": "Google Calendar", "docs": "Google Docs", "sheets": "Google Sheets",
-           "notion": "Notion", "figma": "Figma", "termux": "Termux"}
+           "notion": "Notion API", "figma": "Figma", "termux": "Termux",
+           "notionmcp": "Notion", "netlify": "Netlify", "miro": "Miro", "huggingface": "Hugging Face", "gitlabmcp": "GitLab"}
 _cache = (0, [])
+MCP_PROVIDERS = {"notionmcp", "netlify", "miro", "huggingface", "gitlabmcp"}
+_mcp_cache = {}
+_mcp_lock = threading.RLock()
 
 
 def native(op, **args):
@@ -38,8 +45,17 @@ def names():
         return []
     if time.monotonic() - _cache[0] > 5:
         try:
-            connected = {c["id"] for c in status()["connectors"] if c["status"] == "connected"}
-            _cache = (time.monotonic(), [n for n, spec in OPERATIONS.items() if spec[0] in connected])
+            accounts = [c for c in status()["connectors"] if c["status"] == "connected"]
+            connected = {c["id"] for c in accounts}
+            native_names = [n for n, spec in list(OPERATIONS.items()) if spec[0] in connected and spec[0] not in MCP_PROVIDERS]
+            for account in accounts:
+                if account["id"] in MCP_PROVIDERS:
+                    try:
+                        native_names.extend(mcp_names(account))
+                    except Exception:
+                        # One unavailable service must not hide working GitHub/Termux tools.
+                        continue
+            _cache = (time.monotonic(), native_names)
         except Exception:
             _cache = (time.monotonic(), [])
     return list(_cache[1])
@@ -65,6 +81,58 @@ def segment(value):
 S = lambda description: {"type": "string", "description": description}
 OBJ = {"type": "object", "description": "Fields accepted by the service's official API"}
 OPERATIONS = {}
+
+
+class OfficialMcpTool(tools.Tool):
+    def __init__(self, name, provider, definition):
+        self.input_schema = definition["inputSchema"]
+        remote_name = definition["name"]
+
+        def run(ctx, **arguments):
+            data = native("mcp_call", provider=provider, name=remote_name, arguments=arguments)["data"]
+            if data.get("isError"):
+                raise tools.ToolError(tools.clip(json.dumps(data, ensure_ascii=False), 16000))
+            return tools.clip(json.dumps(data, ensure_ascii=False), 32000), {"connector": provider, "operation": remote_name}
+
+        # Remote annotations are hints, never permission grants. Existing account-write policy applies.
+        super().__init__(name, (CATALOG[provider] + ": " + definition.get("description", remote_name))[:4000],
+                         self.input_schema.get("properties", {}), self.input_schema.get("required", []), "connector_write", run)
+
+    def schema(self):
+        result = super().schema()
+        result["function"]["parameters"] = self.input_schema
+        return result
+
+
+def mcp_names(account):
+    provider = account["id"]
+    if provider not in MCP_PROVIDERS:
+        raise tools.ToolError("Unknown official MCP provider")
+    generation = (account.get("generation", ""), account.get("tested_at", 0))
+    with _mcp_lock:
+        cached = _mcp_cache.get(provider)
+        if cached and cached[0] == generation:
+            return list(cached[1])
+        catalog = native("mcp_tools", provider=provider)["data"].get("tools")
+        if not isinstance(catalog, list) or not 1 <= len(catalog) <= 512:
+            raise tools.ToolError("Connected service returned an invalid tool catalog")
+        prepared = {}
+        for definition in catalog:
+            if not isinstance(definition, dict) or not isinstance(definition.get("name"), str) or not definition["name"]:
+                raise tools.ToolError("Invalid remote tool name")
+            if not isinstance(definition.get("inputSchema"), dict) or definition["inputSchema"].get("type") != "object":
+                raise tools.ToolError("Invalid remote tool input schema")
+            remote = definition["name"]
+            short = re.sub(r"[^a-zA-Z0-9_]", "_", remote)[:24]
+            name = "connected_" + provider + "_" + short + "_" + hashlib.sha256(remote.encode()).hexdigest()[:10]
+            if name in prepared:
+                raise tools.ToolError("Duplicate remote tool name")
+            prepared[name] = OfficialMcpTool(name, provider, definition)
+        for name, tool in prepared.items():
+            tools.REGISTRY[name] = tool
+            OPERATIONS[name] = (provider, "POST", "tools/call")
+        _mcp_cache[provider] = (generation, list(prepared))
+        return list(prepared)
 
 
 def operation(name, provider, method, route, description, params=None, required=None):

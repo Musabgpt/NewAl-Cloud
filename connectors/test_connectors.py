@@ -19,7 +19,7 @@ spec.loader.exec_module(broker)
 
 class OAuthTest(unittest.TestCase):
     def setUp(self):
-        self.env = patch.dict(os.environ, {p + suffix: "test-only" for p in ("GITHUB", "GITLAB", "GOOGLE", "NOTION", "FIGMA") for suffix in ("_CLIENT_ID", "_CLIENT_SECRET")})
+        self.env = patch.dict(os.environ, {p + suffix: "test-only" for p in ("GITHUB", "GITLAB", "GOOGLE", "NOTION", "FIGMA", "NOTION_MCP", "NETLIFY_MCP", "MIRO_MCP", "HF_MCP", "GITLAB_MCP") for suffix in ("_CLIENT_ID", "_CLIENT_SECRET")})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.b = broker.Broker("https://connectors.example.invalid")
@@ -108,6 +108,35 @@ class RuntimeTest(unittest.TestCase):
             names = self.c.names()
             self.assertIn("gmail_send", names)
             self.assertNotIn("github_push", names)
+
+    def test_official_mcp_tools_preserve_schema_and_use_native_vault(self):
+        self.c._cache = (0, [])
+        self.c._mcp_cache.clear()
+        schema = {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"], "additionalProperties": False}
+        account = {"id": "notionmcp", "status": "connected", "generation": "test-grant", "tested_at": 1}
+        catalog = {"data": {"tools": [{"name": "notion-search", "description": "Search pages", "inputSchema": schema}]}}
+        with patch.object(self.c.phone, "available", return_value=True), patch.object(self.c, "status", return_value={"connectors": [account]}), patch.object(self.c, "native", return_value=catalog) as native:
+            names = self.c.names()
+            self.assertEqual(len(names), 1)
+            tool = self.t.REGISTRY[names[0]]
+            self.assertEqual(tool.schema()["function"]["parameters"], schema)
+            self.assertEqual(tool.kind, "connector_write")
+            native.return_value = {"data": {"content": [{"type": "text", "text": "found"}]}}
+            result, meta = tool.fn(None, query="ملاحظات")
+            native.assert_called_with("mcp_call", provider="notionmcp", name="notion-search", arguments={"query": "ملاحظات"})
+            self.assertIn("found", result)
+            native.return_value = {"data": {"isError": True, "content": [{"type": "text", "text": "failed"}]}}
+            with self.assertRaises(self.t.ToolError): tool.fn(None, query="missing")
+            self.c._cache = (0, [])
+            with patch.object(self.c, "status", return_value={"connectors": []}):
+                self.assertEqual(self.c.names(), [])
+
+    def test_unavailable_mcp_service_does_not_hide_github(self):
+        self.c._cache = (0, [])
+        self.c._mcp_cache.clear()
+        accounts = [{"id": "github", "status": "connected"}, {"id": "netlify", "status": "connected"}]
+        with patch.object(self.c.phone, "available", return_value=True), patch.object(self.c, "status", return_value={"connectors": accounts}), patch.object(self.c, "native", side_effect=self.t.ToolError("unavailable")):
+            self.assertIn("github_push", self.c.names())
 
     def test_mime_email_preserves_arabic_and_rejects_header_injection(self):
         with patch.object(self.c, "request", return_value={"id": "sent"}) as req:

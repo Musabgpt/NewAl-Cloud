@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import os
+from pathlib import Path
 import re
 import secrets
 import threading
@@ -19,17 +20,18 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 GOOGLE = ("https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token")
-PROVIDERS = {
-    "github": ("GITHUB", "https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "repo read:user user:email"),
-    "gitlab": ("GITLAB", "https://gitlab.com/oauth/authorize", "https://gitlab.com/oauth/token", "api"),
-    "drive": ("GOOGLE", *GOOGLE, "openid email profile https://www.googleapis.com/auth/drive.file"),
-    "gmail": ("GOOGLE", *GOOGLE, "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose"),
-    "calendar": ("GOOGLE", *GOOGLE, "openid email profile https://www.googleapis.com/auth/calendar"),
-    "docs": ("GOOGLE", *GOOGLE, "openid email profile https://www.googleapis.com/auth/documents"),
-    "sheets": ("GOOGLE", *GOOGLE, "openid email profile https://www.googleapis.com/auth/spreadsheets"),
-    "notion": ("NOTION", "https://api.notion.com/v1/oauth/authorize", "https://api.notion.com/v1/oauth/token", ""),
-    "figma": ("FIGMA", "https://www.figma.com/oauth", "https://api.figma.com/v1/oauth/token", "file_content:read file_comments:read file_comments:write current_user:read"),
-}
+PROVIDERS = json.loads((Path(__file__).parent / "hosted/providers.json").read_text(encoding="utf-8"))
+
+
+def options(provider):
+    spec = PROVIDERS[provider]
+    return spec[4] if len(spec) > 4 else {}
+
+
+def configured(provider):
+    prefix = PROVIDERS[provider][0]
+    return bool(os.environ.get(prefix + "_CLIENT_ID") and
+                (options(provider).get("auth") == "none" or os.environ.get(prefix + "_CLIENT_SECRET")))
 
 
 def challenge(verifier):
@@ -41,11 +43,14 @@ class OAuthError(Exception):
 
 
 def exchange(provider, fields):
-    prefix, _, endpoint, _ = PROVIDERS[provider]
+    prefix, _, endpoint, _ = PROVIDERS[provider][:4]
     client = os.environ.get(prefix + "_CLIENT_ID", "")
     secret = os.environ.get(prefix + "_CLIENT_SECRET", "")
-    if not client or not secret:
+    if not configured(provider):
         raise OAuthError("Provider application is not configured")
+    fields = dict(fields)
+    if options(provider).get("resource"):
+        fields["resource"] = options(provider)["resource"]
     headers = {"Accept": "application/json"}
     if provider == "notion":
         headers["Authorization"] = "Basic " + base64.b64encode((client + ":" + secret).encode()).decode()
@@ -53,7 +58,9 @@ def exchange(provider, fields):
         headers["Notion-Version"] = "2022-06-28"
         data = json.dumps(fields).encode()
     else:
-        fields = dict(fields, client_id=client, client_secret=secret)
+        fields["client_id"] = client
+        if options(provider).get("auth") != "none":
+            fields["client_secret"] = secret
         headers["Content-Type"] = "application/x-www-form-urlencoded"
         data = urllib.parse.urlencode(fields).encode()
     req = urllib.request.Request(endpoint, data, headers)
@@ -84,14 +91,14 @@ class Broker:
                 del self.pending[key]
 
     def catalog(self):
-        return {p: bool(os.environ.get(v[0] + "_CLIENT_ID") and os.environ.get(v[0] + "_CLIENT_SECRET")) for p, v in PROVIDERS.items()}
+        return {p: configured(p) for p in PROVIDERS}
 
     def start(self, provider, proof):
         if provider not in PROVIDERS or not self.catalog()[provider]:
             raise OAuthError("Provider application is not configured")
         if not re.fullmatch(r"[A-Za-z0-9_-]{43}", proof):
             raise OAuthError("Invalid handoff challenge")
-        prefix, authorize, _, scope = PROVIDERS[provider]
+        prefix, authorize, _, scope = PROVIDERS[provider][:4]
         sid = secrets.token_urlsafe(32)
         verifier = secrets.token_urlsafe(48)
         redirect = self.url + "/oauth/callback/" + provider
@@ -105,6 +112,8 @@ class Broker:
         params = dict(client_id=os.environ[prefix + "_CLIENT_ID"], redirect_uri=redirect, response_type="code", state=sid)
         if scope:
             params["scope"] = scope
+        if options(provider).get("resource"):
+            params["resource"] = options(provider)["resource"]
         if provider != "notion":
             params.update(code_challenge=challenge(verifier), code_challenge_method="S256")
         if prefix == "GOOGLE":
