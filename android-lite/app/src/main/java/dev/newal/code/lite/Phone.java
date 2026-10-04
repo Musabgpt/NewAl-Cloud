@@ -72,7 +72,7 @@ final class Phone {
             case "open_app":
                 return openApp(ctx, a.optString("name"));
             case "open_url":
-                return start(ctx, safeUrl(ctx, a.optString("url"))),
+                return start(ctx, safeUrl(ctx, a.optString("url")),
                         "opened " + a.optString("url"));
             case "apps":
                 return apps(ctx);
