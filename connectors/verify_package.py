@@ -3,8 +3,8 @@ import sys
 import zipfile
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
-    required = ["agent.py", "tools.py", "server.py", "plugins.py", "extensions.py", "mcp.py", "session.py",
-                "autonomy.py", "connectors.py", "documents.py", "evolution.py", "document_tests.py", "evolution_tests.py", "ui/workspace.js", "ui/app.js", "ui/connectors.js", "ui/connectors.css"]
+    required = ["agent.py", "tools.py", "server.py", "plugins.py", "addons.py", "mcp.py", "session.py",
+                "autonomy.py", "connectors.py", "documents.py", "evolution.py", "document_tests.py", "evolution_tests.py", "addon_tests.py", "ui/workspace.js", "ui/app.js", "ui/connectors.js", "ui/connectors.css"]
     for path in required:
         assert "newal_code/" + path in archive.namelist(), "Missing packaged feature: " + path
     assert "pypdf/__init__.py" in archive.namelist(), "PDF reader missing from packaged engine"

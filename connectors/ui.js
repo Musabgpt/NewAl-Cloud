@@ -40,7 +40,7 @@
     requesting = true;
     const list = document.querySelector("#connector-list"), message = document.querySelector("#connector-message");
     try {
-      const result = await api("/api/connectors");
+      const [result, extensionResult] = await Promise.all([api("/api/connectors"), api("/api/extensions")]);
       if (!active) return;
       document.querySelector("#connector-heading").textContent = tr("MusabAI connections", "اتصالات MusabAI");
       document.querySelector("#connector-intro").textContent = tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي.");
@@ -64,19 +64,21 @@
         if (item.error) detail.append(element("div", errorText(item.error), "muted"));
         row.append(detail);
         const actions = element("div", "", "connector-actions");
-        const connect = element("button", tr("Connect", "اتصال"), "btn primary");
-        connect.disabled = !item.configured || ["connected", "authorizing", "testing", "unavailable"].includes(item.status);
-        connect.dataset.disabled = String(connect.disabled);
-        connect.dataset.action = "connect:" + item.id;
-        connect.onclick = async () => {
-          if (item.id === "termux" && window.NewAlPhone) {
-            const phone = JSON.parse(NewAlPhone.status());
-            if (!phone.termux.installed) { NewAlPhone.openUrl("https://f-droid.org/packages/com.termux/"); return; }
-            if (!phone.termux.allowed) { NewAlPhone.termuxAllow(); return; }
-          }
-          await action("connect", item.id);
-        };
-        actions.append(connect);
+        if (item.configured || item.id === "termux") {
+          const connect = element("button", tr("Connect", "اتصال"), "btn primary");
+          connect.disabled = ["connected", "authorizing", "testing", "unavailable"].includes(item.status);
+          connect.dataset.disabled = String(connect.disabled);
+          connect.dataset.action = "connect:" + item.id;
+          connect.onclick = async () => {
+            if (item.id === "termux" && window.NewAlPhone) {
+              const phone = JSON.parse(NewAlPhone.status());
+              if (!phone.termux.installed) { NewAlPhone.openUrl("https://f-droid.org/packages/com.termux/"); return; }
+              if (!phone.termux.allowed) { NewAlPhone.termuxAllow(); return; }
+            }
+            await action("connect", item.id);
+          };
+          actions.append(connect);
+        }
         if ((item.id === "termux" || item.has_credentials) && ["connected", "reauthorize", "error"].includes(item.status)) {
           const test = element("button", tr("Test", "اختبار"), "btn");
           test.dataset.action = "test:" + item.id;
@@ -90,6 +92,19 @@
           actions.append(disconnect);
         }
         row.append(actions); list.append(row);
+      }
+      const extensionList = document.querySelector("#extension-list");
+      if (extensionList) {
+        extensionList.replaceChildren();
+        for (const item of extensionResult.extensions || []) {
+          const row = element("section", "", "connector-card extension-card"), detail = element("div");
+          detail.append(element("strong", item.name));
+          const ready = item.status === "ready";
+          detail.append(element("div", ready ? tr("Ready — real built-in tool", "جاهزة — أداة حقيقية مدمجة") : tr("Not configured", "غير مهيأة"), "connector-state " + (ready ? "connected" : "")));
+          detail.append(element("div", item.description || item.requires || "", "muted"));
+          if (!ready && item.requires) detail.append(element("small", tr("Requires: ", "تحتاج: ") + item.requires));
+          row.append(detail); extensionList.append(row);
+        }
       }
       if (focused) [...list.querySelectorAll("button")].find(button => button.dataset.action === focused && !button.disabled)?.focus({preventScroll: true});
       panel.scrollTop = scroll;
@@ -141,6 +156,9 @@
     card.lastElementChild.id = "connector-intro";
     const message = element("p"); message.id = "connector-message"; message.setAttribute("role", "status"); card.append(message);
     const list = element("div"); list.id = "connector-list"; card.append(list); dialog.append(card); document.body.append(dialog);
+    card.append(element("h3", tr("Real extensions", "الإضافات الحقيقية")));
+    card.append(element("p", tr("Only built-ins are ready now. External services appear here only after their real API/OAuth setup and test.", "الأدوات المدمجة جاهزة الآن فقط. الخدمات الخارجية لا تصبح متاحة إلا بعد إعداد API/OAuth واختبار حقيقي."), "muted"));
+    const extensionList = element("div"); extensionList.id = "extension-list"; card.append(extensionList);
     dialog.addEventListener("keydown", event => {
       if (event.key === "Escape") { event.stopPropagation(); close(); }
       if (event.key === "Tab") {
