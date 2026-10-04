@@ -27,6 +27,9 @@ final class Connectors {
     private final ConnectorVault vault;
     private final String broker;
     private final Set<String> polling = new HashSet<>();
+    private JSONObject deployed = new JSONObject();
+    private long catalogChecked;
+    private String catalogError = "";
     private static final String[] IDS = {"github", "gitlab", "drive", "gmail", "calendar", "docs", "sheets", "notion", "figma"};
     private static final String[] NAMES = {"GitHub", "GitLab", "Google Drive", "Gmail", "Google Calendar", "Google Docs", "Google Sheets", "Notion", "Figma"};
 
@@ -58,14 +61,14 @@ final class Connectors {
         if (op.equals("termux_exec")) return TermuxJobs.run(c, a.optString("command"), false);
         if (op.equals("termux_result")) return TermuxJobs.result(c, a.getString("id"));
         if (provider.equals("termux") && op.equals("disconnect")) {
-            self.vault.remove("termux");
+            TermuxJobs.disconnect(c);
             return new JSONObject().put("ok", true);
         }
         valid(provider);
         if (op.equals("connect")) return self.connect(provider);
         if (op.equals("disconnect")) {
             // Cancels pending handoffs as well; removing credentials is immediate.
-            self.vault.remove(provider);
+            synchronized (self) { self.vault.remove(provider); }
             return new JSONObject().put("ok", true).put("revoked_locally", true)
                     .put("text", "Disconnected on this device. Revoke the application's grant in the provider's account settings to remove provider access.");
         }
@@ -75,15 +78,30 @@ final class Connectors {
     }
 
     private JSONObject status() throws Exception {
+        synchronized (this) {
+            if (!broker.isEmpty() && System.currentTimeMillis() - catalogChecked > 60000) {
+                try {
+                    deployed = http(broker + "/v1/catalog", "GET", null, "application/json", null).getJSONObject("providers");
+                    catalogError = "";
+                } catch (Exception e) {
+                    deployed = new JSONObject();
+                    catalogError = "Connector server is unavailable; retry when online";
+                }
+                catalogChecked = System.currentTimeMillis();
+            }
+        }
         JSONArray list = new JSONArray();
         for (int i = 0; i < IDS.length; i++) {
             JSONObject rec = vault.get(IDS[i]);
-            String state = rec.optString("status", broker.isEmpty() ? "not_configured" : "disconnected");
+            boolean configured = !broker.isEmpty() && deployed.optBoolean(IDS[i]);
+            String state = rec.optString("status", configured ? "disconnected" : "not_configured");
+            if (rec.has("access_token") && rec.optLong("expires_at") > 0 && rec.optLong("expires_at") < System.currentTimeMillis() && !rec.has("refresh_token"))
+                state = "reauthorize";
             if (state.equals("authorizing")) resume(IDS[i]);
             list.put(new JSONObject().put("id", IDS[i]).put("name", NAMES[i]).put("status", state)
                     .put("account", rec.optString("account")).put("scopes", rec.optString("scope"))
-                    .put("error", rec.optString("error", broker.isEmpty() ? "OAuth application deployment required" : ""))
-                    .put("configured", !broker.isEmpty()).put("tested_at", rec.optLong("tested_at")));
+                    .put("error", rec.optString("error", configured ? "" : catalogError.isEmpty() ? "OAuth application deployment required" : catalogError))
+                    .put("configured", configured).put("tested_at", rec.optLong("tested_at")));
         }
         JSONObject termux = vault.get("termux");
         boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
@@ -215,6 +233,24 @@ final class Connectors {
             out = new JSONObject().put("data", data);
         } else out = api(provider, new JSONObject().put("method", "GET").put("path", path), true);
         JSONObject data = out.getJSONObject("data");
+        if (java.util.Arrays.asList("drive", "gmail", "calendar", "docs", "sheets").contains(provider)) {
+            String scope;
+            switch (provider) {
+                case "drive": scope = "https://www.googleapis.com/auth/drive.file"; break;
+                case "gmail": scope = "https://www.googleapis.com/auth/gmail.readonly"; break;
+                case "calendar": scope = "https://www.googleapis.com/auth/calendar"; break;
+                case "docs": scope = "https://www.googleapis.com/auth/documents"; break;
+                default: scope = "https://www.googleapis.com/auth/spreadsheets";
+            }
+            if (!java.util.Arrays.asList(rec.optString("scope").split(" ")).contains(scope))
+                throw new IllegalStateException("Required service permission was not granted; reconnect");
+            if (provider.equals("gmail") && !rec.optString("scope").contains("https://www.googleapis.com/auth/gmail.send"))
+                throw new IllegalStateException("Gmail send permission was not granted; reconnect");
+            if (java.util.Arrays.asList("drive", "gmail", "calendar").contains(provider)) {
+                String check = provider.equals("drive") ? "/drive/v3/files?pageSize=1&fields=files(id)" : provider.equals("gmail") ? "/gmail/v1/users/me/profile" : "/calendar/v3/users/me/calendarList?maxResults=1";
+                api(provider, new JSONObject().put("method", "GET").put("path", check), true);
+            }
+        }
         synchronized (this) {
             JSONObject current = vault.get(provider);
             if (!current.optString("generation").equals(rec.optString("generation")) || !current.has("access_token"))

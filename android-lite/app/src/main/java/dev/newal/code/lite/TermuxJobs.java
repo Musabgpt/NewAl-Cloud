@@ -16,6 +16,8 @@ final class TermuxJobs {
     private static final ConcurrentHashMap<String, CountDownLatch> waiting = new ConcurrentHashMap<>();
     private static ConnectorVault vault(Context c) { return new ConnectorVault(c); }
 
+    static synchronized void disconnect(Context c) { vault(c).remove("termux"); }
+
     static JSONObject test(Context c) throws Exception {
         return run(c, "printf 'musabai-termux-ready'", true);
     }
@@ -29,7 +31,7 @@ final class TermuxJobs {
         String id = UUID.randomUUID().toString();
         JSONObject rec = new JSONObject().put("id", id).put("status", "running").put("probe", probe).put("started_at", System.currentTimeMillis());
         vault(c).put("job-" + id, rec);
-        if (probe) vault(c).put("termux", new JSONObject().put("status", "testing").put("generation", id));
+        if (probe) synchronized (TermuxJobs.class) { vault(c).put("termux", new JSONObject().put("status", "testing").put("generation", id)); }
         CountDownLatch done = new CountDownLatch(1);
         waiting.put(id, done);
         Intent callback = new Intent(c, TermuxResultService.class).setData(Uri.parse("musabai-job://result/" + id));
@@ -45,10 +47,12 @@ final class TermuxJobs {
             done.await(probe ? 20 : 75, TimeUnit.SECONDS);
             JSONObject result = result(c, id);
             if (probe && (!result.optString("status").equals("completed") || !result.optBoolean("command_success"))) {
-                JSONObject state = vault(c).get("termux");
-                if (state.optString("generation").equals(id)) {
-                    state.put("status", "error").put("error", "No successful callback received. Check allow-external-apps=true in Termux settings.");
-                    vault(c).put("termux", state);
+                synchronized (TermuxJobs.class) {
+                    JSONObject state = vault(c).get("termux");
+                    if (state.optString("generation").equals(id)) {
+                        state.put("status", "error").put("error", "No successful callback received. Check allow-external-apps=true in Termux settings.");
+                        vault(c).put("termux", state);
+                    }
                 }
                 result.put("ok", false).put("error", "Termux test did not finish successfully; inspect job " + id);
             }
@@ -86,10 +90,12 @@ final class TermuxJobs {
         vault(c).put("job-" + id, rec);
         if (rec.optBoolean("probe")) {
             boolean success = error == android.app.Activity.RESULT_OK && exit == 0 && stdout.trim().equals("musabai-termux-ready");
-            JSONObject state = vault(c).get("termux");
-            if (state.optString("generation").equals(id)) {
-                state.put("status", success ? "connected" : "error").put("error", success ? "" : "Termux probe failed").put("tested_at", System.currentTimeMillis());
-                vault(c).put("termux", state);
+            synchronized (TermuxJobs.class) {
+                JSONObject state = vault(c).get("termux");
+                if (state.optString("generation").equals(id)) {
+                    state.put("status", success ? "connected" : "error").put("error", success ? "" : "Termux probe failed").put("tested_at", System.currentTimeMillis());
+                    vault(c).put("termux", state);
+                }
             }
         }
         CountDownLatch done = waiting.get(id);

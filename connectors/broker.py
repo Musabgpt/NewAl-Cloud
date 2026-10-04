@@ -157,6 +157,10 @@ class Broker:
 class Handler(BaseHTTPRequestHandler):
     broker = None
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(15)
+
     def log_message(self, *args):
         pass  # OAuth callback query strings must never reach logs.
 
@@ -212,7 +216,15 @@ class Handler(BaseHTTPRequestHandler):
             self.reply({"error": "Connection request failed; check app registration or reconnect"}, 400)
 
 
+class BrokerServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def service_actions(self):
+        with self.RequestHandlerClass.broker.lock:
+            self.RequestHandlerClass.broker.prune()
+
+
 if __name__ == "__main__":
     Handler.broker = Broker(os.environ["MUSAB_PUBLIC_URL"])
-    server = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "8766"))), Handler)
+    server = BrokerServer(("127.0.0.1", int(os.environ.get("PORT", "8766"))), Handler)
     server.serve_forever()
