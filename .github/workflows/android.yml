@@ -7,6 +7,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: connectors-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,12 +33,11 @@ jobs:
           python-version: "3.12"
       - name: Install test runner
         run: python3 -m pip install pytest
-      - name: Install Android SDK + NDK
+      - name: Install Android SDK
         run: |
           SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724" >/dev/null
-          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" >/dev/null
       - name: Supply exact Action #43 Python engine
         run: |
           rm -rf /tmp/newal-autonomy
@@ -68,17 +71,20 @@ jobs:
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
-      - name: Cache native build dependencies
-        uses: actions/cache@v4
+      - name: Download exact Action 125 native baseline
+        uses: actions/download-artifact@v4
         with:
-          path: android-lite/build/native
-          key: musab-native-125-${{ runner.os }}-${{ hashFiles('android-lite/native/prepare.sh', 'android-lite/native/launcher.c') }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Musabgpt/NewAl-Cloud
+          run-id: 37110519785
+          name: NewAl-Cloud-Action43
+          path: baseline-action125
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
-      - name: Prepare exact Action #43 Android runtime
+      - name: Retain exact Action 125 native runtime and package tested engine
         run: |
-          chmod +x android-lite/native/prepare.sh
-          android-lite/native/prepare.sh arm64-v8a x86_64
+          python3 connectors/package_baseline.py baseline-action125/NewAl-Cloud-Action43.apk
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"

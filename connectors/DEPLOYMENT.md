@@ -6,6 +6,12 @@ This branch starts at NewAl-Cloud Action **125**, commit
 The original agent, skills, plugins, MCP, terminal, review, model configuration
 and memory/autonomy layer are retained. Only checked integration anchors are patched.
 
+Native Python/llama.cpp libraries are copied byte-for-byte from the original Action
+125 APK after verifying its pinned SHA-256. Only the tested engine archive and
+Android Java integration are rebuilt. The workflow needs the original artifact to
+remain downloadable; if GitHub expires it, the build fails closed until that exact
+APK is retained in a durable release or another approved baseline is selected.
+
 ## What this implementation contains
 
 - Browser authorization via an HTTPS broker, provider state validation and PKCE
