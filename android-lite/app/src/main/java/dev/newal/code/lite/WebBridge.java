@@ -200,7 +200,7 @@ final class WebBridge {
 
     @JavascriptInterface
     public void saveDocument(String url, String name, String mime) {
-        act.runOnUiThread(() -> act.saveDocument(url, name, mime));
+        act.runOnUiThread(() -> ((MainActivity) act).saveDocument(url, name, mime));
     }
 
     /** What another app shared ({"text", "files"}), once; "" when nothing. */

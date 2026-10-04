@@ -39,7 +39,8 @@ final class DocumentFiles {
         dest.getParentFile().mkdirs();
         File temp = File.createTempFile("newal-pdf-", ".tmp", dest.getParentFile());
         int pages = 0, line = 0;
-        try (PdfDocument pdf = new PdfDocument()) {
+        PdfDocument pdf = new PdfDocument();
+        try {
             while (line < layout.getLineCount()) {
                 if (++pages > 200) throw new IllegalArgumentException("PDF exceeds 200 pages");
                 int top = layout.getLineTop(line), next = line;
@@ -55,7 +56,7 @@ final class DocumentFiles {
             }
             try (FileOutputStream out = new FileOutputStream(temp)) { pdf.writeTo(out); }
             Files.move(temp.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        } finally { temp.delete(); }
+        } finally { pdf.close(); temp.delete(); }
         return new JSONObject().put("ok", true).put("pages", pages).put("path", dest.getPath());
     }
 }
