@@ -77,7 +77,7 @@
           await action("connect", item.id);
         };
         actions.append(connect);
-        if (item.has_credentials && ["connected", "reauthorize", "error"].includes(item.status)) {
+        if ((item.id === "termux" || item.has_credentials) && ["connected", "reauthorize", "error"].includes(item.status)) {
           const test = element("button", tr("Test", "اختبار"), "btn");
           test.dataset.action = "test:" + item.id;
           test.onclick = () => action(item.id === "termux" ? "connect" : "test", item.id);

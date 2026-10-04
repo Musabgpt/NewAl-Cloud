@@ -51,3 +51,8 @@ test('unconfigured provider has an Arabic explanation and disabled connect', asy
   assert(state.dom.querySelector('#connector-list').textContent.includes('صاحب التطبيق'));
   assert(!state.dom.querySelector('#connector-list').textContent.includes('OAuth application deployment required'));
 });
+
+test('Termux retains its callback test without OAuth credentials', async t => {
+  const state = await panel(t, {id: 'termux', name: 'Termux', configured: true, status: 'connected'});
+  assert(state.dom.querySelector('[data-action="test:termux"]'));
+});
