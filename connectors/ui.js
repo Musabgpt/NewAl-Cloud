@@ -64,9 +64,9 @@
         if (item.error) detail.append(element("div", errorText(item.error), "muted"));
         row.append(detail);
         const actions = element("div", "", "connector-actions");
-        if (item.configured || item.id === "termux") {
-          const connect = element("button", tr("Connect", "اتصال"), "btn primary");
-          connect.disabled = ["connected", "authorizing", "testing", "unavailable"].includes(item.status);
+        {
+          const connect = element("button", item.configured || item.id === "termux" ? tr("Connect", "اتصال") : tr("Setup required", "الإعداد مطلوب"), "btn primary");
+          connect.disabled = !item.configured || ["connected", "authorizing", "testing", "unavailable"].includes(item.status);
           connect.dataset.disabled = String(connect.disabled);
           connect.dataset.action = "connect:" + item.id;
           connect.onclick = async () => {
