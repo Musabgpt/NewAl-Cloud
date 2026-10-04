@@ -119,3 +119,9 @@ working**. Until those gates pass this is a development build, not a completed r
 This build uses package `dev.newal.code.lite.connectors`, label MusabAI Preview, and ports 8795 (engine), 8796 (phone bridge), 8798 (optional Termux engine). It installs beside Action #125; existing app data stays in its original package. The optional Termux setup uses `.newal-code-preview` and commands `newal-preview` / `newal-termux-preview`. No automatic data migration is performed.
 
 The build runner debug signing certificate differs from #125. A direct update of the original package requires the original private signing key. A stable owner-controlled release signing key must be configured before distributing upgradeable releases; this preview is a test artifact.
+
+## Hosted broker continuation
+
+A Vinext/Cloudflare broker with the same Android protocol is deployed separately through Sites. Its source is preserved in its Sites Git repository; the service implementation and contract tests are also under `connectors/hosted/`. Pending grants persist in an R2 binding named `BUCKET`, encrypted with runtime secret `MUSAB_GRANT_KEY` (32 bytes, base64url). R2 conditional writes prevent duplicate callback exchanges and double token delivery. No provider keys are committed.
+
+Selected project: `appgprj_6ac1aebaaa688191a23e5ec22abf7e2a`. Origin: `https://musabai-connector-server.vivid-tuna-0200.chatgpt.site`. The site remains owner-private pending an explicit public-audience decision. OAuth registrations are not created yet: GitHub developer settings requires browser sign-in. Do not configure this URL into the APK until anonymous native access and real provider authorization are verified. Hosted Terminal/Python execution is a separate requirement and is not supplied by this broker.

@@ -1,0 +1,56 @@
+{
+  "github": [
+    "GITHUB",
+    "https://github.com/login/oauth/authorize",
+    "https://github.com/login/oauth/access_token",
+    "repo read:user user:email"
+  ],
+  "gitlab": [
+    "GITLAB",
+    "https://gitlab.com/oauth/authorize",
+    "https://gitlab.com/oauth/token",
+    "api"
+  ],
+  "drive": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/drive.file"
+  ],
+  "gmail": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose"
+  ],
+  "calendar": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/calendar"
+  ],
+  "docs": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/documents"
+  ],
+  "sheets": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/spreadsheets"
+  ],
+  "notion": [
+    "NOTION",
+    "https://api.notion.com/v1/oauth/authorize",
+    "https://api.notion.com/v1/oauth/token",
+    ""
+  ],
+  "figma": [
+    "FIGMA",
+    "https://www.figma.com/oauth",
+    "https://api.figma.com/v1/oauth/token",
+    "file_content:read file_comments:read file_comments:write current_user:read"
+  ]
+}
