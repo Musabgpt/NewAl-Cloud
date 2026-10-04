@@ -1,7 +1,7 @@
 name: NewAl-Cloud — exact Action #43 + cloud heart
 on:
   push:
-    branches: ["merge/action43-cloud"]
+    branches: ["merge/action43-cloud", "recovery-action125"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
