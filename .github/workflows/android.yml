@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 120
     env:
       NEWAL_BUILD: ${{ github.run_number }}
-      MUSAB_CONNECTOR_BROKER_URL: ${{ vars.MUSAB_CONNECTOR_BROKER_URL }}
+      MUSAB_CONNECTOR_BROKER_URL: ${{ vars.MUSAB_CONNECTOR_BROKER_URL || 'https://musabai-connector-server.netnyaho.chatgpt.site' }}
     steps:
       - name: Checkout NewAl-Cloud
         uses: actions/checkout@v4
