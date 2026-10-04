@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
     private WebBridge bridge;
     private String key;
     private volatile int waitGeneration;
+    private volatile boolean serverReady;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -194,6 +195,7 @@ public class MainActivity extends Activity {
                         boolean connections = data != null && "musabai".equals(data.getScheme())
                                 && "connectors".equals(data.getHost());
                         web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : ""));
+                        serverReady = true;
                     });
                     return;
                 }
@@ -261,6 +263,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Access.resumed(this);
+        if (!serverReady) waitForServer();
     }
 
     @Override

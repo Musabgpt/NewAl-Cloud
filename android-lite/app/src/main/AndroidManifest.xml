@@ -98,5 +98,7 @@
                 android:value="Runs a local AI model and a coding agent on the phone while the user waits for them" />
         </service>
         <service android:name=".TermuxResultService" android:exported="false" />
+        <provider android:name=".SafeFileProvider" android:authorities="${applicationId}.files"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

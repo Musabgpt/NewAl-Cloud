@@ -81,15 +81,17 @@ final class TermuxJobs {
         JSONObject rec = vault(c).get("job-" + id);
         if (!rec.optString("status").equals("running")) return;
         Bundle result = intent.getBundleExtra("result");
-        if (result == null) return;
-        int exit = result.getInt("exitCode", -1), error = result.getInt("err", android.app.Activity.RESULT_OK);
-        String stdout = clip(result.getString("stdout", "")), stderr = clip(result.getString("stderr", ""));
-        rec.put("status", error == android.app.Activity.RESULT_OK ? "completed" : "failed").put("exit_code", exit).put("stdout", stdout).put("stderr", stderr)
-                .put("finished_at", System.currentTimeMillis()).put("command_success", error == android.app.Activity.RESULT_OK && exit == 0);
-        if (error != android.app.Activity.RESULT_OK) rec.put("error", "Termux execution error " + error);
+        String stdout = clip(result == null ? intent.getStringExtra("com.termux.RUN_COMMAND_RESULT_STDOUT") : result.getString("stdout", ""));
+        String stderr = clip(result == null ? intent.getStringExtra("com.termux.RUN_COMMAND_RESULT_STDERR") : result.getString("stderr", ""));
+        int exit = result == null ? intent.getIntExtra("com.termux.RUN_COMMAND_RESULT_EXIT_CODE", -1) : result.getInt("exitCode", -1);
+        int error = result == null ? intent.getIntExtra("com.termux.RUN_COMMAND_RESULT_ERRNO", android.app.Activity.RESULT_OK) : result.getInt("err", android.app.Activity.RESULT_OK);
+        boolean callbackOk = error == 0 || error == android.app.Activity.RESULT_OK;
+        rec.put("status", callbackOk ? "completed" : "failed").put("exit_code", exit).put("stdout", stdout).put("stderr", stderr)
+                .put("finished_at", System.currentTimeMillis()).put("command_success", callbackOk && exit == 0);
+        if (!callbackOk) rec.put("error", "Termux execution error " + error);
         vault(c).put("job-" + id, rec);
         if (rec.optBoolean("probe")) {
-            boolean success = error == android.app.Activity.RESULT_OK && exit == 0 && stdout.trim().equals("musabai-termux-ready");
+            boolean success = callbackOk && exit == 0 && stdout.trim().equals("musabai-termux-ready");
             synchronized (TermuxJobs.class) {
                 JSONObject state = vault(c).get("termux");
                 if (state.optString("generation").equals(id)) {
