@@ -158,4 +158,26 @@ class RuntimeTest(unittest.TestCase):
             self.assertNotIn("gmail_read", s.tool_names)
 
 
+class ReadinessTest(unittest.TestCase):
+    def test_health_requires_key_and_never_runs_expensive_state_probes(self):
+        import urllib.request
+        import urllib.error
+        from newal_code import server, settings, hardware
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as home, patch.object(settings, "HOME", home), patch.object(server, "Service", return_value=Mock()):
+            httpd, _ = server.serve(0)
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            try:
+                with patch.object(hardware, "summary", side_effect=AssertionError("must not probe hardware")), patch.object(server, "_shells", side_effect=AssertionError("must not discover shells")):
+                    request = urllib.request.Request(httpd.base_url + "api/health", headers={"X-NewAl-Key": httpd.key})
+                    with urllib.request.urlopen(request, timeout=1) as response:
+                        self.assertEqual(json.load(response), {"ok": True})
+                    with self.assertRaises(urllib.error.HTTPError) as denied:
+                        urllib.request.urlopen(httpd.base_url + "api/health", timeout=1)
+                    self.assertEqual(denied.exception.code, 401)
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+
 if __name__ == "__main__": unittest.main()

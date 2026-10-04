@@ -10,7 +10,18 @@
     reauthorize: ["Reconnect required", "يحتاج إعادة تفويض"], permission_required: ["Permission required", "يحتاج صلاحية"],
     unavailable: ["Unavailable on this host", "غير متاح على هذا الجهاز"]
   };
-  let timer, active = false, pending = false, requesting = false;
+  let timer, active = false, pending = false, requesting = false, lastView = "";
+  const errors = {
+    "OAuth application deployment required": ["The app owner must activate this service before accounts can connect.", "هذه الخدمة تحتاج تفعيلًا من صاحب التطبيق قبل ربط الحسابات."],
+    "Connector server is unavailable; retry when online": ["Connection server unavailable. Check your network and retry.", "خادم الاتصال غير متاح. تحقّق من الإنترنت وأعد المحاولة."],
+    "Waiting for network; authorization will resume automatically": ["Waiting for network; authorization will resume automatically", "بانتظار الإنترنت؛ سيُستأنف التفويض تلقائيًا."],
+    "Authorization session is no longer valid; connect again": ["Authorization session expired or was lost. Connect again.", "انتهت جلسة التفويض أو فُقدت. اضغط اتصال مجددًا."],
+    "Authorization expired; connect again": ["Authorization expired; connect again", "انتهت مهلة التفويض. اضغط اتصال مجددًا."],
+    "Authorization was declined or failed; connect again": ["Authorization was declined or failed; connect again", "رُفض التفويض أو فشل. اضغط اتصال مجددًا."],
+    "Authorization did not complete; connect again": ["Authorization did not complete; connect again", "لم يكتمل التفويض. اضغط اتصال مجددًا."],
+    "Account verification failed; test again or reconnect": ["Account verification failed; test again or reconnect", "تعذّر التحقّق من الحساب. أعد الاختبار أو الاتصال."],
+  };
+  const errorText = text => errors[text] ? tr(...errors[text]) : text;
   async function api(path, body) {
     const response = await fetch(path, { method: body ? "POST" : "GET", credentials: "same-origin",
       headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined });
@@ -31,6 +42,17 @@
     try {
       const result = await api("/api/connectors");
       if (!active) return;
+      document.querySelector("#connector-heading").textContent = tr("MusabAI connections", "اتصالات MusabAI");
+      document.querySelector("#connector-intro").textContent = tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي.");
+      document.querySelector("#open-connectors").textContent = tr("Connections", "الاتصالات");
+      const view = JSON.stringify([ar(), result.connectors]);
+      if (lastView === view && !pending) {
+        list.querySelectorAll("button").forEach(button => { button.disabled = button.dataset.disabled === "true"; });
+        return;
+      }
+      lastView = view;
+      const panel = document.querySelector(".connector-panel"), scroll = panel.scrollTop;
+      const focused = document.activeElement?.dataset.action;
       list.replaceChildren();
       for (const item of result.connectors) {
         const row = element("section", "", "connector-card"), detail = element("div");
@@ -39,11 +61,13 @@
         detail.append(element("div", tr(...label), "connector-state " + (item.status === "connected" ? "connected" : "")));
         if (item.account) detail.append(element("div", item.account, "muted"));
         if (item.scopes) { const scopes = element("details"); scopes.append(element("summary", tr("Granted scopes", "الصلاحيات الممنوحة")), element("small", item.scopes)); detail.append(scopes); }
-        if (item.error) detail.append(element("div", item.error, "muted"));
+        if (item.error) detail.append(element("div", errorText(item.error), "muted"));
         row.append(detail);
         const actions = element("div", "", "connector-actions");
         const connect = element("button", tr("Connect", "اتصال"), "btn primary");
         connect.disabled = !item.configured || ["connected", "authorizing", "testing", "unavailable"].includes(item.status);
+        connect.dataset.disabled = String(connect.disabled);
+        connect.dataset.action = "connect:" + item.id;
         connect.onclick = async () => {
           if (item.id === "termux" && window.NewAlPhone) {
             const phone = JSON.parse(NewAlPhone.status());
@@ -53,19 +77,23 @@
           await action("connect", item.id);
         };
         actions.append(connect);
-        if (["connected", "reauthorize", "error", "testing"].includes(item.status)) {
+        if (item.has_credentials && ["connected", "reauthorize", "error"].includes(item.status)) {
           const test = element("button", tr("Test", "اختبار"), "btn");
+          test.dataset.action = "test:" + item.id;
           test.onclick = () => action(item.id === "termux" ? "connect" : "test", item.id);
           actions.append(test);
         }
         if (["connected", "authorizing", "testing", "reauthorize", "error"].includes(item.status)) {
           const disconnect = element("button", tr("Disconnect", "فصل"), "btn");
+          disconnect.dataset.action = "disconnect:" + item.id;
           disconnect.onclick = () => action("disconnect", item.id);
           actions.append(disconnect);
         }
         row.append(actions); list.append(row);
       }
-    } catch (error) { if (message) message.textContent = error.message; }
+      if (focused) [...list.querySelectorAll("button")].find(button => button.dataset.action === focused && !button.disabled)?.focus({preventScroll: true});
+      panel.scrollTop = scroll;
+    } catch (error) { if (message) message.textContent = errorText(error.message); }
     finally { requesting = false; }
   }
   async function action(op, provider) {
@@ -77,7 +105,7 @@
     try {
       const result = await api("/api/connectors/" + op, {provider});
       message.textContent = result.text || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : "");
-    } catch (error) { message.textContent = error.message; }
+    } catch (error) { message.textContent = errorText(error.message); }
     finally { pending = false; await refresh(); }
   }
   function close() {
@@ -110,6 +138,7 @@
     closeButton.setAttribute("aria-label", tr("Close", "إغلاق")); closeButton.onclick = close;
     head.append(title, closeButton); card.append(head);
     card.append(element("p", tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي."), "muted"));
+    card.lastElementChild.id = "connector-intro";
     const message = element("p"); message.id = "connector-message"; message.setAttribute("role", "status"); card.append(message);
     const list = element("div"); list.id = "connector-list"; card.append(list); dialog.append(card); document.body.append(dialog);
     dialog.addEventListener("keydown", event => {
@@ -123,5 +152,6 @@
     });
     dialog.onclick = event => { if (event.target === dialog) close(); };
     window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   });
 })();

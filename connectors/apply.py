@@ -43,6 +43,9 @@ def apply(root):
 ''')
     replace(package / "permissions.py", 'COMMAND_TOOLS = ("bash", "powershell")', 'COMMAND_TOOLS = ("bash", "powershell", "termux_exec")')
     replace(package / "server.py", '        q = self._query()\n        svc = self.service\n', '''        q = self._query()
+        # Readiness must not run hardware probes, shell discovery or project scans.
+        if path == "/api/health":
+            return self._json({"ok": True})
         from . import connectors
         if connectors.route(self, "GET", path):
             return

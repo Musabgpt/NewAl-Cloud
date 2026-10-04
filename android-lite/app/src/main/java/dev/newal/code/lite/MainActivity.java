@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private WebBridge bridge;
     private String key;
+    private volatile int waitGeneration;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -79,6 +80,10 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
+                if ("newal".equals(u.getScheme()) && "retry".equals(u.getHost())) {
+                    startAgent(true);
+                    return true;
+                }
                 if ("127.0.0.1".equals(u.getHost())) {
                     return false;
                 }
@@ -89,12 +94,11 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        page("Starting NewAl Code…", "The first start unpacks Python and NewAl Code (a few seconds).", night);
+        page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
-        startForegroundService(new Intent(this, AgentService.class));
-        waitForServer();
+        startAgent(false);
         Shared.from(this, getIntent(), this::tellShared);
         Shared.shortcut(getIntent(), this::tellShared);
     }
@@ -159,51 +163,84 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void startAgent(boolean retry) {
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
+        Intent service = new Intent(this, AgentService.class);
+        if (retry) service.setAction(AgentService.RETRY);
+        // Do not show an error left by a previous failed service invocation.
+        AgentService.error = "";
+        startForegroundService(service);
+        waitForServer();
+    }
+
     private void waitForServer() {
+        final int generation = ++waitGeneration;
         new Thread(() -> {
-            for (int i = 0; i < 480; i++) {
+            long deadline = android.os.SystemClock.elapsedRealtime() + 120_000;
+            while (generation == waitGeneration && android.os.SystemClock.elapsedRealtime() < deadline) {
                 if (up(key)) {
-                    boolean connections = getIntent().getData() != null && "musabai".equals(getIntent().getData().getScheme())
-                            && "connectors".equals(getIntent().getData().getHost());
-                    runOnUiThread(() -> web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : "")));
+                    runOnUiThread(() -> {
+                        if (generation != waitGeneration || isFinishing() || isDestroyed()) return;
+                        Uri data = getIntent().getData();
+                        boolean connections = data != null && "musabai".equals(data.getScheme())
+                                && "connectors".equals(data.getHost());
+                        web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : ""));
+                    });
                     return;
                 }
-                if (!AgentService.error.isEmpty()) {
-                    break;
-                }
-                try {
-                    Thread.sleep(250);
-                } catch (InterruptedException e) {
-                    return;
-                }
+                if (!AgentService.error.isEmpty()) break;
+                try { Thread.sleep(250); }
+                catch (InterruptedException e) { return; }
             }
-            String why = AgentService.error + "\n" + new Setup(this).logTail();
+            if (generation != waitGeneration) return;
+            String why = AgentService.error.isEmpty()
+                    ? "لم يستجب التطبيق خلال دقيقتين. اضغط إعادة المحاولة لتشغيله مجددًا."
+                    : AgentService.error;
+            String log = new Setup(this).logTail();
+            if (!log.isEmpty()) why += "\n\n" + log;
+            final String detail = why;
             boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                     == Configuration.UI_MODE_NIGHT_YES;
-            runOnUiThread(() -> page("NewAl Code did not start", why, night));
+            runOnUiThread(() -> {
+                if (generation == waitGeneration && !isFinishing() && !isDestroyed())
+                    page("تعذّر تشغيل NewAl Code", detail, night, true);
+            });
         }, "newal-wait").start();
     }
 
     private static boolean up(String key) {
+        HttpURLConnection c = null;
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(HOME + "api/state").openConnection();
+            c = (HttpURLConnection) new URL(HOME + "api/health").openConnection();
             c.setRequestProperty("X-NewAl-Key", key);
-            c.setConnectTimeout(800);
-            c.setReadTimeout(3000);
-            int code = c.getResponseCode();
-            c.disconnect();
-            return code == 200;
-        } catch (Exception e) {
-            return false;
-        }
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(500);
+            c.setReadTimeout(500);
+            return c.getResponseCode() == 200;
+        } catch (Exception e) { return false; }
+        finally { if (c != null) c.disconnect(); }
+    }
+
+    @Override
+    protected void onDestroy() {
+        ++waitGeneration;
+        super.onDestroy();
     }
 
     private void page(String title, String text, boolean night) {
+        page(title, text, night, false);
+    }
+
+    private void page(String title, String text, boolean night, boolean retry) {
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='font-family:sans-serif;padding:24px;margin:0;background:" + (night ? "#1e1e20" : "#fff")
                 + ";color:" + (night ? "#ececf0" : "#222") + "'><h2>" + Html.escapeHtml(title)
                 + "</h2><pre style='white-space:pre-wrap;color:" + (night ? "#a9a9b2" : "#555") + "'>"
-                + Html.escapeHtml(text) + "</pre></body></html>";
+                + Html.escapeHtml(text) + "</pre>"
+                + (retry ? "<a href='newal://retry' style='display:inline-block;padding:14px 24px;background:#90d8b0;color:#10141d;border-radius:12px;text-decoration:none'>إعادة المحاولة</a>" : "")
+                + "</body></html>";
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
 

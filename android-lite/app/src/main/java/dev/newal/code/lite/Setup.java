@@ -81,7 +81,10 @@ final class Setup {
             version = "?";
         }
         File marker = new File(files, "installed.txt");
-        if (marker.exists() && version.equals(read(marker))) {
+        if (marker.exists() && version.equals(read(marker))
+                && new File(app, "newal_code/server.py").isFile()
+                && new File(python, "lib/python3.14/encodings/__init__.py").isFile()
+                && new File(python, "cacert.pem").isFile()) {
             return;
         }
         delete(python);

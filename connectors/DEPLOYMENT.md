@@ -125,3 +125,27 @@ The build runner debug signing certificate differs from #125. A direct update of
 A Vinext/Cloudflare broker with the same Android protocol is deployed separately through Sites. Its source is preserved in its Sites Git repository; the service implementation and contract tests are also under `connectors/hosted/`. Pending grants persist in an R2 binding named `BUCKET`, encrypted with runtime secret `MUSAB_GRANT_KEY` (32 bytes, base64url). R2 conditional writes prevent duplicate callback exchanges and double token delivery. No provider keys are committed.
 
 Selected project: `appgprj_6ac1aebaaa688191a23e5ec22abf7e2a`. Origin: `https://musabai-connector-server.netnyaho.chatgpt.site`. The owner explicitly approved public broker access and GitHub registration. MusabAI OAuth application `3902920` is registered in Musabgpt, with client ID `Ov23liwve9bTfAKljTdL` and the exact HTTPS callback. Its client secret is a hosted runtime secret, never an APK or repository value. Anonymous requests with the existing Android `MusabAI-Connectors/1` User-Agent returned HTTP 200 and the live catalog reports GitHub configured. Cloudflare rejects generic Python-urllib traffic (1010); use the legitimate existing application identity for native checks. Real-account consent/token exchange and physical Android acceptance still must pass. Google, GitLab, Notion and Figma registrations remain pending. Hosted Terminal/Python execution is a separate requirement and is not supplied by this broker.
+
+
+## Startup and mobile-network fixes
+
+Android readiness now uses the authenticated `/api/health` endpoint, without the
+hardware/shell/project discovery performed by `/api/state`. The wait uses a
+monotonic two-minute deadline, short network timeouts, activity cancellation, and
+an explicit Retry button that restarts the local engine. Startup errors from an
+older service invocation are cleared. Incomplete extracted installs are repaired
+when the installation marker exists but core runtime files are missing.
+
+OAuth polling retains the pending flow across network IO errors and HTTP
+408/429/5xx until the original authorization deadline. Definitive rejection,
+expiry, and invalid sessions still require reconnecting. This does not solve a
+lost response after the broker's single-use token delivery; reconnect is required
+in that case. Disconnect and superseded flows cannot restore credentials.
+The connector panel preserves scroll/focus during periodic refreshes, translates
+activation/failure messages, and only offers Test when account credentials exist.
+Provider registration requirements remain unchanged.
+
+Run `npm ci --prefix connectors && npm test --prefix connectors` for broker and
+panel regressions, and the Python connector/original-engine tests described by
+the build workflow. Physical-device startup and account consent remain separate
+acceptance checks.

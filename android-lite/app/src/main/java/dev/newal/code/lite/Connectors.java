@@ -84,7 +84,7 @@ final class Connectors {
                     deployed = http(broker + "/v1/catalog", "GET", null, "application/json", null).getJSONObject("providers");
                     catalogError = "";
                 } catch (Exception e) {
-                    deployed = new JSONObject();
+                    // Keep the last known deployment during a temporary network outage.
                     catalogError = "Connector server is unavailable; retry when online";
                 }
                 catalogChecked = System.currentTimeMillis();
@@ -101,7 +101,7 @@ final class Connectors {
             list.put(new JSONObject().put("id", IDS[i]).put("name", NAMES[i]).put("status", state)
                     .put("account", rec.optString("account")).put("scopes", rec.optString("scope"))
                     .put("error", rec.optString("error", configured ? "" : catalogError.isEmpty() ? "OAuth application deployment required" : catalogError))
-                    .put("configured", configured).put("tested_at", rec.optLong("tested_at")));
+                    .put("configured", configured).put("has_credentials", rec.has("access_token")).put("tested_at", rec.optLong("tested_at")));
         }
         JSONObject termux = vault.get("termux");
         boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
@@ -114,7 +114,7 @@ final class Connectors {
     private synchronized JSONObject connect(String provider) throws Exception {
         if (broker.isEmpty()) throw new IllegalStateException("OAuth applications are not deployed for this build");
         JSONObject old = vault.get(provider);
-        if (old.optString("status").equals("authorizing")) {
+        if (old.optString("status").equals("authorizing") && old.optLong("expires") > System.currentTimeMillis()) {
             resume(provider);
             return new JSONObject().put("ok", true).put("status", "authorizing");
         }
@@ -153,36 +153,68 @@ final class Connectors {
         if (!polling.add(provider)) return;
         new Thread(() -> {
             String flow = "";
+            String failure = "Authorization expired; connect again";
             try {
                 JSONObject rec = vault.get(provider);
                 flow = rec.optString("id");
                 while (rec.optString("status").equals("authorizing") && rec.optLong("expires") > System.currentTimeMillis()) {
-                    JSONObject out = http(broker + "/v1/poll", "POST", new JSONObject().put("id", flow).put("verifier", rec.getString("verifier")).toString(), "application/json", null);
+                    JSONObject out;
+                    try {
+                        out = http(broker + "/v1/poll", "POST", new JSONObject().put("id", flow).put("verifier", rec.getString("verifier")).toString(), "application/json", null);
+                    } catch (Exception e) {
+                        if (!(e instanceof java.io.IOException) && !(e instanceof HttpFailure &&
+                                (((HttpFailure) e).status == 408 || ((HttpFailure) e).status == 429 || ((HttpFailure) e).status >= 500))) {
+                            failure = "Authorization session is no longer valid; connect again";
+                            throw e;
+                        }
+                        // Opening the browser can interrupt mobile data. Keep the same flow/proof until expiry.
+                        synchronized (this) {
+                            JSONObject current = vault.get(provider);
+                            if (!flow.equals(current.optString("id"))) return;
+                            current.put("error", "Waiting for network; authorization will resume automatically");
+                            vault.put(provider, current);
+                        }
+                        Thread.sleep(3000);
+                        rec = vault.get(provider);
+                        continue;
+                    }
                     synchronized (this) {
                         JSONObject current = vault.get(provider);
-                        if (!current.optString("id").equals(flow)) return; // disconnected or superseded
+                        if (!current.optString("id").equals(flow)) return;
                         if (out.optString("status").equals("ready")) {
                             JSONObject tokens = out.getJSONObject("tokens");
                             tokens.put("status", "testing").put("generation", flow);
                             tokens.put("expires_at", tokens.has("expires_in") ? System.currentTimeMillis() + tokens.optLong("expires_in") * 1000 : 0);
                             vault.put(provider, tokens);
                         } else if (out.optString("status").equals("failed")) {
-                            throw new IllegalStateException("Authorization was declined or failed");
+                            failure = "Authorization was declined or failed; connect again";
+                            throw new IllegalStateException(failure);
+                        } else {
+                            current.remove("error");
+                            vault.put(provider, current);
                         }
                     }
                     if (out.optString("status").equals("ready")) { testChecked(provider); return; }
                     Thread.sleep(2000);
                     rec = vault.get(provider);
                 }
-                if (rec.optString("status").equals("authorizing")) throw new IllegalStateException("Authorization expired; connect again");
+                if (rec.optString("status").equals("authorizing")) throw new IllegalStateException(failure);
             } catch (Exception e) {
                 try {
                     synchronized (this) {
                         JSONObject current = vault.get(provider);
-                        if (flow.equals(current.optString("id"))) vault.put(provider, new JSONObject().put("status", "error").put("error", "Authorization did not complete; connect again"));
+                        if (flow.equals(current.optString("id")))
+                            vault.put(provider, new JSONObject().put("status", "error").put("error", failure));
                     }
                 } catch (Exception ignored) { }
-            } finally { synchronized (this) { polling.remove(provider); } }
+            } finally {
+                synchronized (this) {
+                    polling.remove(provider);
+                    // A reconnect may have arrived while the previous poller was exiting.
+                    try { if (vault.get(provider).optString("status").equals("authorizing")) resume(provider); }
+                    catch (Exception ignored) { }
+                }
+            }
         }, "connector-oauth-" + provider).start();
     }
 

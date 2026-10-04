@@ -17,6 +17,7 @@ import android.util.Log;
  */
 public class AgentService extends Service {
     private static final String CHANNEL = "newal";
+    static final String RETRY = "dev.newal.code.lite.RETRY";
     private static Process python;
     private static volatile boolean stopping;
     static volatile String error = "";
@@ -30,7 +31,25 @@ public class AgentService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         stopping = false;
         foreground();
-        new Thread(this::ensureRunning, "newal-start").start();
+        new Thread(() -> {
+            synchronized (AgentService.class) {
+                if (intent != null && RETRY.equals(intent.getAction())) {
+                    Process previous = python;
+                    python = null;
+                    if (previous != null) {
+                        previous.destroy();
+                        try {
+                            if (!previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                                previous.destroyForcibly();
+                                previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+                            }
+                        } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    }
+                    restarts.clear();
+                }
+                ensureRunning();
+            }
+        }, "newal-start").start();
         return START_STICKY;
     }
 
@@ -54,20 +73,24 @@ public class AgentService extends Service {
         }
     }
 
-    private synchronized void ensureRunning() {
-        if (python != null && python.isAlive()) {
-            return;
-        }
-        try {
-            Setup s = new Setup(this);
-            s.prepare();
-            PhoneServer.start(this, s.key());
-            python = s.start();
+    private void ensureRunning() {
+        synchronized (AgentService.class) {
+            if (stopping) return;
             error = "";
-            watch(python);
-        } catch (Exception e) {
-            error = String.valueOf(e);
-            Log.e("NewAlCode", "cannot start", e);
+            if (python != null && python.isAlive()) {
+                return;
+            }
+            try {
+                Setup s = new Setup(this);
+                s.prepare();
+                PhoneServer.start(this, s.key());
+                python = s.start();
+                error = "";
+                watch(python);
+            } catch (Exception e) {
+                error = String.valueOf(e);
+                Log.e("NewAlCode", "cannot start", e);
+            }
         }
     }
 
@@ -80,8 +103,8 @@ public class AgentService extends Service {
         new Thread(() -> {
             try {
                 int code = p.waitFor();
-                if (stopping) {
-                    return;
+                synchronized (AgentService.class) {
+                    if (stopping || python != p) return;
                 }
                 Log.w("NewAlCode", "NewAl Code ended (" + code + "): starting it again");
                 long now = System.currentTimeMillis();
@@ -105,8 +128,11 @@ public class AgentService extends Service {
     @Override
     public void onDestroy() {
         stopping = true;
-        if (python != null) {
-            python.destroy();          // SIGTERM: NewAl Code stops its models, then exits
+        synchronized (AgentService.class) {
+            if (python != null) {
+                python.destroy();          // SIGTERM: NewAl Code stops its models, then exits
+                python = null;
+            }
         }
         super.onDestroy();
     }
