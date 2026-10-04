@@ -104,6 +104,10 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
         setIntent(i);
+        if (i.getData() != null && "musabai".equals(i.getData().getScheme()) && "connectors".equals(i.getData().getHost())) {
+            web.evaluateJavascript("window.openMusabConnectors && window.openMusabConnectors()", null);
+            return;
+        }
         Shared.from(this, i, this::tellShared);
         Shared.shortcut(i, this::tellShared);
     }
@@ -159,7 +163,9 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             for (int i = 0; i < 480; i++) {
                 if (up(key)) {
-                    runOnUiThread(() -> web.loadUrl(HOME + "?key=" + Uri.encode(key)));
+                    boolean connections = getIntent().getData() != null && "musabai".equals(getIntent().getData().getScheme())
+                            && "connectors".equals(getIntent().getData().getHost());
+                    runOnUiThread(() -> web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : "")));
                     return;
                 }
                 if (!AgentService.error.isEmpty()) {

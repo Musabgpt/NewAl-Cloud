@@ -1,0 +1,109 @@
+# MusabAI connectors — deployment and acceptance
+
+This branch starts at NewAl-Cloud Action **125**, commit
+`2ebea5701a432b454aeba639cbb39d756bf50da7`. Its engine is pinned to NewAl
+`0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3`, the Action 43 source.
+The original agent, skills, plugins, MCP, terminal, review, model configuration
+and memory/autonomy layer are retained. Only checked integration anchors are patched.
+
+## What this implementation contains
+
+- Browser authorization via an HTTPS broker, provider state validation and PKCE
+  where applicable. A separate PKCE handoff binds issued tokens to the initiating
+  Android installation. Callback links contain no credentials.
+- Android Keystore AES-GCM token records, refresh-token rotation, no tokens in
+  WebView/Python tool arguments, no browser localStorage credentials.
+- Fixed-host service API requests, redirect refusal, bounded responses and explicit
+  errors. Writes are not automatically replayed after network/authorization errors.
+- Agent tools for GitHub, GitLab, Drive, Gmail, Calendar, Docs, Sheets, Notion and
+  Figma. Connected services are discovered when the model requests tools, including
+  accounts connected after a session started. Existing MCP tools remain present.
+- Real Termux result callbacks: durable job IDs, stdout, stderr and exit code.
+  A timed out call remains pending; reading its result does not rerun it.
+- Independent workspaces without a GitHub repository or account. The selected
+  cloud model can answer, but execution is **on the current host**, normally the
+  phone. This does not implement a hosted worker that survives phone shutdown.
+
+## Required external setup — not completed by a code build
+
+Register OAuth applications in the owner's provider accounts, enable the relevant
+APIs, and supply secrets to the server environment. This cannot be replaced with
+ChatGPT's own account credentials or another application's client registration.
+
+Run `python3 connectors/broker.py` on a trusted host behind an HTTPS reverse proxy.
+The process binds to `127.0.0.1:8766` by default. Configure:
+
+```
+MUSAB_PUBLIC_URL=https://YOUR_CONNECTOR_DOMAIN
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+GITLAB_CLIENT_ID=...
+GITLAB_CLIENT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+NOTION_CLIENT_ID=...
+NOTION_CLIENT_SECRET=...
+FIGMA_CLIENT_ID=...
+FIGMA_CLIENT_SECRET=...
+```
+
+Use a Google **web** OAuth client with the broker's HTTPS redirect, not an Android
+custom-scheme redirect. Register these exact callback paths on that domain:
+
+| Registration | Redirect URI paths |
+|---|---|
+| GitHub | `/oauth/callback/github` |
+| GitLab | `/oauth/callback/gitlab` |
+| Google | `/oauth/callback/drive`, `/oauth/callback/gmail`, `/oauth/callback/calendar`, `/oauth/callback/docs`, `/oauth/callback/sheets` |
+| Notion | `/oauth/callback/notion` |
+| Figma | `/oauth/callback/figma` |
+
+The broker catalog reports a provider configured only when its ID and secret exist.
+Configuration alone does not prove a provider has approved the application or
+granted the required scopes. Google/Gmail and public Figma apps may require provider
+review. Testing-mode access can be limited to registered testers. Service rate
+limits and paid-plan features still apply; no unlimited/free guarantee is made.
+
+Set repository **variable** `MUSAB_CONNECTOR_BROKER_URL` to that HTTPS origin.
+Rebuild the APK. It contains only this public URL; provider secrets remain on the
+server. With no URL, OAuth cards clearly say deployment is required and Connect is
+disabled. Users never paste provider tokens into the application.
+
+Pending authorization sessions are memory-only and expire after ten minutes.
+Use one broker process (or sticky routing). Restarting during authorization requires
+reconnecting. Apply reverse-proxy request/body/concurrency limits and disable query
+logging for `/oauth/callback/*`. Do not log token exchange request/response bodies.
+Do not expose the loopback Python engine or phone server to the Internet.
+
+Drive uses `drive.file`: files created or selected/shared with this app, rather than
+all existing Drive content. Broader access requires a deliberate scope change and
+any applicable Google review. Notion sees only pages shared with the integration.
+Figma supports reading designs and writing comments; it does not fabricate a REST
+endpoint that edits arbitrary design layers.
+
+Disconnect removes credentials and pending handoffs locally. Provider-wide grant
+revocation is done in the provider account's Connected applications settings;
+the UI explicitly communicates this distinction.
+
+## Termux
+
+Install official Termux, grant its `RUN_COMMAND` permission to MusabAI, and enable
+`allow-external-apps=true` in `~/.termux/termux.properties` (then reload Termux settings).
+Android cannot silently grant these permissions or edit another app's private
+configuration. Connect sends a harmless probe. Only a successful callback with
+the expected stdout and exit code zero produces Connected.
+
+## Release gates
+
+1. Original engine tests and connector contract tests pass.
+2. Java/Android build succeeds and the packaged Python archive contains original
+   feature modules and both original/additive UI scripts.
+3. On a real Android device: OAuth approve, decline, expiry, reconnect, process restart,
+   refresh, local disconnect, Termux callback and permission refusal.
+4. Verify every provider with a real authorized account and one read/write task.
+5. Confirm original `/` skills/commands, plugin install/use, MCP invocation, terminal,
+   review and persisted sessions on the resulting APK.
+
+Offline mock tests are evidence for code contracts. They are **not evidence that
+live OAuth registrations, remote hosting, Android device tests or all providers are
+working**. Until those gates pass this is a development build, not a completed release.

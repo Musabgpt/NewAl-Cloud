@@ -1,7 +1,7 @@
-name: NewAl-Cloud — exact Action #43 + cloud heart
+name: MusabAI — Action 125 connectors
 on:
   push:
-    branches: ["merge/action43-cloud"]
+    branches: ["connectors-from-125"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -11,6 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      NEWAL_BUILD: ${{ github.run_number }}
+      MUSAB_CONNECTOR_BROKER_URL: ${{ vars.MUSAB_CONNECTOR_BROKER_URL }}
     steps:
       - name: Checkout NewAl-Cloud
         uses: actions/checkout@v4
@@ -18,9 +21,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Musabgpt/NewAl
-          ref: ccr-e40af0a0-eec37q
+          ref: 0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3
           path: newal-source
           fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test runner
+        run: python3 -m pip install pytest
       - name: Install Android SDK + NDK
         run: |
           SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
@@ -33,6 +41,7 @@ jobs:
           cp -a desktop/autonomy /tmp/newal-autonomy
           rm -rf desktop
           cp -a newal-source/desktop .
+          cp -a newal-source/docs .
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
@@ -45,6 +54,25 @@ jobs:
           grep -n "NEWAL_CLOUD_AUTONOMY_V1" desktop/newal_code/agent.py
           grep -n "memory_recall" desktop/newal_code/tools.py
           grep -n "self_evolve" desktop/newal_code/tools.py
+      - name: Add connector runtime without replacing the original interface
+        run: |
+          python3 connectors/apply.py .
+          python3 -m compileall -q desktop/newal_code connectors
+          node --check desktop/newal_code/ui/app.js
+          node --check desktop/newal_code/ui/connectors.js
+      - name: Test authorization contracts and original features
+        env:
+          PYTHONPATH: desktop
+          PYTHONWARNINGS: ignore
+          NEWAL_TEST_WATCHDOG: "180"
+        run: |
+          python3 -m unittest discover -s connectors -p test_connectors.py -v
+          python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
+      - name: Cache native build dependencies
+        uses: actions/cache@v4
+        with:
+          path: android-lite/build/native
+          key: musab-native-125-${{ runner.os }}-${{ hashFiles('android-lite/native/prepare.sh', 'android-lite/native/launcher.c') }}
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
       - name: Prepare exact Action #43 Android runtime
@@ -57,11 +85,12 @@ jobs:
       - name: Build exact Action #43 APK
         run: |
           gradle -p android-lite :app:assembleRelease --stacktrace
-          cp android-lite/app/build/outputs/apk/release/app-release.apk NewAl-Cloud-Action43.apk
-          ls -lh NewAl-Cloud-Action43.apk
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
+          ls -lh MusabAI-Connectors.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: NewAl-Cloud-Action43
-          path: NewAl-Cloud-Action43.apk
+          name: MusabAI-Connectors
+          path: MusabAI-Connectors.apk
           compression-level: 0
           retention-days: 14

@@ -1,0 +1,339 @@
+package dev.newal.code.lite;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.util.Base64;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.HashSet;
+import java.util.Set;
+
+/** Browser OAuth with PKCE-bound HTTPS handoff. WebView and Python never receive credentials. */
+final class Connectors {
+    private static Connectors instance;
+    static synchronized Connectors get(Context c) throws Exception {
+        if (instance == null) instance = new Connectors(c.getApplicationContext());
+        return instance;
+    }
+    private final Context ctx;
+    private final ConnectorVault vault;
+    private final String broker;
+    private final Set<String> polling = new HashSet<>();
+    private static final String[] IDS = {"github", "gitlab", "drive", "gmail", "calendar", "docs", "sheets", "notion", "figma"};
+    private static final String[] NAMES = {"GitHub", "GitLab", "Google Drive", "Gmail", "Google Calendar", "Google Docs", "Google Sheets", "Notion", "Figma"};
+
+    private Connectors(Context c) throws Exception {
+        ctx = c;
+        vault = new ConnectorVault(c);
+        JSONObject config;
+        try (InputStream in = c.getAssets().open("connectors.json")) {
+            config = new JSONObject(new String(read(in, 65536), StandardCharsets.UTF_8));
+        }
+        broker = config.optString("broker_url", "").replaceAll("/+$", "");
+        if (!broker.isEmpty()) {
+            URL u = new URL(broker);
+            if (!"https".equals(u.getProtocol()) || u.getUserInfo() != null || !u.getPath().isEmpty() || u.getQuery() != null || u.getRef() != null)
+                throw new SecurityException("Connector broker must be an HTTPS origin");
+        }
+    }
+
+    private static void valid(String provider) {
+        for (String id : IDS) if (id.equals(provider)) return;
+        throw new IllegalArgumentException("Unknown connector");
+    }
+
+    static JSONObject handle(Context c, JSONObject a) throws Exception {
+        Connectors self = get(c);
+        String op = a.optString("op"), provider = a.optString("provider");
+        if (op.equals("status")) return self.status();
+        if (op.equals("termux_test")) return TermuxJobs.test(c);
+        if (op.equals("termux_exec")) return TermuxJobs.run(c, a.optString("command"), false);
+        if (op.equals("termux_result")) return TermuxJobs.result(c, a.getString("id"));
+        if (provider.equals("termux") && op.equals("disconnect")) {
+            self.vault.remove("termux");
+            return new JSONObject().put("ok", true);
+        }
+        valid(provider);
+        if (op.equals("connect")) return self.connect(provider);
+        if (op.equals("disconnect")) {
+            // Cancels pending handoffs as well; removing credentials is immediate.
+            self.vault.remove(provider);
+            return new JSONObject().put("ok", true).put("revoked_locally", true)
+                    .put("text", "Disconnected on this device. Revoke the application's grant in the provider's account settings to remove provider access.");
+        }
+        if (op.equals("test")) return self.testChecked(provider);
+        if (op.equals("request")) return self.api(provider, a, true);
+        throw new IllegalArgumentException("Unknown connector operation");
+    }
+
+    private JSONObject status() throws Exception {
+        JSONArray list = new JSONArray();
+        for (int i = 0; i < IDS.length; i++) {
+            JSONObject rec = vault.get(IDS[i]);
+            String state = rec.optString("status", broker.isEmpty() ? "not_configured" : "disconnected");
+            if (state.equals("authorizing")) resume(IDS[i]);
+            list.put(new JSONObject().put("id", IDS[i]).put("name", NAMES[i]).put("status", state)
+                    .put("account", rec.optString("account")).put("scopes", rec.optString("scope"))
+                    .put("error", rec.optString("error", broker.isEmpty() ? "OAuth application deployment required" : ""))
+                    .put("configured", !broker.isEmpty()).put("tested_at", rec.optLong("tested_at")));
+        }
+        JSONObject termux = vault.get("termux");
+        boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
+        list.put(new JSONObject().put("id", "termux").put("name", "Termux").put("configured", true)
+                .put("status", usable ? termux.optString("status", "disconnected") : "permission_required")
+                .put("error", usable ? termux.optString("error") : "Install Termux, grant RUN_COMMAND and enable allow-external-apps in Termux"));
+        return new JSONObject().put("ok", true).put("connectors", list).put("remote_worker", false);
+    }
+
+    private synchronized JSONObject connect(String provider) throws Exception {
+        if (broker.isEmpty()) throw new IllegalStateException("OAuth applications are not deployed for this build");
+        JSONObject old = vault.get(provider);
+        if (old.optString("status").equals("authorizing")) {
+            resume(provider);
+            return new JSONObject().put("ok", true).put("status", "authorizing");
+        }
+        byte[] bytes = new byte[48];
+        new SecureRandom().nextBytes(bytes);
+        String verifier = Base64.encodeToString(bytes, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        String proof = Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.UTF_8)), Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+        JSONObject started = http(broker + "/v1/start", "POST", new JSONObject().put("provider", provider).put("challenge", proof).toString(), "application/json", null);
+        JSONObject rec = new JSONObject().put("status", "authorizing").put("id", started.getString("id"))
+                .put("verifier", verifier).put("expires", System.currentTimeMillis() + 600000);
+        vault.put(provider, rec);
+        Uri uri = Uri.parse(started.getString("authorization_url"));
+        if (!"https".equals(uri.getScheme()) || !authHost(provider).equals(uri.getHost())) {
+            vault.remove(provider);
+            throw new SecurityException("Invalid provider authorization URL");
+        }
+        try {
+            Phone.onMain(() -> { ctx.startActivity(new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true; });
+        } catch (Exception e) {
+            vault.remove(provider);
+            throw e;
+        }
+        resume(provider);
+        return new JSONObject().put("ok", true).put("status", "authorizing");
+    }
+
+    private static String authHost(String provider) {
+        if (provider.equals("github")) return "github.com";
+        if (provider.equals("gitlab")) return "gitlab.com";
+        if (provider.equals("notion")) return "api.notion.com";
+        if (provider.equals("figma")) return "www.figma.com";
+        return "accounts.google.com";
+    }
+
+    private synchronized void resume(String provider) {
+        if (!polling.add(provider)) return;
+        new Thread(() -> {
+            String flow = "";
+            try {
+                JSONObject rec = vault.get(provider);
+                flow = rec.optString("id");
+                while (rec.optString("status").equals("authorizing") && rec.optLong("expires") > System.currentTimeMillis()) {
+                    JSONObject out = http(broker + "/v1/poll", "POST", new JSONObject().put("id", flow).put("verifier", rec.getString("verifier")).toString(), "application/json", null);
+                    synchronized (this) {
+                        JSONObject current = vault.get(provider);
+                        if (!current.optString("id").equals(flow)) return; // disconnected or superseded
+                        if (out.optString("status").equals("ready")) {
+                            JSONObject tokens = out.getJSONObject("tokens");
+                            tokens.put("status", "testing").put("generation", flow);
+                            tokens.put("expires_at", tokens.has("expires_in") ? System.currentTimeMillis() + tokens.optLong("expires_in") * 1000 : 0);
+                            vault.put(provider, tokens);
+                        } else if (out.optString("status").equals("failed")) {
+                            throw new IllegalStateException("Authorization was declined or failed");
+                        }
+                    }
+                    if (out.optString("status").equals("ready")) { testChecked(provider); return; }
+                    Thread.sleep(2000);
+                    rec = vault.get(provider);
+                }
+                if (rec.optString("status").equals("authorizing")) throw new IllegalStateException("Authorization expired; connect again");
+            } catch (Exception e) {
+                try {
+                    synchronized (this) {
+                        JSONObject current = vault.get(provider);
+                        if (flow.equals(current.optString("id"))) vault.put(provider, new JSONObject().put("status", "error").put("error", "Authorization did not complete; connect again"));
+                    }
+                } catch (Exception ignored) { }
+            } finally { synchronized (this) { polling.remove(provider); } }
+        }, "connector-oauth-" + provider).start();
+    }
+
+    private static String origin(String provider) {
+        switch (provider) {
+            case "github": return "https://api.github.com";
+            case "gitlab": return "https://gitlab.com/api/v4";
+            case "docs": return "https://docs.googleapis.com";
+            case "sheets": return "https://sheets.googleapis.com";
+            case "notion": return "https://api.notion.com";
+            case "figma": return "https://api.figma.com";
+            default: return "https://www.googleapis.com";
+        }
+    }
+
+    private JSONObject testChecked(String provider) throws Exception {
+        JSONObject before = vault.get(provider);
+        try { return test(provider); }
+        catch (Exception e) {
+            synchronized (this) {
+                JSONObject current = vault.get(provider);
+                if (current.has("access_token") && current.optString("generation").equals(before.optString("generation"))) {
+                    current.put("status", "error").put("error", "Account verification failed; test again or reconnect");
+                    vault.put(provider, current);
+                }
+            }
+            throw new IllegalStateException("Account verification failed; test again or reconnect");
+        }
+    }
+
+    private JSONObject test(String provider) throws Exception {
+        JSONObject rec = vault.get(provider);
+        if (!rec.has("access_token")) throw new IllegalStateException("Connect this account first");
+        String path;
+        switch (provider) {
+            case "github": path = "/user"; break;
+            case "gitlab": path = "/user"; break;
+            case "notion": path = "/v1/users/me"; break;
+            case "figma": path = "/v1/me"; break;
+            default: path = "/oauth2/v3/userinfo";
+        }
+        JSONObject out;
+        if (java.util.Arrays.asList("drive", "gmail", "calendar", "docs", "sheets").contains(provider)) {
+            if (rec.optLong("expires_at") > 0 && rec.optLong("expires_at") < System.currentTimeMillis() + 30000) {
+                refresh(provider); rec = vault.get(provider);
+            }
+            JSONObject data = http("https://www.googleapis.com" + path, "GET", null, "application/json", rec.getString("access_token"));
+            out = new JSONObject().put("data", data);
+        } else out = api(provider, new JSONObject().put("method", "GET").put("path", path), true);
+        JSONObject data = out.getJSONObject("data");
+        synchronized (this) {
+            JSONObject current = vault.get(provider);
+            if (!current.optString("generation").equals(rec.optString("generation")) || !current.has("access_token"))
+                throw new IllegalStateException("Connection was removed during verification");
+            current.put("status", "connected").put("account", data.optString("login", data.optString("username", data.optString("email", data.optString("name")))))
+                    .put("tested_at", System.currentTimeMillis());
+            current.remove("error");
+            vault.put(provider, current);
+        }
+        return new JSONObject().put("ok", true).put("status", "connected");
+    }
+
+    private JSONObject api(String provider, JSONObject args, boolean retry) throws Exception {
+        JSONObject rec = vault.get(provider);
+        if (!rec.has("access_token")) throw new IllegalStateException("Account is disconnected");
+        String path = args.optString("path"), method = args.optString("method", "GET");
+        if (!path.startsWith("/") || path.startsWith("//") || path.contains("\\") || path.contains("\r") || path.contains("\n") || path.contains("#"))
+            throw new SecurityException("Invalid API path");
+        String route = path.split("\\?", 2)[0];
+        String decoded = java.net.URLDecoder.decode(route, "UTF-8");
+        if (decoded.contains("..") || decoded.contains("\\") || decoded.startsWith("//"))
+            throw new SecurityException("Unsafe API path");
+        boolean allowed;
+        switch (provider) {
+            case "github": allowed = route.equals("/user") || route.startsWith("/user/repos") || route.startsWith("/repos/"); break;
+            case "gitlab": allowed = route.equals("/user") || route.equals("/projects") || route.startsWith("/projects/"); break;
+            case "drive": allowed = route.startsWith("/drive/v3/") || route.startsWith("/upload/drive/v3/"); break;
+            case "gmail": allowed = route.startsWith("/gmail/v1/users/me/"); break;
+            case "calendar": allowed = route.startsWith("/calendar/v3/"); break;
+            case "docs": allowed = route.startsWith("/v1/documents"); break;
+            case "sheets": allowed = route.startsWith("/v4/spreadsheets"); break;
+            case "notion": allowed = route.equals("/v1/users/me") || route.equals("/v1/search") || route.startsWith("/v1/pages") || route.startsWith("/v1/blocks"); break;
+            case "figma": allowed = route.equals("/v1/me") || route.startsWith("/v1/files/"); break;
+            default: allowed = false;
+        }
+        if (!allowed) throw new SecurityException("API route is not exposed by this connector");
+        if (!java.util.Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE").contains(method))
+            throw new SecurityException("Invalid API method");
+        long expiry = rec.optLong("expires_at");
+        if (expiry > 0 && expiry < System.currentTimeMillis() + 30000 && rec.has("refresh_token")) {
+            refresh(provider); rec = vault.get(provider);
+        }
+        String payload = args.has("raw") ? args.getString("raw") : args.has("body") ? args.getJSONObject("body").toString() : null;
+        try {
+            JSONObject data = http(origin(provider) + path, method, payload, args.optString("mime", "application/json"), rec.getString("access_token"));
+            return new JSONObject().put("ok", true).put("data", data);
+        } catch (HttpFailure e) {
+            // Only GET is automatically retried. A write might already have happened.
+            if (e.status == 401 && retry && method.equals("GET") && rec.has("refresh_token")) {
+                refresh(provider); return api(provider, args, false);
+            }
+            synchronized (this) {
+                JSONObject current = vault.get(provider);
+                if (current.has("access_token") && current.optString("generation").equals(rec.optString("generation"))) {
+                    if (e.status == 401) current.put("status", "reauthorize");
+                    current.put("error", "Service returned HTTP " + e.status);
+                    vault.put(provider, current);
+                }
+            }
+            throw new IllegalStateException("Service returned HTTP " + e.status + "; operation was not retried");
+        }
+    }
+
+    private synchronized void refresh(String provider) throws Exception {
+        JSONObject rec = vault.get(provider);
+        if (!rec.has("refresh_token")) throw new IllegalStateException("Reconnect account");
+        try {
+            JSONObject tokens = http(broker + "/v1/refresh", "POST", new JSONObject().put("provider", provider).put("refresh_token", rec.getString("refresh_token")).toString(), "application/json", null);
+            for (String k : new String[]{"access_token", "refresh_token", "scope", "token_type"}) if (tokens.has(k)) rec.put(k, tokens.get(k));
+            rec.put("expires_at", tokens.has("expires_in") ? System.currentTimeMillis() + tokens.optLong("expires_in") * 1000 : 0);
+            vault.put(provider, rec);
+        } catch (Exception e) {
+            rec.put("status", "reauthorize").put("error", "Token refresh failed; reconnect account");
+            vault.put(provider, rec);
+            throw new IllegalStateException("Token refresh failed; reconnect account");
+        }
+    }
+
+    private static final class HttpFailure extends Exception {
+        final int status;
+        HttpFailure(int status) { this.status = status; }
+    }
+
+    private static JSONObject http(String url, String method, String payload, String mime, String token) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setInstanceFollowRedirects(false); // never forward credentials across redirects
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(30000);
+        conn.setRequestMethod(method);
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("User-Agent", "MusabAI-Connectors/1");
+        if (token != null) conn.setRequestProperty("Authorization", "Bearer " + token);
+        if (url.startsWith("https://api.notion.com/")) conn.setRequestProperty("Notion-Version", "2022-06-28");
+        try {
+            if (payload != null) {
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", mime);
+                byte[] data = payload.getBytes(StandardCharsets.UTF_8);
+                conn.setFixedLengthStreamingMode(data.length);
+                try (java.io.OutputStream out = conn.getOutputStream()) { out.write(data); }
+            }
+            int status = conn.getResponseCode();
+            if (status < 200 || status >= 300) throw new HttpFailure(status);
+            String text;
+            try (InputStream in = conn.getInputStream()) { text = new String(read(in, 4 << 20), StandardCharsets.UTF_8); }
+            if (text.isEmpty()) return new JSONObject();
+            if (text.trim().startsWith("{")) return new JSONObject(text);
+            if (text.trim().startsWith("[")) return new JSONObject().put("items", new JSONArray(text));
+            return new JSONObject().put("text", text);
+        } finally { conn.disconnect(); }
+    }
+
+    private static byte[] read(InputStream in, int max) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        for (int n; (n = in.read(buffer)) != -1;) {
+            if (out.size() + n > max) throw new IllegalStateException("Response exceeds size limit; request a smaller page or range");
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
+    }
+}

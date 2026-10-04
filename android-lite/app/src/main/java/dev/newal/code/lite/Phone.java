@@ -51,6 +51,8 @@ final class Phone {
     static JSONObject handle(Context ctx, JSONObject a) throws Exception {
         String action = a.optString("action");
         switch (action) {
+            case "connector":
+                return Connectors.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
             case "tap":
