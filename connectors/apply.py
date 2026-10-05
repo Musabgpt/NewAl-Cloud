@@ -50,7 +50,7 @@ def apply(root):
     shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
     shutil.copyfile(here / "mcp_ui.js", package / "ui/mcp_ui.js")
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
-    replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
+    replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") and spec.get("url") else mcp_config.StdioServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
     replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
     maybe_replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
     maybe_replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
