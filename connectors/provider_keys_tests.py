@@ -23,7 +23,7 @@ class ProviderKeysTests(unittest.TestCase):
             self.assertTrue(provider_keys.route(h, "GET", "/api/free-providers"))
         body = self.response[0]
         self.assertTrue(body["free_only"])
-        self.assertEqual([x["id"] for x in body["providers"]], ["groq", "gemini", "openrouter", "nvidia"])
+        self.assertEqual([x["id"] for x in body["providers"]], ["freellmapi", "groq", "gemini", "openrouter", "nvidia"])
         self.assertNotIn("must-never-leak", json.dumps(body))
 
     def test_save_and_remove_use_android_secure_storage(self):
