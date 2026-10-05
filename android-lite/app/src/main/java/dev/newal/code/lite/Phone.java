@@ -64,6 +64,12 @@ final class Phone {
             case "provider_secret_set":
             case "provider_secret_remove":
                 return ProviderSecrets.handle(ctx, a);
+            case "freellmapi_status":
+            case "freellmapi_setup":
+            case "freellmapi_update":
+            case "freellmapi_start":
+            case "freellmapi_stop":
+                return FreeLlmApi.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
             case "screenshot":
