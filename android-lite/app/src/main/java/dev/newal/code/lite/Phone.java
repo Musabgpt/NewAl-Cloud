@@ -53,6 +53,7 @@ final class Phone {
 
     static JSONObject handle(Context ctx, JSONObject a) throws Exception {
         String action = a.optString("action");
+        AutomationStore.record(action, a);
         switch (action) {
             case "document_pdf":
                 return DocumentFiles.pdf(ctx, a);
@@ -60,6 +61,8 @@ final class Phone {
                 return Connectors.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
+            case "screenshot":
+                return PhoneControlService.need().screenshot();
             case "tap":
                 return PhoneControlService.need().tap(a);
             case "type":
@@ -71,6 +74,20 @@ final class Phone {
                 return PhoneControlService.need().key(a.optString("name"));
             case "open_app":
                 return openApp(ctx, a.optString("name"));
+            case "install_apk":
+                return installApk(ctx, a.optString("path"));
+            case "notifications_read":
+                return ok(LocalNotificationAgentService.read(ctx));
+            case "automation_start":
+                return AutomationStore.start(a.optString("name", "workflow"));
+            case "automation_stop":
+                return AutomationStore.stop(ctx);
+            case "automation_list":
+                return AutomationStore.list(ctx);
+            case "automation_replay":
+                return AutomationStore.replay(ctx, a.optString("name"));
+            case "crash_reports":
+                return ok(TestBridgeReports.read(ctx));
             case "open_url":
                 return start(ctx, safeUrl(ctx, a.optString("url")),
                         "opened " + a.optString("url"));
@@ -217,6 +234,14 @@ final class Phone {
         return start(ctx, i, "opened " + best[0]);
     }
 
+    private static JSONObject installApk(Context ctx, String path) throws Exception {
+        if (path == null || path.trim().isEmpty()) throw new IllegalArgumentException("install_apk needs a local APK path");
+        Intent view = safeUrl(ctx, "file:" + path.trim());
+        view.setDataAndType(view.getData(), "application/vnd.android.package-archive");
+        view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        return start(ctx, view, "Android opened the install confirmation; the user must approve it");
+    }
+
     private static JSONObject alarm(Context ctx, JSONObject a) throws Exception {
         int h = a.optInt("hour", -1), m = a.optInt("minute", 0);
         if (h < 0 || h > 23 || m < 0 || m > 59) {
@@ -354,6 +379,10 @@ final class Phone {
                 break;
             case "notifications":
                 action = Settings.ACTION_APP_NOTIFICATION_SETTINGS;
+                break;
+            case "notification_access":
+            case "notification_listener":
+                action = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS";
                 break;
             case "storage":
                 action = Settings.ACTION_INTERNAL_STORAGE_SETTINGS;
