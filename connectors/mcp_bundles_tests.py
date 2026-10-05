@@ -1,18 +1,85 @@
+import os
+import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
-from . import mcp_bundles
+
+from . import mcp_bundles, mcp_config, settings
 
 
 class McpBundlesTest(unittest.TestCase):
-    def test_official_repositories_are_real_and_catalog_is_honest(self):
-        ids = {item["id"] for item in mcp_bundles.BUNDLES}
-        self.assertIn("playwright", ids)
-        self.assertIn("reference-filesystem", ids)
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = self.temp.name
+        self.env = mock.patch.object(settings, "HOME", os.path.join(self.root, "private"))
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def test_exact_requested_bundle_catalog_is_real_and_honest(self):
+        ids = [item["id"] for item in mcp_bundles.BUNDLES]
+        self.assertEqual(ids, ["playwright", "github", "filesystem", "android", "memory"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
-        with mock.patch("connectors.mcp_bundles.shutil.which", return_value=None):
-            self.assertTrue(all(item["status"] == "runtime_missing" for item in mcp_bundles.catalog()))
+
+        def no_runtime(name):
+            return None
+
+        with mock.patch("connectors.mcp_bundles.shutil.which", side_effect=no_runtime), \
+             mock.patch.dict(os.environ, {}, clear=True):
+            catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
+        self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
+        self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
+        self.assertEqual(catalog["memory"]["status"], "runtime_missing")
+        self.assertEqual(catalog["android"]["status"], "runtime_missing")
+        self.assertEqual(catalog["github"]["status"], "credentials_missing")
+        self.assertFalse(any(item["enabled"] for item in catalog.values()))
+
+    def test_filesystem_and_memory_are_scoped_to_current_project(self):
+        with mock.patch("connectors.mcp_bundles.shutil.which", return_value="/usr/bin/npx"):
+            fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
+            memory = mcp_bundles._spec(mcp_bundles._item("memory"), self.root)
+        self.assertEqual(fs["args"][-1], os.path.realpath(self.root))
+        memory_file = memory["env"]["MEMORY_FILE_PATH"]
+        self.assertTrue(memory_file.startswith(os.path.realpath(self.root) + os.sep))
+        self.assertTrue(memory_file.endswith(os.path.join(".newal", "mcp-memory.jsonl")))
+
+    def test_github_token_is_only_in_child_process_environment(self):
+        item = mcp_bundles._item("github")
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "private-test-token"}, clear=True):
+            spec = mcp_bundles._spec(item, self.root)
+        self.assertEqual(spec["env"]["GITHUB_PERSONAL_ACCESS_TOKEN"], "private-test-token")
+        public = mcp_bundles.catalog(self.root)
+        self.assertNotIn("private-test-token", repr(public))
+
+    def test_enable_persists_only_after_successful_real_handshake(self):
+        handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
+        handler._json = lambda data, status=200: setattr(self, "response", (data, status))
+        handler._query = lambda: {"session": "session1"}
+
+        with mock.patch.object(mcp_bundles, "_test", return_value=17):
+            self.assertTrue(mcp_bundles.route(
+                handler, "POST", "/api/mcp-bundles/enable",
+                {"session": "session1", "id": "playwright"},
+            ))
+        self.assertEqual(self.response, ({"ok": True, "tools": 17, "enabled": True}, 200))
+        saved = mcp_config.read(self.root)
+        self.assertEqual(saved["playwright"]["bundle"], "playwright")
+        self.assertEqual(saved["playwright"]["tools"], 17)
+
+        mcp_bundles.route(handler, "POST", "/api/mcp-bundles/disable",
+                          {"session": "session1", "id": "playwright"})
+        self.assertEqual(self.response, ({"ok": True}, 200))
+        self.assertNotIn("playwright", mcp_config.read(self.root))
+
+    def test_failed_handshake_never_claims_enabled(self):
+        handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
+        handler._json = lambda data, status=200: setattr(self, "response", (data, status))
+        with mock.patch.object(mcp_bundles, "_test", side_effect=RuntimeError("handshake failed")):
+            mcp_bundles.route(handler, "POST", "/api/mcp-bundles/enable",
+                              {"session": "session1", "id": "memory"})
+        self.assertEqual(self.response[1], 400)
+        self.assertNotIn("memory", mcp_config.read(self.root))
 
 
 if __name__ == "__main__":
     unittest.main()
-
