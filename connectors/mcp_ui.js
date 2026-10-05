@@ -29,6 +29,78 @@
     const panel = document.querySelector('.connector-panel');
     if (!panel) return;
 
+    // ---------------------------------------------------------------- Free AI provider credentials
+    const providersSection = node('section');
+    providersSection.className = 'connector-card free-providers';
+    providersSection.append(node('h3', tr('Free AI providers', 'مزودو الذكاء المجانيون')));
+    providersSection.append(node('p', tr(
+      'Keys are stored in Android Keystore. MusabAI only uses the free pool: Groq → Gemini → OpenRouter Free → NVIDIA.',
+      'تُحفظ المفاتيح داخل Android Keystore. يستخدم MusabAI المسار المجاني فقط: Groq ← Gemini ← OpenRouter Free ← NVIDIA.'
+    )));
+    const providerMessage = node('p');
+    providerMessage.setAttribute('role', 'status');
+    const providerList = node('div');
+    const providerRefresh = node('button', tr('Refresh provider status', 'تحديث حالة المزودين'));
+    providerRefresh.type = 'button'; providerRefresh.className = 'btn';
+    providersSection.append(providerRefresh, providerMessage, providerList);
+    panel.insertBefore(providersSection, document.querySelector('#connector-list'));
+
+    let providerBusy = false;
+    async function withProviderBusy(fn) {
+      if (providerBusy) return;
+      providerBusy = true; providerRefresh.disabled = true;
+      try { await fn(); }
+      catch (error) { providerMessage.textContent = error.message; }
+      finally { providerBusy = false; providerRefresh.disabled = false; }
+    }
+
+    async function loadProviders() {
+      const data = await api('/api/free-providers');
+      providerList.replaceChildren();
+      for (const provider of data.providers || []) {
+        const row = node('section'); row.className = 'connector-card free-provider';
+        row.append(node('strong', provider.name));
+        row.append(node('p', provider.configured
+          ? tr('Key saved securely', 'المفتاح محفوظ بأمان')
+          : tr('Key not configured', 'المفتاح غير مضاف')));
+        const input = node('input');
+        input.type = 'password'; input.autocomplete = 'off';
+        input.placeholder = tr('API key', 'مفتاح API');
+        input.setAttribute('aria-label', provider.name + ' API key');
+        const save = node('button', tr('Save key', 'حفظ المفتاح'));
+        save.type = 'button'; save.className = 'btn primary';
+        save.onclick = () => withProviderBusy(async () => {
+          const key = input.value.trim();
+          if (!key) throw new Error(tr('Paste an API key first.', 'ألصق مفتاح API أولًا.'));
+          await api('/api/free-providers/save', {provider: provider.id, key});
+          input.value = '';
+          providerMessage.textContent = tr('Saved in Android Keystore.', 'تم الحفظ داخل Android Keystore.');
+          await loadProviders();
+        });
+        row.append(input, save);
+        if (provider.configured) {
+          const test = node('button', tr('Test', 'اختبار'));
+          test.type = 'button'; test.className = 'btn';
+          test.onclick = () => withProviderBusy(async () => {
+            providerMessage.textContent = tr('Testing the real free endpoint…', 'جارٍ اختبار الخدمة المجانية فعليًا…');
+            await api('/api/free-providers/test', {provider: provider.id});
+            providerMessage.textContent = tr('Connected to the free endpoint.', 'تم الاتصال بالخدمة المجانية.');
+          });
+          const remove = node('button', tr('Remove key', 'حذف المفتاح'));
+          remove.type = 'button'; remove.className = 'btn';
+          remove.onclick = () => withProviderBusy(async () => {
+            await api('/api/free-providers/remove', {provider: provider.id});
+            providerMessage.textContent = tr('Key removed.', 'تم حذف المفتاح.');
+            await loadProviders();
+          });
+          row.append(test, remove);
+        }
+        providerList.append(row);
+      }
+    }
+    providerRefresh.onclick = () => withProviderBusy(async () => { providerMessage.textContent = ''; await loadProviders(); });
+    withProviderBusy(loadProviders);
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
