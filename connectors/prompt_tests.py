@@ -29,7 +29,7 @@ class PromptTests(unittest.TestCase):
             s = session.Session(root)
             s.system = "You are NewAl Code, a coding agent working in the user's project on their computer."
             s.messages = [{'role': 'user', 'content': 'keep the current task'}]
-            a = agent.Agent(s, client=SimpleNamespace(on_device=False))
+            a = agent.Agent(s, client=SimpleNamespace(on_device=False, local=False, spec={}))
             self.addCleanup(a.memory.close)
             messages = a.request_messages()
             self.assertTrue(messages[0]['content'].startswith('MusabAI behavior profile'))

@@ -60,7 +60,7 @@ def verify(ctx, candidate):
     runner='''import importlib.util, pathlib, sys, unittest
 base = pathlib.Path(%r)
 suite = unittest.TestSuite()
-for name in ('document_tests', 'evolution_tests', 'addon_tests', 'memory_tests', 'autonomy_tests', 'prompt_tests'):
+for name in ('document_tests', 'evolution_tests', 'addon_tests', 'memory_tests', 'autonomy_tests', 'prompt_tests', 'workbench_tests'):
     spec = importlib.util.spec_from_file_location('newal_code._baseline_' + name, base / (name + '.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

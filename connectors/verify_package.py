@@ -8,7 +8,7 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     for path in required:
         assert "newal_code/" + path in archive.namelist(), "Missing packaged feature: " + path
     assert "pypdf/__init__.py" in archive.namelist(), "PDF reader missing from packaged engine"
-    for path in ('agent_policy.py', 'agent_prompt.md', 'prompt_tests.py'):
+    for path in ('agent_policy.py', 'agent_prompt.md', 'prompt_tests.py', 'workbench.py', 'workbench_tests.py'):
         assert 'newal_code/' + path in archive.namelist(), 'Prompt feature missing: ' + path
     app = archive.read("newal_code/ui/app.js").decode()
     for anchor in ("open-extensions", "toggle-terminal", "toggle-review", "env-picker", "/api/workspaces"):

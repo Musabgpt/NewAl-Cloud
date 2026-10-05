@@ -11,6 +11,8 @@ This development line starts from successful Action 216 (`d8a270382c51e009148fc2
 - Memory is local and project-scoped. Search its Arabic/English lessons and evidence, delete them or disable capture. Observed corrected tool calls can become lessons; this does not train model weights.
 - Improve prepares a separate Python engine candidate. Packaged regression tests run before activation. Explicitly restart the engine after activation; Restore original selects the packaged engine. Android rechecks the code and app build before startup.
 - Connections uses the deployed broker and native account vault. Current provider status and remaining registration requirements are in [REGISTRATION.md](connectors/hosted/REGISTRATION.md).
+- The agent's `bash` commands run in the project and stream into the existing terminal pane as well as the conversation. Background servers use `bash(background=true)` and `job`. Shell permission checks and cancellation remain active; installing Termux is not required for the built-in shell.
+- Each model request includes the actual terminal availability, permission mode and connected service tool counts, refreshed within existing conversations. The behavior profile requires relevant tools for execution and live account tasks, with build/test/repair guidance. This does not guarantee compliance by every model or install missing SDKs.
 
 ## Behavior profile
 
