@@ -19,11 +19,19 @@ async function setup(t, fail = false) {
     calls.push({path, method: options.method || 'GET', body});
     const error = fail && options.method === 'POST';
     if (error) return {ok:false,json:async () => ({error:'authentication required'})};
+    if (String(path).startsWith('/api/freellmapi')) {
+      if (options.method === 'POST') return {ok:true,json:async () => ({ok:true,launched:true})};
+      return {ok:true,json:async () => ({
+        ok:true,up:false,termux_installed:true,termux_allowed:true,
+        endpoint:'http://127.0.0.1:3001/v1',dashboard:'http://127.0.0.1:3001/'
+      })};
+    }
     if (String(path).startsWith('/api/free-providers')) {
       if (options.method === 'POST') return {ok:true,json:async () => (
         String(path).endsWith('/test') ? {ok:true,connected:true} : {ok:true,configured:true}
       )};
       return {ok:true,json:async () => ({free_only:true,providers:[
+        {id:'freellmapi',name:'FreeLLMAPI Unified Router',configured:false},
         {id:'groq',name:'Groq Free',configured:false},
         {id:'nvidia',name:'NVIDIA Free',configured:true}
       ]})};
@@ -106,4 +114,17 @@ test('free provider key is cleared after save and never rendered back into the p
   assert.equal(request.body.key, 'groq-secret-example');
   assert.equal(input.value, '');
   assert.equal(w.document.body.textContent.includes('groq-secret-example'), false);
+});
+
+test('FreeLLMAPI card can start same-phone Termux setup without exposing provider keys', async t => {
+  const {w,calls} = await setup(t);
+  const row = [...w.document.querySelectorAll('.free-provider')].find(x => x.textContent.includes('FreeLLMAPI'));
+  assert(row);
+  const setupButton = [...row.querySelectorAll('button')].find(b => b.textContent.includes('تثبيت'));
+  assert(setupButton);
+  setupButton.click(); await tick(); await tick();
+  const request = calls.find(c => c.path === '/api/freellmapi/setup');
+  assert(request);
+  assert.equal(request.method,'POST');
+  assert.equal(w.document.body.textContent.includes('server/dist/index.js'), false);
 });
