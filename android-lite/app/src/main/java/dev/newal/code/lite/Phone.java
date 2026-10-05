@@ -59,6 +59,11 @@ final class Phone {
                 return DocumentFiles.pdf(ctx, a);
             case "connector":
                 return Connectors.handle(ctx, a);
+            case "provider_secret_status":
+            case "provider_secret_get":
+            case "provider_secret_set":
+            case "provider_secret_remove":
+                return ProviderSecrets.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
             case "screenshot":
