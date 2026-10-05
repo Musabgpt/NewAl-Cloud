@@ -36,7 +36,7 @@ def provider(spec):
 
 
 def chat(client, messages, tools=None, **kwargs):
-    old_id = client.id
+    old_id = getattr(client, "id", getattr(client, "model_name", "unknown"))
     try:
         return client.provider.chat(client.model_name, messages, tools=tools, **kwargs)
     except (providers.ProviderError, TimeoutError, OSError) as first:
