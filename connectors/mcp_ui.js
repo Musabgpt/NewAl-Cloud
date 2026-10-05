@@ -34,8 +34,8 @@
     providersSection.className = 'connector-card free-providers';
     providersSection.append(node('h3', tr('Free AI providers', 'مزودو الذكاء المجانيون')));
     providersSection.append(node('p', tr(
-      'Keys are stored in Android Keystore. MusabAI only uses the free pool: Groq → Gemini → OpenRouter Free → NVIDIA.',
-      'تُحفظ المفاتيح داخل Android Keystore. يستخدم MusabAI المسار المجاني فقط: Groq ← Gemini ← OpenRouter Free ← NVIDIA.'
+      'FreeLLMAPI is the primary open-source router (100+ models / 16 providers), with direct free providers kept only as emergency fallback. Secrets stay out of chat and source code.',
+      'FreeLLMAPI هو الموجّه المفتوح المصدر الأساسي (أكثر من 100 نموذج / 16 مزودًا)، وتبقى المزودات المجانية المباشرة احتياطًا فقط. المفاتيح لا تدخل المحادثة أو الكود.'
     )));
     const providerMessage = node('p');
     providerMessage.setAttribute('role', 'status');
@@ -56,6 +56,8 @@
 
     async function loadProviders() {
       const data = await api('/api/free-providers');
+      let router = null;
+      try { router = await api('/api/freellmapi'); } catch (_) {}
       providerList.replaceChildren();
       for (const provider of data.providers || []) {
         const row = node('section'); row.className = 'connector-card free-provider';
@@ -78,6 +80,35 @@
           await loadProviders();
         });
         row.append(input, save);
+        if (provider.id === 'freellmapi') {
+          row.append(node('p', router?.up
+            ? tr('Router running on this phone (localhost:3001)', 'الموجّه يعمل على نفس الهاتف (localhost:3001)')
+            : tr('Router is not running yet', 'الموجّه غير شغال حاليًا')));
+          const setup = node('button', tr('Install / repair FreeLLMAPI', 'تثبيت / إصلاح FreeLLMAPI'));
+          setup.type = 'button'; setup.className = 'btn';
+          setup.onclick = () => withProviderBusy(async () => {
+            if (router && !router.termux_allowed && window.NewAlPhone?.termuxAllow) {
+              window.NewAlPhone.termuxAllow();
+              throw new Error(tr('Allow Termux RUN_COMMAND, then press install again.', 'اسمح بصلاحية Termux RUN_COMMAND ثم اضغط التثبيت مرة ثانية.'));
+            }
+            await api('/api/freellmapi/setup', {});
+            providerMessage.textContent = tr('Setup started in Termux. This can take several minutes the first time.', 'بدأ التثبيت داخل Termux. أول مرة قد يستغرق عدة دقائق.');
+          });
+          const start = node('button', tr('Start', 'تشغيل'));
+          start.type = 'button'; start.className = 'btn';
+          start.onclick = () => withProviderBusy(async () => {
+            await api('/api/freellmapi/start', {});
+            providerMessage.textContent = tr('Start requested. Refresh status in a few seconds.', 'تم طلب التشغيل. حدّث الحالة بعد عدة ثوانٍ.');
+          });
+          const dash = node('button', tr('Open FreeLLMAPI dashboard', 'فتح لوحة FreeLLMAPI'));
+          dash.type = 'button'; dash.className = 'btn';
+          dash.onclick = () => {
+            const target = router?.dashboard || 'http://127.0.0.1:3001/';
+            if (window.NewAlPhone?.openUrl) window.NewAlPhone.openUrl(target);
+            else window.open(target, '_blank', 'noopener');
+          };
+          row.append(setup, start, dash);
+        }
         if (provider.configured) {
           const test = node('button', tr('Test', 'اختبار'));
           test.type = 'button'; test.className = 'btn';
