@@ -19,6 +19,15 @@ async function setup(t, fail = false) {
     calls.push({path, method: options.method || 'GET', body});
     const error = fail && options.method === 'POST';
     if (error) return {ok:false,json:async () => ({error:'authentication required'})};
+    if (String(path).startsWith('/api/free-providers')) {
+      if (options.method === 'POST') return {ok:true,json:async () => (
+        String(path).endsWith('/test') ? {ok:true,connected:true} : {ok:true,configured:true}
+      )};
+      return {ok:true,json:async () => ({free_only:true,providers:[
+        {id:'groq',name:'Groq Free',configured:false},
+        {id:'nvidia',name:'NVIDIA Free',configured:true}
+      ]})};
+    }
     if (String(path).startsWith('/api/mcp-bundles')) {
       if (options.method === 'POST') return {ok:true,json:async () => ({ok:true,tools:7,enabled:true})};
       return {ok:true,json:async () => ({bundles:[
@@ -82,4 +91,19 @@ test('missing runtime stays disabled instead of pretending connected', async t =
   const button = github.querySelector('button');
   assert.equal(button.disabled,true);
   assert(github.textContent.includes('غير متاح'));
+});
+
+test('free provider key is cleared after save and never rendered back into the page', async t => {
+  const {w,calls} = await setup(t);
+  const row = [...w.document.querySelectorAll('.free-provider')].find(x => x.textContent.includes('Groq'));
+  assert(row);
+  const input = row.querySelector('input[type="password"]');
+  input.value = 'groq-secret-example';
+  const save = [...row.querySelectorAll('button')].find(b => b.textContent.includes('حفظ'));
+  save.click(); await tick(); await tick();
+  const request = calls.find(c => c.path === '/api/free-providers/save');
+  assert.equal(request.body.provider, 'groq');
+  assert.equal(request.body.key, 'groq-secret-example');
+  assert.equal(input.value, '');
+  assert.equal(w.document.body.textContent.includes('groq-secret-example'), false);
 });
