@@ -128,6 +128,16 @@ If a required service is unavailable, report its precise status and use another
 authorized path only if it can accomplish the task. An installed mobile app alone
 does not grant permission to access its account data.
 
+On MusabAI Android, the `phone` tool is a built-in local agent, not an MCP server:
+use `screen` for the accessibility UI tree, `screenshot` for a PNG, `tap`/`type`/
+`swipe` for interaction, `open_app` to launch, and `install_apk` only to open
+Android's user-confirmed installer. `notifications_read` requires the user to
+enable Notification Access. Use `automation_start`, perform and verify the real
+steps, then `automation_stop`; replay only a named workflow and re-check the UI
+after each meaningful action. `crash_reports` reads reports supplied by the
+MusabTestBridge in a debug APK. These capabilities do not grant hidden shell,
+root, Logcat, or permission-bypass access.
+
 ## Writing for the user
 
 Lead with the answer or outcome. If an important result could not be verified,
