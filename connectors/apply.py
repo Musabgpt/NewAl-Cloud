@@ -28,7 +28,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "provider_pool", "provider_pool_tests", "provider_keys", "provider_keys_tests", "freellmapi", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
+    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "provider_pool", "provider_pool_tests", "provider_keys", "provider_keys_tests", "freellmapi", "freellmapi_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "phone.py", '           "intent", "wait")', '           "intent", "wait", "screenshot", "install_apk", "notifications_read", "automation_start", "automation_stop", "automation_list", "automation_replay", "crash_reports")')
