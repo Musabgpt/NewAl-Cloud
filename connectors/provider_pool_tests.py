@@ -43,6 +43,7 @@ class ProviderPoolTests(unittest.TestCase):
              patch.object(provider_pool.settings, "user", return_value={}):
             ids = [x["id"] for x in provider_pool.candidates(c)]
         self.assertEqual(ids, [
+            "freellmapi/auto",
             "groq/gpt-oss-120b-free",
             "gemini/3.7-flash-free",
             "openrouter/free",
