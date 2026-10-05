@@ -3,7 +3,7 @@
 The currently selected model is tried first.  If it fails before emitting any
 stream event, MusabAI walks the canonical free pool:
 
-Groq -> Gemini -> OpenRouter Free -> NVIDIA.
+FreeLLMAPI auto-router -> Groq -> Gemini -> OpenRouter Free -> NVIDIA.
 
 Providers without credentials are skipped. Retryable failures use one short
 retry, then a circuit-breaker cooldown so a busy provider is not hammered.
@@ -18,6 +18,15 @@ import time
 from . import providers, settings
 
 FREE_POOL = [
+    {
+        "id": "freellmapi/auto",
+        "name": "FreeLLMAPI Auto Router",
+        "base_url": "http://127.0.0.1:3001/v1",
+        "model": "auto",
+        "provider": "openai",
+        "secret_id": "freellmapi",
+        "free": True,
+    },
     {
         "id": "groq/gpt-oss-120b-free",
         "name": "Groq Free",
@@ -220,7 +229,7 @@ def candidates(current):
         if not mid or mid in seen_ids or not base or base in seen_bases:
             continue
         key = _key(spec)
-        if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
+        if (spec.get("api_key_env") or spec.get("api_key_envs") or spec.get("secret_id")) and not key:
             continue
         if not _explicitly_free(spec) or not _available(spec):
             continue
