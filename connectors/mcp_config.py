@@ -165,6 +165,37 @@ class HttpServer(mcp.HttpServer):
         raise RuntimeError('MCP tool pagination did not finish')
 
 
+
+class StdioServer(mcp.StdioServer):
+    """Managed stdio server with model-safe aliases for long/qualified tool names."""
+    def request(self, method, params, timeout=120):
+        if method == 'tools/call':
+            params = dict(params, name=getattr(self, 'aliases', {}).get(params.get('name'), params.get('name')))
+        return super().request(method, params, timeout)
+
+    def start(self, timeout=60):
+        super().start(timeout)
+        self.aliases = {}
+        prepared, names = [], set()
+        budget = 64 - len('mcp__' + self.name + '__')
+        for tool in self.tools:
+            name = tool.get('name', '') if isinstance(tool, dict) else ''
+            schema = tool.get('inputSchema') if isinstance(tool, dict) else None
+            if not isinstance(name, str) or not name or name in names or not isinstance(schema, dict):
+                raise RuntimeError('MCP returned an invalid tool definition')
+            names.add(name)
+            alias = name
+            if len(name) > budget or not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+                alias = re.sub(r'[^A-Za-z0-9_-]', '_', name)[:max(1, budget-11)] + '_' + hashlib.sha256(name.encode()).hexdigest()[:10]
+            if alias in self.aliases:
+                raise RuntimeError('MCP tool names collide')
+            self.aliases[alias] = name
+            prepared.append(dict(tool, name=alias))
+        if not prepared or len(prepared) > 512:
+            raise RuntimeError('MCP server has an invalid tool catalog')
+        self.tools = prepared
+        return self
+
 def refresh_agent(agent):
     path = path_for(agent.session.root)
     try:
@@ -191,10 +222,17 @@ def route(handler, method, path, body=None):
         if method == 'GET' and path == '/api/mcp-servers':
             with LOCK:
                 servers = read(root)
-            handler._json({'servers': [dict(name=name, url=value['spec']['url'],
-                                           authenticated=bool(value['spec'].get('headers', {}).get('Authorization')),
-                                           tools=value['tools'], tested_at=value['tested_at'])
-                                      for name, value in servers.items()]})
+            handler._json({'servers': [dict(
+                name=name,
+                url=value['spec'].get('url') or ' '.join(
+                    [str(value['spec'].get('command') or '')] +
+                    [str(x) for x in value['spec'].get('args') or []]
+                ).strip(),
+                transport='http' if value['spec'].get('url') else 'stdio',
+                bundle=value.get('bundle', ''),
+                authenticated=bool(value['spec'].get('headers', {}).get('Authorization')),
+                tools=value['tools'], tested_at=value['tested_at'])
+                for name, value in servers.items()]})
             return True
         if method != 'POST' or path == '/api/mcp-servers':
             handler._json({'error': 'Method not allowed'}, 405)
@@ -217,7 +255,7 @@ def route(handler, method, path, body=None):
             spec = existing['spec']
         else:
             spec = validate(name, data.get('url'), data.get('token', ''))
-        server = HttpServer(name, spec, root)
+        server = HttpServer(name, spec, root) if spec.get('url') else StdioServer(name, spec, root)
         try:
             server.start()
             count = len(server.tools)
