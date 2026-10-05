@@ -13,6 +13,7 @@ This development line starts from successful Action 216 (`d8a270382c51e009148fc2
 - Connections uses the deployed broker and native account vault. Current provider status and remaining registration requirements are in [REGISTRATION.md](connectors/hosted/REGISTRATION.md).
 - The agent's `bash` commands run in the project and stream into the existing terminal pane as well as the conversation. Background servers use `bash(background=true)` and `job`. Shell permission checks and cancellation remain active; installing Termux is not required for the built-in shell.
 - Each model request includes the actual terminal availability, permission mode and connected service tool counts, refreshed within existing conversations. The behavior profile requires relevant tools for execution and live account tasks, with build/test/repair guidance. This does not guarantee compliance by every model or install missing SDKs.
+- **Connections → Add MCP server / إضافة خادم MCP** adds a remote Streamable HTTP endpoint to the current project, with an optional Bearer token. Test and add performs real initialization and paginated tool discovery before saving. Re-test and removal are supported; the running conversation refreshes its tools on its next request. Credentials live in a private app configuration file (mode 0600), outside project files and API listings. Custom browser OAuth and stdio installation are not part of this form; official OAuth services keep their existing connection cards.
 
 ## Behavior profile
 

@@ -30,5 +30,6 @@ def runtime_context(agent):
              'project_directory': agent.session.root,
              'internal_terminal': 'bash' in names,
              'background_jobs': 'job' in names,
-             'connected_service_tools': providers}
+             'connected_service_tools': providers,
+             'custom_mcp_tools': sum(name.startswith('mcp__') for name in names)}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)

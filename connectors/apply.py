@@ -21,7 +21,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
+    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "prompts.py", 'import platform\n', 'import platform\nfrom . import agent_policy\n')
@@ -30,6 +30,10 @@ def apply(root):
     replace(package / "agent.py", '        return [{"role": "system", "content": self.system_prompt()}]', '        from . import agent_policy\n        return [{"role": "system", "content": self.system_prompt() + agent_policy.runtime_context(self)}]')
     replace(package / "agent.py", '("text_delta", "reasoning_delta", "output", "tool_args")', '("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output")')
     shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
+    shutil.copyfile(here / "mcp_ui.js", package / "ui/mcp_ui.js")
+    replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
+    replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
+    replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
@@ -57,7 +61,9 @@ def apply(root):
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
             return self._json({"ok": True})
-        from . import connectors, documents, evolution, addons, memory_api
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config
+        if mcp_config.route(self, "GET", path):
+            return
         if memory_api.route(self, "GET", path) or documents.route(self, "GET", path) or evolution.route(self, "GET", path) or addons.route(self, "GET", path):
             return
         if connectors.route(self, "GET", path):
@@ -65,7 +71,9 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "server.py", '        b = self._body()\n        svc = self.service\n', '''        b = self._body()
-        from . import connectors, documents, evolution, addons, memory_api
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config
+        if mcp_config.route(self, "POST", path, b):
+            return
         if memory_api.route(self, "POST", path, b) or documents.route(self, "POST", path, b) or evolution.route(self, "POST", path, b) or addons.route(self, "POST", path, b):
             return
         if connectors.route(self, "POST", path, b):
@@ -73,7 +81,8 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "ui/index.html", '<link rel="stylesheet" href="style.css">', '<link rel="stylesheet" href="style.css">\n<link rel="stylesheet" href="connectors.css">')
-    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>')
+    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>\n<script src="mcp_ui.js"></script>')
+    replace(package / "server.py", 'if x != "env"', 'if x not in ("env", "headers")')
     replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES\n')
     replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')
     replace(package / "agent.py", '        parts.append(text)\n', '        parts.append("For document tasks use document_create/read/download and archive_pack/extract. Save a real file and report its path; do not claim a file exists without checking. For self-improvement use self_evolve, edit the isolated candidate, then self_evolve_verify. Never claim an untested candidate improved intelligence. Remember supported preferences with memory_learn.")\n        parts.append(text)\n')
