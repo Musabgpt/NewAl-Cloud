@@ -24,7 +24,7 @@ class McpBundlesTest(unittest.TestCase):
         def no_runtime(name):
             return None
 
-        with mock.patch("connectors.mcp_bundles.shutil.which", side_effect=no_runtime), \
+        with mock.patch.object(mcp_bundles.shutil, "which", side_effect=no_runtime), \
              mock.patch.dict(os.environ, {}, clear=True):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
         self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
@@ -35,7 +35,7 @@ class McpBundlesTest(unittest.TestCase):
         self.assertFalse(any(item["enabled"] for item in catalog.values()))
 
     def test_filesystem_and_memory_are_scoped_to_current_project(self):
-        with mock.patch("connectors.mcp_bundles.shutil.which", return_value="/usr/bin/npx"):
+        with mock.patch.object(mcp_bundles.shutil, "which", return_value="/usr/bin/npx"):
             fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
             memory = mcp_bundles._spec(mcp_bundles._item("memory"), self.root)
         self.assertEqual(fs["args"][-1], os.path.realpath(self.root))
