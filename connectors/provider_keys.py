@@ -16,6 +16,7 @@ PATHS = {
 }
 
 PUBLIC = [
+    ("freellmapi", "FreeLLMAPI Unified Router"),
     ("groq", "Groq Free"),
     ("gemini", "Google Gemini Free"),
     ("openrouter", "OpenRouter Free"),
