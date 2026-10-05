@@ -9,7 +9,8 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: connectors-${{ github.ref }}
+  # Keep retries of old commits from cancelling validation of a newer commit.
+  group: connectors-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 jobs:
   build:
