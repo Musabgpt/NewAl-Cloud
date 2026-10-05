@@ -1,0 +1,119 @@
+name: MusabAI Clean Build
+
+on:
+  push:
+    branches: [feat/freellmapi-unified-router]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NEWAL_BUILD: ${{ github.run_number }}
+      MUSAB_CONNECTOR_BROKER_URL: ${{ vars.MUSAB_CONNECTOR_BROKER_URL || 'https://musabai-connector-server.netnyaho.chatgpt.site' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout NewAl engine
+        uses: actions/checkout@v4
+        with:
+          repository: Musabgpt/NewAl
+          ref: 0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3
+          path: newal-source
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Test connector UI
+        run: |
+          npm ci --prefix connectors --ignore-scripts --no-audit --no-fund
+          npm test --prefix connectors
+
+      - name: Install Python deps
+        run: |
+          python3 -m pip install pytest
+          python3 -m pip install --no-deps --target /tmp/newal-pdf pypdf==5.9.0
+
+      - name: Test autonomy
+        env:
+          NEWAL_UPSTREAM: ${{ github.workspace }}/newal-source
+        run: python3 -m unittest discover -s desktop/autonomy -p 'test_*.py' -v
+
+      - name: Install Android SDK
+        run: |
+          SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Prepare engine
+        run: |
+          rm -rf /tmp/newal-autonomy
+          cp -a desktop/autonomy /tmp/newal-autonomy
+          rm -rf desktop
+          cp -a newal-source/desktop .
+          cp -a newal-source/docs .
+          mkdir -p desktop/autonomy
+          cp /tmp/newal-autonomy/test_memory.py desktop/autonomy/test_memory.py
+          cp -a /tmp/newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
+          python3 newal-autonomy/apply_autonomy.py desktop/newal_code/agent.py
+          python3 connectors/apply.py .
+          python3 -m compileall -q desktop/newal_code connectors
+
+      - name: Run integration tests
+        env:
+          PYTHONPATH: desktop
+          PYTHONWARNINGS: ignore
+          NEWAL_TEST_WATCHDOG: '180'
+        run: |
+          python3 -m unittest discover -s connectors -p test_connectors.py -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.mcp_bundles_tests newal_code.provider_pool_tests newal_code.provider_keys_tests newal_code.freellmapi_tests -v
+          python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
+
+      - name: Download baseline APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Musabgpt/NewAl-Cloud
+          run-id: 37110519785
+          name: NewAl-Cloud-Action43
+          path: baseline-action125
+
+      - name: Package engine
+        run: |
+          python3 connectors/package_baseline.py baseline-action125/NewAl-Cloud-Action43.apk
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build APK
+        run: |
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-FreeLLMAPI.apk
+          ls -lh MusabAI-FreeLLMAPI.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusabAI-FreeLLMAPI
+          path: MusabAI-FreeLLMAPI.apk
+          compression-level: 0
+          retention-days: 14
