@@ -21,7 +21,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
+    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "provider_pool", "provider_pool_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "phone.py", '           "intent", "wait")', '           "intent", "wait", "screenshot", "install_apk", "notifications_read", "automation_start", "automation_stop", "automation_list", "automation_replay", "crash_reports")')
@@ -45,6 +45,8 @@ def apply(root):
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
     replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
     replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
+    replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
+    replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
@@ -72,8 +74,10 @@ def apply(root):
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
             return self._json({"ok": True})
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles
         if mcp_config.route(self, "GET", path):
+            return
+        if mcp_bundles.route(self, "GET", path):
             return
         if memory_api.route(self, "GET", path) or documents.route(self, "GET", path) or evolution.route(self, "GET", path) or addons.route(self, "GET", path):
             return
@@ -82,8 +86,10 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "server.py", '        b = self._body()\n        svc = self.service\n', '''        b = self._body()
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles
         if mcp_config.route(self, "POST", path, b):
+            return
+        if mcp_bundles.route(self, "POST", path, b):
             return
         if memory_api.route(self, "POST", path, b) or documents.route(self, "POST", path, b) or evolution.route(self, "POST", path, b) or addons.route(self, "POST", path, b):
             return
@@ -125,3 +131,4 @@ def apply(root):
 
 if __name__ == "__main__":
     apply(Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve())
+
