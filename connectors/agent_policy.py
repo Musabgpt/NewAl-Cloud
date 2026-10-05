@@ -3,6 +3,11 @@ from functools import lru_cache
 from pathlib import Path
 
 MARKER = 'MusabAI behavior profile v2'
+PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
+                  "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
+                  "the install). notifications_read needs Notification Access. Record verified steps with "
+                  "automation_start/stop/list/replay; crash_reports reads MusabTestBridge files. It never grants "
+                  "root, Logcat or permission bypass.")
 
 
 @lru_cache(maxsize=1)

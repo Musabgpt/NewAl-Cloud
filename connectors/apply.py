@@ -28,8 +28,15 @@ def apply(root):
     replace(package / "phone.py", 'DOC = ("Use the Android phone this runs on: open apps and links, alarms, settings, and what is on the screen (screen "', 'DOC = ("Use the Android phone this runs on locally: read UI, screenshot, tap, type, swipe, launch apps, install an APK with Android confirmation, read optional notifications, record/replay workflows, and read MusabTestBridge crash/ANR reports. No Wi-Fi or MCP is needed. Use the Android phone this runs on: open apps and links, alarms, settings, and what is on the screen (screen "')
     replace(package / "phone.py", '        "(title, text); share (text); sms, call (number, text: the user sends); settings (page: wifi, bluetooth, "', '        "(title, text); share (text); sms, call (number, text: the user sends); screenshot; install_apk (path); notifications_read; "\n        "automation_start/stop/list/replay; crash_reports; settings (page: wifi, bluetooth, "')
     replace(package / "phone.py", '    "intent": {"type": "object"},', '    "intent": {"type": "object"},\n    "path": {"type": "string"},')
+    import re
+    phone_text = (package / "phone.py").read_text()
+    phone_text, count = re.subn(r'    "action": \{"type": "string", "enum": list\(ACTIONS\), "description": \(.*?\)\},\n',
+                                '    "action": {"type": "string", "enum": list(ACTIONS), "description": "local Android action"},\n', phone_text, count=1, flags=re.S)
+    if count != 1:
+        raise SystemExit("Unsafe patch refused: compact phone schema anchor missing")
+    (package / "phone.py").write_text(phone_text)
     replace(package / "prompts.py", 'import platform\n', 'import platform\nfrom . import agent_policy\n')
-    replace(package / "prompts.py", '    text = (LOCAL if local else SYSTEM).format(steps=steps, **environment("", shell))\n', '    text = agent_policy.profile() + "\\n\\nEnvironment: {os}; shell: {shell}.".format(**environment("", shell))\n    if local:\n        text += "\\n\\n" + BREAKER_RULE.format(steps=steps)\n')
+    replace(package / "prompts.py", '    text = (LOCAL if local else SYSTEM).format(steps=steps, **environment("", shell))\n', '    text = agent_policy.profile() + "\\n\\nEnvironment: {os}; shell: {shell}.".format(**environment("", shell))\n    if phone:\n        text += "\\n\\n" + agent_policy.PHONE_GUIDANCE\n    if local:\n        text += "\\n\\n" + BREAKER_RULE.format(steps=steps)\n')
     replace(package / "agent.py", '    def system_prompt(self):\n        if not self.session.system:\n', '    def system_prompt(self):\n        from . import agent_policy\n        if not self.agent_def and agent_policy.stale_builtin(self.session.system):\n            self.session.system = ""\n        if not self.session.system:\n')
     replace(package / "agent.py", '        return [{"role": "system", "content": self.system_prompt()}]', '        from . import agent_policy\n        return [{"role": "system", "content": self.system_prompt() + agent_policy.runtime_context(self)}]')
     replace(package / "agent.py", '("text_delta", "reasoning_delta", "output", "tool_args")', '("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output")')
