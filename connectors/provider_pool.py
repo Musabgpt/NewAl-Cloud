@@ -25,6 +25,7 @@ FREE_POOL = [
         "model": "openai/gpt-oss-120b",
         "provider": "openai",
         "api_key_envs": ["GROQ_API_KEY"],
+        "secret_id": "groq",
         "free": True,
     },
     {
@@ -34,6 +35,7 @@ FREE_POOL = [
         "model": "gemini-3.7-flash",
         "provider": "openai",
         "api_key_envs": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        "secret_id": "gemini",
         "free": True,
     },
     {
@@ -43,6 +45,7 @@ FREE_POOL = [
         "model": "openrouter/free",
         "provider": "openai",
         "api_key_envs": ["OPENROUTER_API_KEY"],
+        "secret_id": "openrouter",
         "free": True,
     },
     {
@@ -52,6 +55,7 @@ FREE_POOL = [
         "model": "nvidia/nemotron-3-ultra-550b-a55b",
         "provider": "openai",
         "api_key_envs": ["NVIDIA_API_KEY", "NVAPI_KEY"],
+        "secret_id": "nvidia",
         "free": True,
     },
 ]
@@ -81,6 +85,14 @@ def _key(spec):
     for name in names:
         if name and os.environ.get(name):
             return os.environ[name]
+    secret_id = spec.get("secret_id")
+    if secret_id:
+        try:
+            from . import provider_keys
+            return provider_keys.secret(secret_id)
+        except Exception:
+            # Desktop/CI or an Android app before a key was configured.
+            return ""
     return ""
 
 
