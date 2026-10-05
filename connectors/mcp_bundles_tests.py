@@ -18,7 +18,8 @@ class McpBundlesTest(unittest.TestCase):
 
     def test_exact_requested_bundle_catalog_is_real_and_honest(self):
         ids = [item["id"] for item in mcp_bundles.BUNDLES]
-        self.assertEqual(ids, ["playwright", "github", "filesystem", "android", "memory"])
+        self.assertEqual(ids, ["playwright", "github", "filesystem", "android", "memory",
+                               "sequential-thinking", "context7"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
 
         def no_runtime(name):
@@ -31,6 +32,8 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
         self.assertEqual(catalog["memory"]["status"], "runtime_missing")
         self.assertEqual(catalog["android"]["status"], "runtime_missing")
+        self.assertEqual(catalog["sequential-thinking"]["status"], "runtime_missing")
+        self.assertEqual(catalog["context7"]["status"], "runtime_missing")
         self.assertEqual(catalog["github"]["status"], "credentials_missing")
         self.assertFalse(any(item["enabled"] for item in catalog.values()))
 

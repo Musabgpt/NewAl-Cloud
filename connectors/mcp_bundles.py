@@ -71,6 +71,24 @@ BUNDLES = [
         "env": {"MEMORY_FILE_PATH": "{memory_file}"},
         "description": "Persistent project-scoped knowledge-graph memory.",
     },
+    {
+        "id": "sequential-thinking",
+        "name": "MCP Sequential Thinking",
+        "repository": "https://github.com/modelcontextprotocol/servers",
+        "runtimes": ["npx"],
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        "description": "Step-by-step reasoning tool for planning and debugging. Free, no key.",
+    },
+    {
+        "id": "context7",
+        "name": "Context7 Docs",
+        "repository": "https://github.com/upstash/context7",
+        "runtimes": ["npx"],
+        "command": "npx",
+        "args": ["-y", "@upstash/context7-mcp"],
+        "description": "Up-to-date library documentation and code examples. Free, no key.",
+    },
 ]
 
 
