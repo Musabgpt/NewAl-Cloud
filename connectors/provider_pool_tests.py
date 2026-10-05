@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from . import provider_pool, providers
+from . import provider_pool, provider_keys, providers
 
 
 class ProviderPoolTests(unittest.TestCase):
@@ -35,6 +35,19 @@ class ProviderPoolTests(unittest.TestCase):
         c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
         with patch.dict(os.environ, {}, clear=True), patch.object(provider_pool.settings, "user", return_value={}):
             self.assertEqual(provider_pool.candidates(c), [])
+
+    def test_android_keystore_credentials_feed_the_free_pool(self):
+        c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(provider_keys, "secret", return_value="vault-secret-key"), \
+             patch.object(provider_pool.settings, "user", return_value={}):
+            ids = [x["id"] for x in provider_pool.candidates(c)]
+        self.assertEqual(ids, [
+            "groq/gpt-oss-120b-free",
+            "gemini/3.7-flash-free",
+            "openrouter/free",
+            "nvidia/nemotron-3-ultra-free",
+        ])
 
     def test_paid_custom_fallback_is_never_silently_used(self):
         c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
