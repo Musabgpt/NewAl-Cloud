@@ -28,7 +28,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "provider_pool", "provider_pool_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
+    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "provider_pool", "provider_pool_tests", "provider_keys", "provider_keys_tests", "freellmapi", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "phone.py", '           "intent", "wait")', '           "intent", "wait", "screenshot", "install_apk", "notifications_read", "automation_start", "automation_stop", "automation_list", "automation_replay", "crash_reports")')
@@ -84,12 +84,14 @@ def apply(root):
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
             return self._json({"ok": True})
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, provider_keys
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, provider_keys, freellmapi
         if mcp_config.route(self, "GET", path):
             return
         if mcp_bundles.route(self, "GET", path):
             return
         if provider_keys.route(self, "GET", path):
+            return
+        if freellmapi.route(self, "GET", path):
             return
         if memory_api.route(self, "GET", path) or documents.route(self, "GET", path) or evolution.route(self, "GET", path) or addons.route(self, "GET", path):
             return
@@ -98,12 +100,14 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "server.py", '        b = self._body()\n        svc = self.service\n', '''        b = self._body()
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, provider_keys
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, provider_keys, freellmapi
         if mcp_config.route(self, "POST", path, b):
             return
         if mcp_bundles.route(self, "POST", path, b):
             return
         if provider_keys.route(self, "POST", path, b):
+            return
+        if freellmapi.route(self, "POST", path, b):
             return
         if memory_api.route(self, "POST", path, b) or documents.route(self, "POST", path, b) or evolution.route(self, "POST", path, b) or addons.route(self, "POST", path, b):
             return
