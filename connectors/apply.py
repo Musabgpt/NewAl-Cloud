@@ -16,6 +16,13 @@ def replace(path, before, after):
     path.write_text(text.replace(before, after, 1))
 
 
+def maybe_replace(path, before, after):
+    """Keep the patch idempotent when an upstream engine already has a feature."""
+    text = path.read_text()
+    if before in text:
+        path.write_text(text.replace(before, after, 1))
+
+
 def apply(root):
     package = root / "desktop/newal_code"
     here = Path(__file__).resolve().parent
@@ -45,8 +52,8 @@ def apply(root):
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
     replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
     replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
-    replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
-    replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
+    maybe_replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
+    maybe_replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
