@@ -54,6 +54,9 @@ def apply(root):
     replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
     maybe_replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
     maybe_replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
+    models_text = (package / "models.py").read_text()
+    if "from . import provider_pool" not in models_text:
+        (package / "models.py").write_text("from . import provider_pool\n" + models_text)
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
