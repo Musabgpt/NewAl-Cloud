@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     # Fresh hosted runner request; harmless marker after stale queued run #231.
-    runs-on: ubuntu-24.04
+    runs-on: macos-14
     timeout-minutes: 120
     env:
       NEWAL_BUILD: ${{ github.run_number }}
