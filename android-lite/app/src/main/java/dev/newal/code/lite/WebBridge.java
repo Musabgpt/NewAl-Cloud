@@ -203,6 +203,12 @@ final class WebBridge {
         act.runOnUiThread(() -> ((MainActivity) act).saveDocument(url, name, mime));
     }
 
+    /** Applies an explicitly selected engine after the user requests a restart. */
+    @JavascriptInterface
+    public void restartEngine() {
+        act.runOnUiThread(() -> ((MainActivity) act).restartEngine());
+    }
+
     /** What another app shared ({"text", "files"}), once; "" when nothing. */
     @JavascriptInterface
     public String takeShared() {

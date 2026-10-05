@@ -1,4 +1,4 @@
-name: MusabAI — Action 125 connectors
+name: MusabAI — Android
 on:
   push:
     branches: ["connectors-from-125"]
@@ -42,6 +42,10 @@ jobs:
         run: python3 -m pip install pytest
       - name: Install PDF reader for the packaged engine
         run: python3 -m pip install --no-deps --target /tmp/newal-pdf pypdf==5.9.0
+      - name: Test durable memory and real agent integration
+        env:
+          NEWAL_UPSTREAM: ${{ github.workspace }}/newal-source
+        run: python3 -m unittest discover -s desktop/autonomy -p 'test_*.py' -v
       - name: Install Android SDK
         run: |
           SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
@@ -60,18 +64,20 @@ jobs:
       - name: Apply autonomous memory and self-evolution layer
         run: |
           cp -a /tmp/newal-autonomy/. newal-autonomy/
+          mkdir -p desktop/autonomy
+          cp /tmp/newal-autonomy/test_memory.py desktop/autonomy/test_memory.py
           cp -a /tmp/newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
           python3 newal-autonomy/apply_autonomy.py desktop/newal_code/agent.py
           python3 -m py_compile desktop/newal_code/autonomy.py desktop/newal_code/agent.py desktop/newal_code/tools.py
           grep -n "NEWAL_CLOUD_AUTONOMY_V1" desktop/newal_code/agent.py
           grep -n "memory_recall" desktop/newal_code/tools.py
-          grep -n "self_evolve" desktop/newal_code/tools.py
       - name: Add connector runtime without replacing the original interface
         run: |
           python3 connectors/apply.py .
           python3 -m compileall -q desktop/newal_code connectors
           node --check desktop/newal_code/ui/app.js
           node --check desktop/newal_code/ui/connectors.js
+          node --check desktop/newal_code/ui/workspace.js
       - name: Test authorization contracts and original features
         env:
           PYTHONPATH: desktop
@@ -79,7 +85,7 @@ jobs:
           NEWAL_TEST_WATCHDOG: "180"
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
-          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Download exact Action 125 native baseline
         uses: actions/download-artifact@v4
@@ -98,9 +104,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Build exact Action #43 APK
+      - name: Build MusabAI APK
         run: |
-          gradle -p android-lite :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
           cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
           ls -lh MusabAI-Connectors.apk

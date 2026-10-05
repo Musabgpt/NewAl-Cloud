@@ -34,3 +34,46 @@ class EvolutionTests(unittest.TestCase):
         self.assertTrue(e.rollback()['ok']);self.assertFalse((e.home()/'active.json').exists())
         file.write_text('x = 2\n')
         with self.assertRaises(e.tools.ToolError):e.activate(cid)
+
+    def test_preparation_records_packaged_build_for_safe_updates(self):
+        with patch.dict(e.os.environ, {'NEWAL_PACKAGED_BUILD':'217'}):
+            cid,p=self.prepared()
+        record=json.loads((e.home()/(cid+'.json')).read_text())
+        self.assertEqual(record.get('packaged_build'),'217')
+
+    def test_original_rollback_does_not_select_an_older_candidate(self):
+        e.save(e.home()/'active.json', {'id':'old','previous':'/missing/older-candidate'})
+        self.assertTrue(e.rollback()['ok'])
+        self.assertFalse((e.home()/'active.json').exists())
+
+    def test_verify_runs_trusted_shipped_tests_not_mutable_candidate_tests(self):
+        cid,p=self.prepared()
+        (p/'newal_code/new_test.py').write_text('x = 1\n')
+        result=SimpleNamespace(returncode=0,stdout='passed',stderr='')
+        with patch.object(e.subprocess,'run',return_value=result) as run:
+            e.verify(self.ctx,cid)
+        commands=[call.args[0] for call in run.call_args_list]
+        suite=[command for command in commands if isinstance(command,list) and '-c' in command and 'loadTestsFromModule' in command[-1]]
+        self.assertEqual(len(suite),1, 'Use trusted baseline regression modules against candidate imports')
+        for name in ('document_tests','evolution_tests','addon_tests','memory_tests','autonomy_tests'):
+            self.assertIn(name,suite[0][-1])
+        trusted=Path(e.os.environ['NEWAL_PACKAGED_ENGINE'])/'newal_code' if e.os.environ.get('NEWAL_PACKAGED_ENGINE') else Path(e.__file__).resolve().parent
+        self.assertIn(str(trusted),suite[0][-1])
+
+    def test_symlink_candidate_cannot_be_activated(self):
+        cid,p=self.prepared()
+        outside=Path(self.temp.name)/'outside.py';outside.write_text('x = 1\n')
+        (p/'newal_code/alias.py').symlink_to(outside)
+        with self.assertRaises(e.tools.ToolError):e.digest(p/'newal_code')
+
+    def test_unchecked_import_sibling_is_rejected(self):
+        cid,p=self.prepared()
+        (p/'sitecustomize.py').write_text('raise RuntimeError("unchecked")\n')
+        with self.assertRaises(e.tools.ToolError):e.candidate(cid)
+
+    def test_candidate_from_an_older_apk_cannot_activate(self):
+        cid,p=self.prepared();(p/'newal_code/probe.py').write_text('x = 1\n')
+        result=SimpleNamespace(returncode=0,stdout='passed',stderr='')
+        with patch.object(e.subprocess,'run',return_value=result):e.verify(self.ctx,cid)
+        with patch.dict(e.os.environ, {'NEWAL_PACKAGED_BUILD':'next-build'}):
+            with self.assertRaises(e.tools.ToolError):e.activate(cid)

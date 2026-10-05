@@ -18,9 +18,12 @@ import android.util.Log;
 public class AgentService extends Service {
     private static final String CHANNEL = "newal";
     static final String RETRY = "dev.newal.code.lite.RETRY";
+    static final String START_RESULT = "dev.newal.code.lite.START_RESULT";
     private static Process python;
     private static volatile boolean stopping;
     static volatile String error = "";
+    private final java.util.concurrent.ExecutorService starts = java.util.concurrent.Executors
+            .newSingleThreadExecutor(task -> new Thread(task, "newal-start"));
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -31,25 +34,38 @@ public class AgentService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         stopping = false;
         foreground();
-        new Thread(() -> {
-            synchronized (AgentService.class) {
-                if (intent != null && RETRY.equals(intent.getAction())) {
-                    Process previous = python;
-                    python = null;
-                    if (previous != null) {
-                        previous.destroy();
-                        try {
+        android.os.ResultReceiver result = intent == null ? null : intent.getParcelableExtra(START_RESULT);
+        starts.execute(() -> {
+            try {
+                synchronized (AgentService.class) {
+                    if (intent != null && RETRY.equals(intent.getAction())) {
+                        Process previous = python;
+                        if (previous != null) {
+                            previous.destroy();
                             if (!previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
                                 previous.destroyForcibly();
-                                previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS);
+                                if (!previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new java.io.IOException("The previous engine did not stop");
                             }
-                        } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                        }
+                        python = null;
+                        restarts.clear();
                     }
-                    restarts.clear();
+                    ensureRunning();
+                    if (stopping && error.isEmpty()) error = "Engine service stopped";
                 }
-                ensureRunning();
+            } catch (Exception e) {
+                error = String.valueOf(e);
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                Log.e("NewAlCode", "cannot restart", e);
+            } finally {
+                if (result != null) {
+                    android.os.Bundle detail = new android.os.Bundle();
+                    detail.putString("error", error);
+                    result.send(error.isEmpty() ? 0 : 1, detail);
+                }
             }
-        }, "newal-start").start();
+        });
         return START_STICKY;
     }
 
@@ -128,6 +144,7 @@ public class AgentService extends Service {
     @Override
     public void onDestroy() {
         stopping = true;
+        starts.shutdownNow();
         synchronized (AgentService.class) {
             if (python != null) {
                 python.destroy();          // SIGTERM: NewAl Code stops its models, then exits

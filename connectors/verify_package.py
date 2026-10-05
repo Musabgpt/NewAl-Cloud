@@ -4,10 +4,12 @@ import zipfile
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
     required = ["agent.py", "tools.py", "server.py", "plugins.py", "addons.py", "mcp.py", "session.py",
-                "autonomy.py", "connectors.py", "documents.py", "evolution.py", "document_tests.py", "evolution_tests.py", "addon_tests.py", "ui/workspace.js", "ui/app.js", "ui/connectors.js", "ui/connectors.css"]
+                "autonomy.py", "autonomy_tests.py", "connectors.py", "documents.py", "evolution.py", "memory_api.py", "memory_tests.py", "document_tests.py", "evolution_tests.py", "addon_tests.py", "ui/workspace.js", "ui/app.js", "ui/connectors.js", "ui/connectors.css"]
     for path in required:
         assert "newal_code/" + path in archive.namelist(), "Missing packaged feature: " + path
     assert "pypdf/__init__.py" in archive.namelist(), "PDF reader missing from packaged engine"
+    for path in ('agent_policy.py', 'agent_prompt.md', 'prompt_tests.py'):
+        assert 'newal_code/' + path in archive.namelist(), 'Prompt feature missing: ' + path
     app = archive.read("newal_code/ui/app.js").decode()
     for anchor in ("open-extensions", "toggle-terminal", "toggle-review", "env-picker", "/api/workspaces"):
         assert anchor in app, "Original UI feature missing: " + anchor

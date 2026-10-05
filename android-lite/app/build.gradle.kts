@@ -12,6 +12,7 @@ dependencies {
 android {
     namespace = "dev.newal.code.lite"
     compileSdk = 35
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
         applicationId = "dev.newal.code.lite.connectors"

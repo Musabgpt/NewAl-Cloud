@@ -130,16 +130,12 @@ final class Setup {
         env.put("HOME", home.getPath());
         env.put("PYTHONHOME", python.getPath());
         String enginePath = app.getPath();
-        File active = new File(home, ".newal-code/evolution/active.json");
-        if (active.isFile()) {
-            try {
-                File candidate = new File(new org.json.JSONObject(read(active)).getString("path")).getCanonicalFile();
-                String allowed = new File(home, ".newal-code/evolution/candidates").getCanonicalPath() + File.separator;
-                if (candidate.getPath().startsWith(allowed) && new File(candidate, "newal_code/server.py").isFile())
-                    enginePath = candidate.getPath() + File.pathSeparator + enginePath;
-            } catch (Exception ignored) { } // malformed selection falls back to the packaged engine
-        }
+        String packagedBuild = String.valueOf(BuildConfig.VERSION_CODE);
+        File candidate = CandidateSelection.select(home, packagedBuild);
+        if (candidate != null) enginePath = candidate.getPath() + File.pathSeparator + enginePath;
         env.put("PYTHONPATH", enginePath);
+        env.put("NEWAL_PACKAGED_BUILD", packagedBuild);
+        env.put("NEWAL_PACKAGED_ENGINE", app.getPath());
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());

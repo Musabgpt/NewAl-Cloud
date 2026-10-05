@@ -1,31 +1,35 @@
-# NewAl Cloud
+# MusabAI
 
-تطبيق Android بسيط لمحادثة نماذج مجانية عبر مسار **FreeLLMAPI-compatible Auto Free**، بدون GGUF محلي وبدون إدخال API key من المستخدم.
+Android coding assistant with persistent project memory, document tools, official OAuth/MCP connections, Termux execution and tested engine candidates.
 
-## الوضع الحالي: Zero Setup
+This development line starts from successful Action 216 (`d8a270382c51e009148fc2ae034beb40788fdf6c`). It keeps that build's pinned Action 43 Python engine and byte-verified Action 125 native libraries.
 
-- التطبيق يفتح مباشرة على المسار المجاني التلقائي.
-- لا يحتاج المستخدم إلى إنشاء أو إدخال API key.
-- لا يحتاج اختيار مزود أو نموذج.
-- يستخدم مسار Kilo Gateway المجاني `kilo-auto/free`، وهو مسار keyless يختار نموذجاً مجانياً متاحاً تلقائياً.
-- FreeLLMAPI نفسه يسجل Kilo Gateway كمزود keyless، لذلك هذا هو مسار الاستخدام المجاني الذي لا يتطلب إعداد مفاتيح.
-- يدعم بث الإجابة (SSE) وزر إيقاف وسجل محادثة متعدد الرسائل.
+## Using the app
 
-## مهم
+- Start or open a project conversation, then use **Workspace / مساحة العمل** for Files, Memory and Improve.
+- Files supports HTML, Markdown, PDF, ZIP and TXT import, creation, reading and export.
+- Memory is local and project-scoped. Search its Arabic/English lessons and evidence, delete them or disable capture. Observed corrected tool calls can become lessons; this does not train model weights.
+- Improve prepares a separate Python engine candidate. Packaged regression tests run before activation. Explicitly restart the engine after activation; Restore original selects the packaged engine. Android rechecks the code and app build before startup.
+- Connections uses the deployed broker and native account vault. Current provider status and remaining registration requirements are in [REGISTRATION.md](connectors/hosted/REGISTRATION.md).
 
-هذا لا يعني أن كل مزودي FreeLLMAPI البالغ عددهم عشرات المزودين يمكن الوصول إليهم بدون مفاتيح. المزودون الذين يحتاجون مفاتيح لا يتم اختراع مفاتيح لهم. التطبيق الحالي يركز على **المسار المجاني keyless** حتى يعمل للمستخدم من أول تشغيل.
+## Behavior profile
 
-قد تتغير النماذج المجانية أو حدود الاستخدام أو سياسات مزود الخدمة، وقد يكون بعض المسارات المجانية خاضعاً لحدود حسب عنوان IP أو لشروط خاصة.
+[agent_prompt.md](connectors/agent_prompt.md) adapts the user's uploaded `claude-code-cloud-fable-5.1.md` behavior instructions to MusabAI's actual tools and identity. The upload also contained another person's account/session context, repository directions and tool catalogs; those are not runtime configuration for this application. They are not included in the APK or this repository.
 
-## البناء
+Source upload SHA-256: `a51e2376a001d5708b00762440d065e689a264b4de4f7f3ba55cd72f2b1ba863`.
 
-يتم البناء تلقائياً عبر GitHub Actions باستخدام Java 17 وGradle 8.7، وينتج APK تجريبي بمفتاح debug.
+The profile applies to default cloud/local conversations, including reopened conversations using the old built-in prompt. Messages and project instructions are preserved.
 
-من تبويب Actions شغّل Android CI أو ادفع تغييراً إلى `main`، ثم حمّل artifact باسم `NewAl-Cloud-debug`.
+## Build and test
 
-## الخصوصية
+Root Gradle and `android-lite` build the same application: `dev.newal.code.lite.connectors`. Obsolete standalone chat source was removed and remains recoverable in Git history.
 
-لا توجد مفاتيح API للمستخدم مخزنة في التطبيق في وضع Zero Setup. الرسائل التي ترسلها تمر إلى خدمة المسار المجاني المستخدمة لتقديم النموذج؛ لا ترسل معلومات شخصية أو سرية عبر مسارات مجانية ما لم تكن موافقاً على شروطها.
+Run **MusabAI — Android** (`.github/workflows/android.yml`). It tests pinned agent integration, memory, Python/JavaScript/Java contracts and original engine features; then packages the verified native baseline and builds the APK. Download `MusabAI-Connectors` from the successful run.
 
+Local UI tests: `npm ci --prefix connectors && npm test --prefix connectors`.
+Memory tests: `python3 -m unittest discover -s desktop/autonomy -p 'test_*.py' -v`.
+Set `NEWAL_UPSTREAM` to a Git checkout of pinned Musabgpt/NewAl source for agent integration tests.
 
-Action 43 merge work is being prepared.
+The free default model endpoint can change availability and rate limits. Recalled memories enter the selected model's context like conversation text. Candidate checks execute with the application's OS permissions. Development signing and physical-phone acceptance are documented in [DEPLOYMENT.md](connectors/DEPLOYMENT.md).
+
+See [applied recommendations and verification scope](connectors/EVOLUTION.md).

@@ -38,8 +38,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private WebBridge bridge;
     private String key;
-    private volatile int waitGeneration;
-    private volatile boolean serverReady;
+    private final EngineReadiness readiness = new EngineReadiness();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -172,49 +171,98 @@ public class MainActivity extends Activity {
     }
 
     private void startAgent(boolean retry) {
+        final int request = readiness.requestStart(retry);
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
-        page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
+        if (!readiness.hasPage())
+            page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
         Intent service = new Intent(this, AgentService.class);
         if (retry) service.setAction(AgentService.RETRY);
+        service.putExtra(AgentService.START_RESULT, new android.os.ResultReceiver(
+                new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override protected void onReceiveResult(int result, Bundle data) {
+                // The previous process can still answer /health until RETRY finishes stopping it.
+                // Its response must not load a stale page before the service acknowledges this request.
+                String failure = result == 0 ? "" : data == null ? "Engine could not start"
+                        : data.getString("error", "Engine could not start");
+                readiness.serviceStarted(request, failure);
+            }
+        });
         // Do not show an error left by a previous failed service invocation.
         AgentService.error = "";
-        startForegroundService(service);
-        waitForServer();
+        try {
+            startForegroundService(service);
+        } catch (RuntimeException e) {
+            AgentService.error = String.valueOf(e);
+            readiness.serviceStarted(request, AgentService.error);
+        }
+        waitForServer(false);
     }
 
-    private void waitForServer() {
-        final int generation = ++waitGeneration;
+    /** An explicit restart after candidate activation or rollback may replace the current page. */
+    void restartEngine() { startAgent(true); }
+
+    private void waitForServer(boolean allowRecovery) {
+        final int generation = readiness.beginCheck();
+        if (generation < 0) return;
+        final boolean recover = allowRecovery && readiness.hasPage() && !readiness.servicePending();
         new Thread(() -> {
             long deadline = android.os.SystemClock.elapsedRealtime() + 120_000;
-            while (generation == waitGeneration && android.os.SystemClock.elapsedRealtime() < deadline) {
-                if (up(key)) {
-                    runOnUiThread(() -> {
-                        if (generation != waitGeneration || isFinishing() || isDestroyed()) return;
-                        Uri data = getIntent().getData();
-                        boolean connections = data != null && "musabai".equals(data.getScheme())
-                                && "connectors".equals(data.getHost());
-                        web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : ""));
-                        serverReady = true;
-                    });
-                    return;
+            while (readiness.current(generation) && android.os.SystemClock.elapsedRealtime() < deadline) {
+                if (!readiness.startupError().isEmpty()) {
+                    if (recover) {
+                        runOnUiThread(() -> {
+                            if (readiness.current(generation) && !isFinishing() && !isDestroyed())
+                                startAgent(false);
+                        });
+                        return;
+                    }
+                    break;
                 }
-                if (!AgentService.error.isEmpty()) break;
+                if (readiness.canProbe(generation)) {
+                    if (!recover && !AgentService.error.isEmpty()) break;
+                    if (up(key)) {
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            int action = readiness.complete(generation);
+                            if (action != EngineReadiness.LOAD_PAGE) return;
+                            Uri data = getIntent().getData();
+                            boolean connections = data != null && "musabai".equals(data.getScheme())
+                                    && "connectors".equals(data.getHost());
+                            web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : ""));
+                        });
+                        return;
+                    }
+                    if (recover) {
+                        runOnUiThread(() -> {
+                            if (readiness.current(generation) && !isFinishing() && !isDestroyed())
+                                startAgent(false); // ensureRunning only starts a missing process; the draft stays.
+                        });
+                        return;
+                    }
+                    if (!AgentService.error.isEmpty()) break;
+                }
                 try { Thread.sleep(250); }
                 catch (InterruptedException e) { return; }
             }
-            if (generation != waitGeneration) return;
-            String why = AgentService.error.isEmpty()
+            if (!readiness.current(generation)) return;
+            String failure = readiness.startupError().isEmpty() ? AgentService.error : readiness.startupError();
+            String why = failure.isEmpty()
                     ? "لم يستجب التطبيق خلال دقيقتين. اضغط إعادة المحاولة لتشغيله مجددًا."
-                    : AgentService.error;
+                    : failure;
             String log = new Setup(this).logTail();
             if (!log.isEmpty()) why += "\n\n" + log;
             final String detail = why;
             boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                     == Configuration.UI_MODE_NIGHT_YES;
             runOnUiThread(() -> {
-                if (generation == waitGeneration && !isFinishing() && !isDestroyed())
+                if (isFinishing() || isDestroyed() || !readiness.failed(generation)) return;
+                if (readiness.hasPage()) {
+                    android.widget.Toast.makeText(this, "تعذّر الاتصال بالمحرّك. ستتم إعادة المحاولة عند الرجوع للتطبيق.",
+                            android.widget.Toast.LENGTH_LONG).show();
+                } else {
                     page("تعذّر تشغيل NewAl Code", detail, night, true);
+                }
             });
         }, "newal-wait").start();
     }
@@ -234,7 +282,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        ++waitGeneration;
+        readiness.pause();
         super.onDestroy();
     }
 
@@ -255,6 +303,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        readiness.pause();
         super.onPause();
         Access.paused();
     }
@@ -263,7 +312,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Access.resumed(this);
-        if (!serverReady) waitForServer();
+        readiness.resume();
+        waitForServer(true);
     }
 
     @Override

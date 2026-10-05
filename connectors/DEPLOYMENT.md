@@ -9,8 +9,9 @@ The manual-registration instructions below still apply to Google and the legacy
 REST integrations. Account consent is required; client registration alone does not
 mean a user's account is connected.
 
-This branch starts at NewAl-Cloud Action **125**, commit
-`2ebea5701a432b454aeba639cbb39d756bf50da7`. Its engine is pinned to NewAl
+This continuation starts at successful NewAl-Cloud Action **216**, commit
+`d8a270382c51e009148fc2ae034beb40788fdf6c`. Its native baseline originated in Action
+**125**, commit `2ebea5701a432b454aeba639cbb39d756bf50da7`. Its engine is pinned to NewAl
 `0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3`, the Action 43 source.
 The original agent, skills, plugins, MCP, terminal, review, model configuration
 and memory/autonomy layer are retained. Only checked integration anchors are patched.
