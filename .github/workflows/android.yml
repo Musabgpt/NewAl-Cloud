@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    # Fresh hosted runner request; harmless marker after stale queued run #231.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
