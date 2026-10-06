@@ -80,6 +80,7 @@ def apply(root):
     if kind == "mcp":
 ''')
     replace(package / "permissions.py", 'COMMAND_TOOLS = ("bash", "powershell")', 'COMMAND_TOOLS = ("bash", "powershell", "termux_exec")')
+    replace(package / "server.py", '        given = self._given_key()\n', '        if path == "/api/mcp-oauth/callback" and self.command == "GET":\n            return True\n        given = self._given_key()\n')
     replace(package / "server.py", '        q = self._query()\n        svc = self.service\n', '''        q = self._query()
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
