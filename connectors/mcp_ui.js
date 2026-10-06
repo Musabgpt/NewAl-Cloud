@@ -172,6 +172,97 @@
     // Initial status is safe even without a project; activation still requires one.
     withBundleBusy(loadBundles);
 
+    // ---------------------------------------------------------------- Official MCP Registry
+    const registrySection = node('section');
+    registrySection.className = 'connector-card mcp-registry';
+    registrySection.append(node('h3', tr('Official MCP Registry', 'سجل MCP الرسمي')));
+    registrySection.append(node('p', tr(
+      'Search the official registry. MusabAI inspects server.json and auto-installs only literal HTTPS Streamable HTTP endpoints after a real MCP handshake. Package commands are never executed automatically.',
+      'ابحث في سجل MCP الرسمي. يفحص MusabAI ملف server.json ولا يثبت تلقائياً إلا نقاط Streamable HTTP حرفية عبر HTTPS بعد اختبار MCP حقيقي. أوامر الحزم لا تُشغّل تلقائياً أبداً.'
+    )));
+    const registryForm = node('form');
+    const registryQuery = node('input');
+    registryQuery.type = 'search';
+    registryQuery.placeholder = tr('Search MCP servers', 'ابحث عن خوادم MCP');
+    registryQuery.maxLength = 120;
+    registryQuery.setAttribute('aria-label', tr('Registry search', 'بحث السجل'));
+    const registrySearch = node('button', tr('Search', 'بحث'));
+    registrySearch.type = 'submit'; registrySearch.className = 'btn primary';
+    registryForm.append(registryQuery, registrySearch);
+    const registryMessage = node('p');
+    registryMessage.setAttribute('role', 'status');
+    const registryList = node('div');
+    registrySection.append(registryForm, registryMessage, registryList);
+    panel.insertBefore(registrySection, document.querySelector('#connector-list'));
+
+    let registryBusy = false;
+    async function registryRun(fn) {
+      if (registryBusy) return;
+      registryBusy = true; registrySearch.disabled = true;
+      try { await fn(); }
+      catch (error) { registryMessage.textContent = error.message; }
+      finally { registryBusy = false; registrySearch.disabled = false; }
+    }
+
+    async function inspectRegistry(item, row) {
+      const data = await api('/api/mcp-registry/inspect?name=' + encodeURIComponent(item.name));
+      const details = node('div');
+      if (data.remote) details.append(node('p', tr('Remote: ', 'الخادم البعيد: ') + data.remote));
+      if (data.packages?.length) {
+        const names = data.packages.map(p => [p.registryType, p.identifier, p.version].filter(Boolean).join(': '));
+        details.append(node('p', tr('Packages (review only): ', 'الحزم (للمراجعة فقط): ') + names.join(', ')));
+      }
+      for (const reason of data.reasons || []) details.append(node('p', reason));
+      if (data.installable) {
+        const install = node('button', tr('Test and install', 'اختبار وتثبيت'));
+        install.type = 'button'; install.className = 'btn primary';
+        install.onclick = () => registryRun(async () => {
+          const sid = current();
+          if (!sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعاً أولاً.'));
+          registryMessage.textContent = tr('Running a real MCP handshake before saving…', 'جارٍ تنفيذ اختبار MCP حقيقي قبل الحفظ…');
+          const result = await api('/api/mcp-registry/install', {session: sid, name: item.name});
+          registryMessage.textContent = tr('Installed safely. Tools: ', 'تم التثبيت بأمان. الأدوات: ') + result.tools;
+        });
+        details.append(install);
+      } else {
+        details.append(node('p', tr(
+          'Manual configuration required; MusabAI will not execute registry package commands.',
+          'يلزم إعداد يدوي؛ لن يشغّل MusabAI أوامر الحزم القادمة من السجل.'
+        )));
+      }
+      row.append(details);
+    }
+
+    async function loadRegistry(query) {
+      registryMessage.textContent = tr('Searching official MCP Registry…', 'جارٍ البحث في سجل MCP الرسمي…');
+      const data = await api('/api/mcp-registry?q=' + encodeURIComponent(query || '') + '&limit=20');
+      registryList.replaceChildren();
+      if (!(data.servers || []).length) registryList.append(node('p', tr('No matching servers.', 'لا توجد خوادم مطابقة.')));
+      for (const item of data.servers || []) {
+        const row = node('section'); row.className = 'connector-card mcp-registry-result';
+        row.append(node('strong', item.title || item.name));
+        row.append(node('p', item.name + (item.version ? ' · ' + item.version : '')));
+        if (item.description) row.append(node('p', item.description));
+        row.append(node('p', tr('Remote endpoints: ', 'نقاط الاتصال البعيدة: ') + item.remote_count +
+          tr(' · Packages: ', ' · الحزم: ') + item.package_count));
+        const inspect = node('button', tr('Inspect server.json', 'فحص server.json'));
+        inspect.type = 'button'; inspect.className = 'btn';
+        inspect.onclick = () => registryRun(async () => {
+          inspect.disabled = true;
+          try { await inspectRegistry(item, row); }
+          finally { inspect.disabled = false; }
+        });
+        row.append(inspect);
+        registryList.append(row);
+      }
+      registryMessage.textContent = tr('Results: ', 'النتائج: ') + (data.count || 0);
+    }
+
+    registryForm.onsubmit = event => {
+      event.preventDefault();
+      registryRun(() => loadRegistry(registryQuery.value.trim()));
+    };
+
     // ---------------------------------------------------------------- Custom remote HTTP MCP
     const section = node('section'); section.className = 'connector-card custom-mcp';
     const heading = node('h3', tr('Add MCP server', 'إضافة خادم MCP'));
