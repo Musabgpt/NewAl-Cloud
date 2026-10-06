@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Deterministic Promptfoo provider for MusabAI routing contract evaluation."""
 import json
-import os
+from pathlib import Path
 import sys
 
-# CI runs this after connectors/apply.py with PYTHONPATH=desktop.
+# Promptfoo executes script providers relative to the config file directory.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "desktop"))
 from newal_code import execution, orchestrator
 
 prompt = sys.argv[1] if len(sys.argv) > 1 else ""
