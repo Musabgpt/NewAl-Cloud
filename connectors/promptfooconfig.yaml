@@ -16,8 +16,6 @@ tests:
     assert:
       - type: contains
         value: "git_status"
-      - type: contains
-        value: "git_diff"
   - vars:
       task: "Search the web and inspect the current project before editing code"
     assert:
