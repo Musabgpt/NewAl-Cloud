@@ -23,8 +23,8 @@ NATIVE = {
     "archive_pack",
     "archive_extract",
 }
-SIMPLE_READ = {".md", ".txt", ".html", ".htm", ".pdf", ".zip"}
-SIMPLE_CREATE = {".md", ".txt", ".html", ".htm", ".pdf", ".zip"}
+SIMPLE_READ = {".md", ".txt", ".html", ".pdf", ".zip"}
+SIMPLE_CREATE = {".md", ".txt", ".html", ".pdf"}
 DOCLING_FORMATS = {
     ".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".md", ".csv",
     ".xml", ".json", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
