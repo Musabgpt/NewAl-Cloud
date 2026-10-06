@@ -21,7 +21,9 @@
     if (bundle.status === 'enabled') return tr('Connected', 'متصل');
     if (bundle.status === 'available') return tr('Ready to enable', 'جاهز للتفعيل');
     if (bundle.status === 'credentials_missing') return tr('Credential required', 'يحتاج تسجيل/رمز وصول');
-    if (bundle.status === 'runtime_missing') return tr('Runtime missing', 'بيئة التشغيل غير موجودة');
+    if (bundle.status === 'runtime_missing') return tr('Runtime command missing', 'أداة التشغيل غير مثبتة');
+    if (bundle.status === 'runtime_unavailable') return tr('Termux not connected', 'Termux غير متصل');
+    if (bundle.status === 'bridge_required') return tr('Termux ready · bridge required', 'Termux جاهز · يحتاج الجسر');
     return bundle.status || tr('Unavailable', 'غير متاح');
   }
 
@@ -451,6 +453,7 @@
         row.append(state);
         if (bundle.native_fallback) row.append(node('p', bundle.native_fallback));
         if (bundle.manual_setup) row.append(node('p', bundle.manual_setup));
+        if (bundle.runtime_reason) row.append(node('p', tr('Runtime: ', 'بيئة التشغيل: ') + bundle.runtime_reason));
         if (bundle.missing?.length) row.append(node('p', tr('Missing: ', 'الناقص: ') + bundle.missing.join(', ')));
         if (bundle.enabled) row.append(node('p', tr('Tools: ', 'الأدوات: ') + bundle.tools));
 

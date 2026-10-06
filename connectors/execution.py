@@ -39,6 +39,9 @@ def plan(names, request=""):
     gitish = bool(re.search(r"\b(git|commit|branch|diff|repo|repository|جت|كوميت|فرع|مستودع)\b", text))
 
     routes = []
+    if (phoneish or remoteish) and "runtime_exec" in names:
+        routes.append({"backend": "runtime_manager", "tool": "runtime_exec",
+                       "reason": "Use the unified runtime manager: Termux for Android shell commands, or an explicitly configured remote runtime."})
     if phoneish and "termux_exec" in names:
         routes.append({"backend": "termux", "tool": "termux_exec",
                        "reason": "Use the phone's existing Termux environment for Android/Linux commands."})
@@ -172,7 +175,7 @@ def run_scratch(command, files=None, timeout=30):
 def install():
     @tools.tool(
         "execution_plan",
-        "Choose among actual local, Termux, Appium/E2B MCP and Git execution tools exposed to this session. Does not execute.",
+        "Choose among the unified runtime manager and actual local, Termux, Appium/E2B MCP and Git execution tools exposed to this session. Does not execute.",
         {"request": {"type": "string", "description": "task to route"}},
         ["request"],
         "meta",

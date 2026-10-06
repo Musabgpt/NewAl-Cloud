@@ -128,8 +128,13 @@ def _credential(item):
     return "", ""
 
 
+def _runtime_requirements(item):
+    return runtime_manager.requirements(item.get("runtimes") or [])
+
+
 def _missing(item):
-    missing = [name for name in item.get("runtimes") or [] if shutil.which(name) is None]
+    state = _runtime_requirements(item)
+    missing = list(state["missing"])
     if item.get("credential_env_any") and not _credential(item)[1]:
         missing.append("credential")
     return missing
@@ -170,15 +175,23 @@ def catalog(root=None):
             enabled = {}
     result = []
     for item in BUNDLES:
-        missing = _missing(item)
+        runtime = _runtime_requirements(item)
+        missing = list(runtime["missing"])
+        credential_missing = bool(item.get("credential_env_any") and not _credential(item)[1])
         record = enabled.get(item["id"]) or {}
         active = record.get("bundle") == item["id"]
         if active:
             status = "enabled"
-        elif "credential" in missing:
+        elif credential_missing:
             status = "credentials_missing"
+        elif runtime["unknown"]:
+            status = "runtime_unavailable"
         elif missing:
             status = "runtime_missing"
+        elif runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
+            # Phase 5 can verify and execute ordinary Termux commands, but MCP stdio
+            # is intentionally not faked. Phase 6 supplies the durable localhost bridge.
+            status = "bridge_required"
         else:
             status = "available"
         public = {
@@ -186,9 +199,11 @@ def catalog(root=None):
             if k not in {"command", "args", "env", "credential_env_any", "env_alias"}
         }
         public.update({
-            "available": not missing,
+            "available": status == "available",
             "status": status,
             "missing": missing,
+            "runtime": runtime["runtime"],
+            "runtime_reason": runtime["reason"],
             "enabled": active,
             "tools": int(record.get("tools") or 0) if active else 0,
             "tested_at": int(record.get("tested_at") or 0) if active else 0,
@@ -205,9 +220,16 @@ def _session_root(handler, data):
 
 
 def _test(item, root):
-    missing = _missing(item)
-    if missing:
-        raise RuntimeError("Missing requirements: " + ", ".join(missing))
+    runtime = _runtime_requirements(item)
+    if runtime["unknown"]:
+        raise RuntimeError(runtime["reason"])
+    if runtime["missing"]:
+        raise RuntimeError("Missing requirements: " + ", ".join(runtime["missing"]))
+    if runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
+        raise RuntimeError(
+            "Termux runtime is verified, but persistent MCP stdio transport is not active yet; "
+            "use the Phase 6 localhost bridge before enabling this bundle."
+        )
     server = mcp_config.StdioServer(item["id"], _spec(item, root), root)
     try:
         server.start(timeout=45)

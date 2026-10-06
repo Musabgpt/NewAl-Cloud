@@ -21,10 +21,16 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(ids, ["playwright", "browser-use", "open-browser-use", "docling", "github", "filesystem", "android", "memory"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
 
-        def no_runtime(name):
-            return None
+        def no_runtime(commands):
+            return {
+                "runtime": "LOCAL_HOST",
+                "missing": list(commands),
+                "unknown": [],
+                "reason": "No command is installed on the test host.",
+                "stdio": True,
+            }
 
-        with mock.patch.object(mcp_bundles.shutil, "which", side_effect=no_runtime), \
+        with mock.patch.object(runtime_manager, "requirements", side_effect=no_runtime), \
              mock.patch.dict(os.environ, {}, clear=True):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
         self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
@@ -37,10 +43,24 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(catalog["github"]["status"], "credentials_missing")
         self.assertFalse(any(item["enabled"] for item in catalog.values()))
 
+    def test_termux_npx_ready_is_not_reported_as_npx_missing(self):
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "npx verified inside Termux",
+            "stdio": False,
+        }
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready):
+            catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
+        self.assertEqual(catalog["playwright"]["status"], "bridge_required")
+        self.assertEqual(catalog["playwright"]["missing"], [])
+        self.assertEqual(catalog["playwright"]["runtime"], runtime_manager.TERMUX)
+        self.assertFalse(catalog["playwright"]["available"])
+
     def test_filesystem_and_memory_are_scoped_to_current_project(self):
-        with mock.patch.object(mcp_bundles.shutil, "which", return_value="/usr/bin/npx"):
-            fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
-            memory = mcp_bundles._spec(mcp_bundles._item("memory"), self.root)
+        fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
+        memory = mcp_bundles._spec(mcp_bundles._item("memory"), self.root)
         self.assertEqual(fs["args"][-1], os.path.realpath(self.root))
         memory_file = memory["env"]["MEMORY_FILE_PATH"]
         self.assertTrue(memory_file.startswith(os.path.realpath(self.root) + os.sep))
