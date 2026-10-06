@@ -43,7 +43,7 @@ TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/sessi
                        "before reconstructing state from guesses. Task checkpoints are local summaries only: they do not run in "
                        "the background. Call task_complete only after the stated result has been verified.")
 VERIFICATION_GUIDANCE = ("Do not equate a write/action returning success with independently verified completion. After effectful "
-                         "file, account, MCP, phone or execution actions, inspect the resulting state or run a relevant test before "
+                         "file, account, MCP, device-UI or execution actions, inspect the resulting state or run a relevant test before "
                          "claiming success. The runtime records privacy-safe evidence in verification_status/verification_tail. "
                          "When verification fails, diagnose the evidence and change the approach; never blindly repeat the same action.")
 
