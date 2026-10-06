@@ -3,10 +3,23 @@
 import json
 from pathlib import Path
 import sys
+import types
 
 # Promptfoo executes script providers relative to the config file directory.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
+
+# Load the pure planners without starting the full tool registry, which imports
+# these modules back during registration.
+stub = types.ModuleType("newal_code.tools")
+class ToolError(Exception):
+    pass
+def tool(*args, **kwargs):
+    return lambda fn: fn
+stub.ToolError = ToolError
+stub.tool = tool
+sys.modules["newal_code.tools"] = stub
+
 from newal_code import execution, orchestrator
 
 prompt = sys.argv[1] if len(sys.argv) > 1 else ""
