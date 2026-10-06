@@ -43,6 +43,14 @@ async function setup(t, fail = false) {
         availability:{api:false,service_mcp:false,playwright:true,browser_use:false,open_browser_use:false,android_session:true}
       })};
     }
+    if (String(path).startsWith('/api/document-engine')) {
+      return {ok:true,json:async () => ({
+        route:'docling',
+        label:'Docling MCP',
+        reason:'A verified Docling MCP server is exposed and this task benefits from structured document understanding.',
+        availability:{docling:true,native:true}
+      })};
+    }
     if (String(path).startsWith('/api/search-layer')) {
       if (options.method === 'POST') {
         if (String(path).endsWith('/test')) {
@@ -171,6 +179,25 @@ test('search layer tests SearXNG and Crawl4AI through real backend routes', asyn
   buttons.find(button => button.textContent.includes('Crawl4AI') && button.textContent.includes('اختبار')).click();
   await tick(); await tick();
   assert(calls.some(c => c.path === '/api/search-layer/test' && c.body?.provider === 'crawl4ai'));
+});
+
+test('document engine sends OCR/layout requirements and renders verified Docling route', async t => {
+  const {w,calls} = await setup(t);
+  const panel = w.document.querySelector('.document-engine');
+  assert(panel);
+  panel.querySelector('input[type="text"]').value = 'scan.pdf';
+  const checks = [...panel.querySelectorAll('input[type="checkbox"]')];
+  checks[0].checked = true;
+  checks[1].checked = true;
+  const button = panel.querySelector('button');
+  button.click(); await tick(); await tick();
+  const request = calls.find(c => String(c.path).startsWith('/api/document-engine?'));
+  assert(request);
+  assert.match(request.path, /session=project/);
+  assert.match(request.path, /path=scan.pdf/);
+  assert.match(request.path, /needs_ocr=1/);
+  assert.match(request.path, /preserve_layout=1/);
+  assert.match(panel.querySelector('[role="status"]').textContent, /Docling/);
 });
 
 test('official bundle is only enabled after a real backend activation response', async t => {
