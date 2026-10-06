@@ -8,11 +8,16 @@ PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local age
                   "the install). notifications_read needs Notification Access. Record verified steps with "
                   "automation_start/stop/list/replay; crash_reports reads MusabTestBridge files. It never grants "
                   "root, Logcat or permission bypass.")
+BROWSER_GUIDANCE = ("For browser tasks use browser_tool_selector when the best route is not obvious. Prefer a "
+                    "connected service API, then a matching service MCP, then Playwright MCP, Browser Use, and "
+                    "open-browser-use. If the task explicitly needs the user's existing logged-in browser session, "
+                    "prefer open-browser-use among browser backends. Never claim a backend is available unless its "
+                    "tool is actually exposed.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return MARKER + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
+    return MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
 
 
 def stale_builtin(text):
@@ -22,7 +27,7 @@ def stale_builtin(text):
 
 def runtime_context(agent):
     """Describe only tools actually offered to this agent, including late connections."""
-    from . import connectors
+    from . import connectors, browser_router
     names = {d['function']['name'] for d in agent.schemas()}
     providers = {}
     for name in sorted(names):
@@ -36,5 +41,6 @@ def runtime_context(agent):
              'internal_terminal': 'bash' in names,
              'background_jobs': 'job' in names,
              'connected_service_tools': providers,
-             'custom_mcp_tools': sum(name.startswith('mcp__') for name in names)}
+             'custom_mcp_tools': sum(name.startswith('mcp__') for name in names),
+             'browser_route': browser_router.select(names)}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
