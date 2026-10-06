@@ -27,7 +27,7 @@ class ResearchServicesTest(unittest.TestCase):
                 {"title": "Two", "url": "https://two.example", "content": "beta"},
             ]
         }
-        with mock.patch.object(research_services, "_config", return_value={"searxng_url": "https://search.example"}), \
+        with mock.patch.object(research_services, "_config", return_value={"searxng_url": "https://search.example", "searxng_tested_at": 1}), \
              mock.patch.object(research_services, "_request", return_value=payload) as request:
             rows = research_services.searxng_search("hello", 2)
         self.assertEqual([x["title"] for x in rows], ["One", "Two"])
@@ -39,7 +39,7 @@ class ResearchServicesTest(unittest.TestCase):
             "success": True,
             "results": [{"success": True, "markdown": {"raw_markdown": "# Example\nBody"}}],
         }
-        with mock.patch.object(research_services, "_config", return_value={"crawl4ai_url": "https://crawl.example"}), \
+        with mock.patch.object(research_services, "_config", return_value={"crawl4ai_url": "https://crawl.example", "crawl4ai_tested_at": 1}), \
              mock.patch.object(research_services, "_secret", return_value="private-token"), \
              mock.patch.object(research_services, "_request", return_value=payload) as request:
             text = research_services.crawl4ai_fetch("https://example.com")
@@ -47,6 +47,15 @@ class ResearchServicesTest(unittest.TestCase):
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["token"], "private-token")
         self.assertNotIn("private-token", repr(research_services.public_status()))
+
+    def test_unverified_research_backends_are_not_used_automatically(self):
+        with mock.patch.object(research_services, "_config", return_value={
+            "searxng_url": "https://search.example",
+            "crawl4ai_url": "https://crawl.example",
+        }), mock.patch.object(research_services, "_request") as request:
+            self.assertIsNone(research_services.searxng_search("query"))
+            self.assertIsNone(research_services.crawl4ai_fetch("https://example.com"))
+        request.assert_not_called()
 
     def test_builtin_search_prefers_searxng_when_available(self):
         expected = [{"title": "Private metasearch", "url": "https://example.com", "snippet": "result"}]
