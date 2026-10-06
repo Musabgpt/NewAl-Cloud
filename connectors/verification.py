@@ -143,6 +143,14 @@ def record_project_check(root, command, ok, exit_code=None):
                 f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
     except OSError:
         pass
+    try:
+        from . import task_state
+        evidence = "project_tests:%s" % ("passed" if ok else "failed")
+        if exit_code is not None:
+            evidence += " exit=%s" % exit_code
+        task_state.note_verification(root, bool(ok), evidence)
+    except Exception:
+        pass
     return row
 
 
