@@ -18,9 +18,10 @@ from . import phone, settings, tools
 CATALOG = {"github": "GitHub", "gitlab": "GitLab", "drive": "Google Drive", "gmail": "Gmail",
            "calendar": "Google Calendar", "docs": "Google Docs", "sheets": "Google Sheets",
            "notion": "Notion API", "figma": "Figma", "termux": "Termux",
-           "notionmcp": "Notion", "netlify": "Netlify", "miro": "Miro", "huggingface": "Hugging Face", "gitlabmcp": "GitLab"}
+           "notionmcp": "Notion", "netlify": "Netlify", "miro": "Miro", "huggingface": "Hugging Face", "gitlabmcp": "GitLab",
+           "activepieces": "Activepieces Automation Hub"}
 _cache = (0, [])
-MCP_PROVIDERS = {"notionmcp", "netlify", "miro", "huggingface", "gitlabmcp"}
+MCP_PROVIDERS = {"notionmcp", "netlify", "miro", "huggingface", "gitlabmcp", "activepieces"}
 _mcp_cache = {}
 _mcp_lock = threading.RLock()
 
@@ -261,10 +262,24 @@ def install():
 
 
 def route(handler, method, path, body=None):
-    if not path.startswith("/api/connectors") and path != "/api/workspaces":
+    if not path.startswith("/api/connectors") and path not in ("/api/workspaces", "/api/mcp-oauth/callback"):
         return False
     try:
-        if method == "GET" and path == "/api/connectors":
+        if method == "GET" and path == "/api/mcp-oauth/callback":
+            q = handler._query()
+            # This loopback-only callback is deliberately usable without the app cookie.
+            # Android validates the one-time OAuth state before redeeming the code.
+            result = native("oauth_complete", provider="activepieces", code=q.get("code", ""),
+                            state=q.get("state", ""), iss=q.get("iss", ""), error=q.get("error", ""))
+            ok = bool(result.get("ok"))
+            title = "Activepieces connected" if ok else "Activepieces authorization failed"
+            text = "Return to MusabAI. The connection has been tested." if ok else "Return to MusabAI and connect again."
+            html = ("<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+                    "<title>" + title + "</title><body style='font-family:sans-serif;padding:32px'>"
+                    "<h1>" + title + "</h1><p>" + text + "</p>"
+                    "<p><a href='musabai://connectors'>Return to MusabAI</a></p></body>")
+            handler._text(html, "text/html; charset=utf-8")
+        elif method == "GET" and path == "/api/connectors":
             handler._json(status())
         elif method == "POST" and path in ("/api/connectors/connect", "/api/connectors/disconnect", "/api/connectors/test"):
             op = path.rsplit("/", 1)[-1]
@@ -273,6 +288,8 @@ def route(handler, method, path, body=None):
                 raise tools.ToolError("Unknown connector")
             if provider == "termux" and op == "connect":
                 result = native("termux_test")
+            elif provider == "activepieces" and op == "connect":
+                result = native(op, provider=provider, url=(body or {}).get("url", ""))
             else:
                 result = native(op, provider=provider)
             global _cache
