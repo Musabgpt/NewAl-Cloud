@@ -226,13 +226,116 @@
     });
     loadActivepieces();
 
+    // ---------------------------------------------------------------- Open research stack
+    const researchSection = node('section');
+    researchSection.className = 'connector-card research-stack';
+    researchSection.append(node('h3', tr('Open research stack', 'حزمة البحث المفتوحة')));
+    researchSection.append(node('p', tr(
+      'Optional self-hosted backends: SearXNG is preferred for search; Crawl4AI is used only when normal page fetching fails. Nothing is shown as verified until a live test succeeds.',
+      'خدمات اختيارية ذاتية الاستضافة: يُفضّل SearXNG للبحث، ويُستخدم Crawl4AI فقط عندما تفشل قراءة الصفحة العادية. لا تظهر أي خدمة كموثقة قبل نجاح اختبار فعلي.'
+    )));
+    const researchMessage = node('p');
+    researchMessage.setAttribute('role', 'status');
+    const researchList = node('div');
+    const researchRefresh = node('button', tr('Refresh research status', 'تحديث حالة البحث'));
+    researchRefresh.type = 'button'; researchRefresh.className = 'btn';
+    researchSection.append(researchRefresh, researchMessage, researchList);
+    panel.insertBefore(researchSection, document.querySelector('#connector-list'));
+
+    let researchBusy = false;
+    async function withResearchBusy(fn) {
+      if (researchBusy) return;
+      researchBusy = true; researchRefresh.disabled = true;
+      researchList.querySelectorAll('button,input').forEach(el => { el.disabled = true; });
+      try { await fn(); }
+      catch (error) { researchMessage.textContent = error.message; }
+      finally {
+        researchBusy = false; researchRefresh.disabled = false;
+        researchList.querySelectorAll('button,input').forEach(el => { el.disabled = false; });
+      }
+    }
+
+    function researchCard(id, name, item) {
+      const row = node('section'); row.className = 'connector-card research-service';
+      row.append(node('strong', name));
+      const state = item.tested_at
+        ? tr('Live test passed', 'نجح الاختبار الفعلي')
+        : item.configured
+          ? tr('Configured — not verified yet', 'مهيأ — لم يتم التحقق منه بعد')
+          : tr('Not configured', 'غير مهيأ');
+      row.append(node('p', state));
+      const url = node('input');
+      url.type = 'url'; url.autocomplete = 'off'; url.value = item.url || '';
+      url.placeholder = id === 'searxng' ? 'https://search.example.com' : 'https://crawl.example.com';
+      url.setAttribute('aria-label', name + ' URL');
+      row.append(url);
+
+      let token = null;
+      if (id === 'crawl4ai') {
+        token = node('input');
+        token.type = 'password'; token.autocomplete = 'off';
+        token.placeholder = item.token_configured
+          ? tr('Token already saved — leave blank to keep it', 'الرمز محفوظ — اتركه فارغًا للاحتفاظ به')
+          : tr('Crawl4AI bearer token', 'رمز Crawl4AI');
+        token.setAttribute('aria-label', 'Crawl4AI bearer token');
+        row.append(token);
+      }
+
+      const actions = node('div'); actions.className = 'connector-actions';
+      const save = node('button', tr('Save', 'حفظ')); save.type = 'button'; save.className = 'btn primary';
+      save.onclick = () => withResearchBusy(async () => {
+        if (!url.value.trim()) throw new Error(tr('Enter the service URL first.', 'أدخل رابط الخدمة أولًا.'));
+        const body = {service:id, url:url.value.trim()};
+        if (token && token.value.trim()) body.token = token.value.trim();
+        await api('/api/research-services/save', body);
+        if (token) token.value = '';
+        researchMessage.textContent = tr(
+          'Saved. Run Test before MusabAI treats it as verified.',
+          'تم الحفظ. شغّل الاختبار قبل أن يعتبر MusabAI الخدمة موثقة.'
+        );
+        await loadResearch();
+      });
+      actions.append(save);
+
+      if (item.configured) {
+        const test = node('button', tr('Test live', 'اختبار فعلي')); test.type = 'button'; test.className = 'btn';
+        test.onclick = () => withResearchBusy(async () => {
+          researchMessage.textContent = tr('Running a real service test…', 'جارٍ تشغيل اختبار فعلي للخدمة…');
+          const result = await api('/api/research-services/test', {service:id});
+          researchMessage.textContent = id === 'searxng'
+            ? tr('SearXNG verified. Results: ', 'تم التحقق من SearXNG. النتائج: ') + result.results
+            : tr('Crawl4AI verified. Test page characters: ', 'تم التحقق من Crawl4AI. أحرف صفحة الاختبار: ') + result.chars;
+          await loadResearch();
+        });
+        const remove = node('button', tr('Remove', 'حذف')); remove.type = 'button'; remove.className = 'btn';
+        remove.onclick = () => withResearchBusy(async () => {
+          await api('/api/research-services/remove', {service:id});
+          researchMessage.textContent = tr('Research service removed.', 'تم حذف خدمة البحث.');
+          await loadResearch();
+        });
+        actions.append(test, remove);
+      }
+      row.append(actions);
+      return row;
+    }
+
+    async function loadResearch() {
+      const data = await api('/api/research-services');
+      researchList.replaceChildren(
+        researchCard('searxng', 'SearXNG', data.searxng || {}),
+        researchCard('crawl4ai', 'Crawl4AI', data.crawl4ai || {})
+      );
+    }
+    researchRefresh.onclick = () => withResearchBusy(async () => { researchMessage.textContent = ''; await loadResearch(); });
+    withResearchBusy(loadResearch);
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
     bundlesSection.append(node('h3', tr('MCP tools', 'أدوات MCP')));
     bundlesSection.append(node('p', tr(
-      'Playwright, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
-      'يتم اختبار Playwright وGitHub والملفات وAndroid والذاكرة فعليًا قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
+      'Playwright, Browser Use, open-browser-use, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
+      'يتم اختبار Playwright وBrowser Use وopen-browser-use وGitHub والملفات وAndroid والذاكرة فعليًا قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
     )));
     const bundleMessage = node('p');
     bundleMessage.setAttribute('role', 'status');
