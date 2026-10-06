@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v2'
+MARKER = 'MusabAI behavior profile v3'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -32,7 +32,7 @@ ORCHESTRATION_GUIDANCE = ("For multi-step tasks spanning several tool families, 
                           "changes permissions, or invents unavailable backends.")
 EXECUTION_GUIDANCE = ("For command execution use execution_plan when the correct host is unclear. sandbox_exec runs only "
                       "explicit scratch inputs in a temporary directory and is not a container or OS security boundary. "
-                      "Prefer connected Termux for Android/Linux commands on the phone; Appium or E2B are optional only when exposed.")
+                      "Prefer connected Termux for Android/Linux commands on the device; Appium or E2B are optional only when exposed.")
 GIT_GUIDANCE = ("For local repository inspection use git_status, git_diff and git_log. git_commit stages only explicit relative "
                 "paths and creates a local commit; it never pushes, force-updates history, changes remotes or stores credentials.")
 
