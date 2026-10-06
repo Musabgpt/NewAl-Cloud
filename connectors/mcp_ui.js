@@ -304,8 +304,9 @@
       if (!custom.length) list.append(node('p', tr('No custom MCP servers yet.', 'لا توجد خوادم MCP مضافة بعد.')));
       for (const server of custom) {
         const row = node('section'); row.className = 'connector-card';
-        row.append(node('strong', server.name), node('p', server.url),
-          node('p', tr('Last successful test: ', 'آخر اختبار ناجح: ') + server.tools + tr(' tools', ' أداة')));
+        row.append(node('strong', server.name), node('p', server.url));
+        if (server.registry) row.append(node('p', tr('Official Registry: ', 'السجل الرسمي: ') + server.registry + (server.registry_version ? ' · ' + server.registry_version : '')));
+        row.append(node('p', tr('Last successful test: ', 'آخر اختبار ناجح: ') + server.tools + tr(' tools', ' أداة')));
         for (const op of ['test', 'remove']) {
           const button = node('button', op === 'test' ? tr('Test', 'اختبار') : tr('Remove', 'حذف'));
           button.className = 'btn';
