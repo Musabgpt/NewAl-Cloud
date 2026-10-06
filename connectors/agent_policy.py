@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v6'
+MARKER = 'MusabAI behavior profile v7'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -39,9 +39,10 @@ OBSERVABILITY_GUIDANCE = ("Operational tracing is local and metadata-only by def
                           "observability_tail to inspect it. Never claim external telemetry is active automatically; "
                           "observability_export sends only sanitized metadata and only after explicit use with a configured backend.")
 TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/session restarts, persist bounded verified summaries "
-                       "with task_checkpoint. When the user says continue, resume, or asks where work stopped, call task_resume "
-                       "before reconstructing state from guesses. Task checkpoints are local summaries only: they do not run in "
-                       "the background. Call task_complete only after the stated result has been verified.")
+                       "with task_checkpoint. Explicit continue/resume requests automatically receive the latest active project "
+                       "checkpoint as bounded context; task_resume remains available for direct inspection. Task checkpoints are "
+                       "local summaries only: they do not run in the background. Project verification results are synchronized "
+                       "into the latest active checkpoint, and task_complete should be used only after the result is verified.")
 VERIFICATION_GUIDANCE = ("Do not equate a write/action returning success with independently verified completion. After effectful "
                          "file, account, MCP, device-UI or execution actions, inspect the resulting state or run a relevant test before "
                          "claiming success. The runtime records privacy-safe evidence in verification_status/verification_tail. "
