@@ -30,6 +30,7 @@ names = {
     "execution_plan", "sandbox_exec",
     "git_status", "git_diff", "git_log", "git_commit",
     "task_checkpoint", "task_resume", "task_complete", "task_list",
+    "verification_status", "verification_tail",
 }
 payload = {
     "execution": execution.plan(names, prompt),
