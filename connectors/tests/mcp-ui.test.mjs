@@ -35,6 +35,14 @@ async function setup(t, fail = false) {
         {id:'github',name:'GitHub MCP Server',description:'GitHub tools',status:'runtime_missing',available:false,enabled:false,missing:['github-mcp-server']}
       ]})};
     }
+    if (String(path) === '/api/connectors') {
+      return {ok:true,json:async () => ({ok:true,connectors:[
+        {id:'activepieces',name:'Activepieces Automation Hub',status:'disconnected',configured:true,has_credentials:false,tool_count:0}
+      ]})};
+    }
+    if (String(path).startsWith('/api/connectors/')) {
+      return {ok:true,json:async () => ({ok:true,status:'connected',tool_count:11})};
+    }
     if (String(path).endsWith('/save')) return {ok:true,json:async () => ({ok:true,tools:2})};
     return {ok:true,json:async () => ({servers:[{name:'fixture',url:'https://example.com/mcp',tools:2,bundle:''}]})};
   };
@@ -70,6 +78,21 @@ test('no project means no custom MCP connection request', async t => {
   w.document.querySelector('form').dispatchEvent(new w.Event('submit',{cancelable:true})); await tick();
   assert.equal(calls.filter(c => c.path === '/api/mcp-servers/save').length,before);
   assert.match(w.document.querySelector('.custom-mcp [role="status"]').textContent,/مشروع/);
+});
+
+test('Activepieces card sends only the server URL and opens the native OAuth flow', async t => {
+  const {w,calls} = await setup(t);
+  const input = w.document.querySelector('#activepieces-mcp-url');
+  assert(input);
+  input.value = 'https://automation.example/mcp';
+  const connect = [...w.document.querySelectorAll('.activepieces-hub button')]
+    .find(button => button.textContent.includes('ربط'));
+  assert(connect);
+  connect.click(); await tick(); await tick();
+  const request = calls.find(c => c.path === '/api/connectors/connect' && c.body?.provider === 'activepieces');
+  assert(request);
+  assert.equal(request.body.url, 'https://automation.example/mcp');
+  assert.equal(w.document.body.textContent.includes('access_token'), false);
 });
 
 test('official bundle is only enabled after a real backend activation response', async t => {
