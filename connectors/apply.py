@@ -51,10 +51,10 @@ def apply(root):
     replace(package / "agent.py", '("text_delta", "reasoning_delta", "output", "tool_args")', '("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output")')
     replace(package / "agent.py", '        ev.setdefault("t", round(time.time(), 3))\n        if self.persist and ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n', '        ev.setdefault("t", round(time.time(), 3))\n        try:\n            from . import observability\n            if ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n                observability.record(self.session.root, ev)\n        except Exception:\n            pass\n        if self.persist and ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n')
     # Phase 4: one supervisor coordinates existing cancellation + durable task_state.
-    replace(package / "agent.py", '        self.cancel = agent.cancel\\n', '        self.cancel = getattr(agent, "operation_cancel", agent.cancel)\\n')
-    replace(package / "agent.py", '        self.cancel = parent.cancel if parent else threading.Event()\\n        self.cfg = settings.project(session.root)\\n', '        self.cancel = parent.cancel if parent else threading.Event()\\n        self.operation_cancel = self.cancel\\n        self.supervisor = None\\n        self.cfg = settings.project(session.root)\\n')
-    replace(package / "agent.py", '        ev.setdefault("t", round(time.time(), 3))\\n        try:\\n            from . import observability\\n', '        ev.setdefault("t", round(time.time(), 3))\\n        ev.setdefault("step", self.step)\\n        supervisor = getattr(self, "supervisor", None)\\n        if supervisor is not None:\\n            supervisor.observe(ev)\\n        try:\\n            from . import observability\\n')
-    replace(package / "agent.py", '    def connect(self):\\n', '''    def request_stop(self):
+    replace(package / "agent.py", '        self.cancel = agent.cancel\n', '        self.cancel = getattr(agent, "operation_cancel", agent.cancel)\n')
+    replace(package / "agent.py", '        self.cancel = parent.cancel if parent else threading.Event()\n        self.cfg = settings.project(session.root)\n', '        self.cancel = parent.cancel if parent else threading.Event()\n        self.operation_cancel = self.cancel\n        self.supervisor = None\n        self.cfg = settings.project(session.root)\n')
+    replace(package / "agent.py", '        ev.setdefault("t", round(time.time(), 3))\n        try:\n            from . import observability\n', '        ev.setdefault("t", round(time.time(), 3))\n        ev.setdefault("step", self.step)\n        supervisor = getattr(self, "supervisor", None)\n        if supervisor is not None:\n            supervisor.observe(ev)\n        try:\n            from . import observability\n')
+    replace(package / "agent.py", '    def connect(self):\n', '''    def request_stop(self):
         supervisor = getattr(self, "supervisor", None)
         if supervisor is not None:
             supervisor.request_stop("user")
@@ -63,7 +63,7 @@ def apply(root):
 
     def connect(self):
 ''')
-    replace(package / "agent.py", '        self.last_error = ""\\n        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})\\n        cfg = self.cfg\\n        hook_cfg = cfg.get("hooks") or {}\\n        extra_context = []\\n', '''        self.last_error = ""
+    replace(package / "agent.py", '        self.last_error = ""\n        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})\n        cfg = self.cfg\n        hook_cfg = cfg.get("hooks") or {}\n        extra_context = []\n', '''        self.last_error = ""
         supervisor_context = []
         if self.depth == 0:
             from . import task_supervisor
@@ -78,8 +78,8 @@ def apply(root):
         hook_cfg = cfg.get("hooks") or {}
         extra_context = list(supervisor_context)
 ''')
-    replace(package / "agent.py", '                           reasoning=reasoning, on_event=on_event, cancel=self.cancel, extra=extra)\\n', '                           reasoning=reasoning, on_event=on_event, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\\n')
-    replace(package / "agent.py", '        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model\\n            ok, text = False, "error: %s: %s" % (type(e).__name__, e)\\n        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))\\n', '''        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model
+    replace(package / "agent.py", '                           reasoning=reasoning, on_event=on_event, cancel=self.cancel, extra=extra)\n', '                           reasoning=reasoning, on_event=on_event, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n')
+    replace(package / "agent.py", '        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model\n            ok, text = False, "error: %s: %s" % (type(e).__name__, e)\n        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))\n', '''        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model
             ok, text = False, "error: %s: %s" % (type(e).__name__, e)
         supervisor = getattr(self, "supervisor", None)
         if supervisor is not None and supervisor.cancel_token.reason() == "watchdog_stall":
@@ -88,7 +88,7 @@ def apply(root):
             text += "\\n\\nTask supervisor stopped this operation after no progress. Do not repeat it unchanged; use another tool/route or a smaller bounded step."
         failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))
 ''')
-    replace(package / "agent.py", '        except providers.Cancelled:\\n            error = "interrupted"\\n            answer = answer or "(interrupted)"\\n            self._close_dangling_calls()\\n', '''        except providers.Cancelled:
+    replace(package / "agent.py", '        except providers.Cancelled:\n            error = "interrupted"\n            answer = answer or "(interrupted)"\n            self._close_dangling_calls()\n', '''        except providers.Cancelled:
             supervisor = getattr(self, "supervisor", None)
             reason = supervisor.cancel_token.reason() if supervisor is not None else "user"
             if reason == "hard_timeout":
@@ -99,26 +99,26 @@ def apply(root):
                 answer = answer or "(interrupted)"
             self._close_dangling_calls()
 ''')
-    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\\n                tools.stop_jobs(s)\\n', '            if self.depth == 0 and error in ("interrupted", "timeout"):\\n                tools.stop_jobs(s)\\n')
-    replace(package / "agent.py", '        seconds = time.time() - started\\n', '''        supervisor = getattr(self, "supervisor", None)
+    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\n                tools.stop_jobs(s)\n', '            if self.depth == 0 and error in ("interrupted", "timeout"):\n                tools.stop_jobs(s)\n')
+    replace(package / "agent.py", '        seconds = time.time() - started\n', '''        supervisor = getattr(self, "supervisor", None)
         if self.depth == 0 and supervisor is not None:
             supervisor.finish(error=error, answer=answer)
             self.operation_cancel = self.cancel
         seconds = time.time() - started
 ''')
-    replace(package / "service.py", '    def interrupt(self, sid):\\n        a = self.agents.get(sid)\\n        if a:\\n            a.cancel.set()\\n', '''    def interrupt(self, sid):
+    replace(package / "service.py", '    def interrupt(self, sid):\n        a = self.agents.get(sid)\n        if a:\n            a.cancel.set()\n', '''    def interrupt(self, sid):
         a = self.agents.get(sid)
         if a:
             a.request_stop()
 ''')
-    replace(package / "ui/app.js", '      case "status":\\n        if (!replay && S.busy.has(S.current)) ensureWorking(ev.text);\\n        break;\\n', '''      case "status":
+    replace(package / "ui/app.js", '      case "status":\n        if (!replay && S.busy.has(S.current)) ensureWorking(ev.text);\n        break;\n', '''      case "status":
         if (!replay && S.busy.has(S.current)) ensureWorking(ev.text);
         break;
       case "task_heartbeat":
         if (!replay && S.busy.has(S.current)) ensureWorking("Working · step " + (ev.step || 0));
         break;
 ''')
-    replace(package / "ui/app.js", '  async function interrupt() {\\n    if (S.current) await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});\\n  }\\n', '''  async function interrupt() {
+    replace(package / "ui/app.js", '  async function interrupt() {\n    if (S.current) await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});\n  }\n', '''  async function interrupt() {
     if (!S.current) return;
     if (S.busy.has(S.current)) ensureWorking("Stopping…");
     await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});
