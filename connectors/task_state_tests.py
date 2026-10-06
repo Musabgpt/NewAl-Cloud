@@ -65,6 +65,41 @@ class TaskStateTests(unittest.TestCase):
         self.assertLessEqual(len(row["checkpoint"]["progress"]), task_state.MAX_FIELD)
         self.assertLessEqual(len(row["checkpoint"]["evidence"]), task_state.MAX_EVIDENCE)
 
+    def test_explicit_continuation_auto_loads_latest_checkpoint_only(self):
+        row = task_state.checkpoint(
+            self.root_a,
+            objective="Finish Android build",
+            progress="Tests passed",
+            next_step="Build APK",
+            evidence="Action 273",
+        )
+        self.assertEqual(task_state.continuation_context(self.root_a, "ordinary new request"), "")
+        context = task_state.continuation_context(self.root_a, "كمل")
+        self.assertIn(row["id"], context)
+        self.assertIn("Build APK", context)
+        self.assertIn("Action 273", context)
+
+    def test_project_verification_updates_active_checkpoint_without_creating_one(self):
+        self.assertIsNone(task_state.note_verification(self.root_a, True, "project_tests:passed exit=0"))
+        row = task_state.checkpoint(
+            self.root_a,
+            objective="Repair project",
+            progress="Patch applied",
+            next_step="Run project tests",
+            blocker="waiting for check",
+        )
+        synced = task_state.note_verification(self.root_a, True, "project_tests:passed exit=0")
+        self.assertEqual(synced["id"], row["id"])
+        self.assertEqual(synced["checkpoint"]["blocker"], "")
+        self.assertEqual(synced["checkpoint"]["evidence"], "project_tests:passed exit=0")
+
+    def test_failed_project_verification_sets_actionable_blocker(self):
+        row = task_state.checkpoint(self.root_a, objective="Repair project")
+        synced = task_state.note_verification(self.root_a, False, "project_tests:failed exit=1")
+        self.assertEqual(synced["id"], row["id"])
+        self.assertIn("Verification failed", synced["checkpoint"]["blocker"])
+        self.assertIn("rerun", synced["checkpoint"]["next_step"])
+
     def test_invalid_task_id_is_rejected(self):
         with self.assertRaises(Exception):
             task_state.checkpoint(self.root_a, task_id="../escape", objective="bad")
