@@ -17,11 +17,16 @@ SEARCH_GUIDANCE = ("For web research, use search_router when configured: SearXNG
                    "Crawl4AI deep-reads selected pages into bounded Markdown. Use searxng_search for discovery-only "
                    "tasks and crawl4ai_read for a known URL. Do not claim search/crawl is configured or successful "
                    "unless the corresponding tool call succeeds.")
+DOCUMENT_GUIDANCE = ("For document work use document_engine_selector when OCR, layout, Office formats or structured "
+                     "conversion may matter. Prefer the lightweight built-in document tools for simple Markdown, "
+                     "text, HTML, ordinary PDF text and ZIPs; prefer verified Docling MCP for scanned PDFs, tables, "
+                     "Office files and structured conversion. Never claim Docling is available unless its MCP tools "
+                     "are actually exposed.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
+    return MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
 
 
 def stale_builtin(text):
@@ -50,5 +55,9 @@ def runtime_context(agent):
              'search_tools': {
                  'router': 'search_router' in names,
                  'searxng': 'searxng_search' in names,
-                 'crawl4ai': 'crawl4ai_read' in names}}
+                 'crawl4ai': 'crawl4ai_read' in names},
+             'document_tools': {
+                 'selector': 'document_engine_selector' in names,
+                 'native': any(name in names for name in ('document_read', 'document_create', 'archive_pack')),
+                 'docling': any(name.startswith('mcp__docling__') for name in names)}}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
