@@ -29,6 +29,7 @@ names = {
     "termux_exec", "phone", "read", "grep", "bash",
     "execution_plan", "sandbox_exec",
     "git_status", "git_diff", "git_log", "git_commit",
+    "task_checkpoint", "task_resume", "task_complete", "task_list",
 }
 payload = {
     "execution": execution.plan(names, prompt),
