@@ -43,6 +43,21 @@ async function setup(t, fail = false) {
         availability:{api:false,service_mcp:false,playwright:true,browser_use:false,open_browser_use:false,android_session:true}
       })};
     }
+    if (String(path).startsWith('/api/search-layer')) {
+      if (options.method === 'POST') {
+        if (String(path).endsWith('/test')) {
+          return {ok:true,json:async () => body?.provider === 'searxng'
+            ? ({ok:true,results:1}) : ({ok:true,version:'0.8.6'})};
+        }
+        return {ok:true,json:async () => ({ok:true})};
+      }
+      return {ok:true,json:async () => ({
+        searxng:'https://search.example',
+        crawl4ai:'https://crawl.example',
+        crawl4ai_token:false,
+        order:['searxng','crawl4ai']
+      })};
+    }
     if (String(path) === '/api/connectors') {
       return {ok:true,json:async () => ({ok:true,connectors:[
         {id:'activepieces',name:'Activepieces Automation Hub',status:'disconnected',configured:true,has_credentials:false,tool_count:0}
@@ -123,6 +138,39 @@ test('browser router sends live task requirements and renders the selected backe
   assert.match(request.path, /needs_session=1/);
   assert.match(request.path, /complex_ui=1/);
   assert.match(panel.querySelector('[role="status"]').textContent, /Playwright/);
+});
+
+test('search layer saves URLs and clears Crawl4AI secret without rendering it', async t => {
+  const {w,calls} = await setup(t);
+  const panel = w.document.querySelector('.search-layer');
+  assert(panel);
+  const searx = panel.querySelector('#searxng-url');
+  const crawl = panel.querySelector('#crawl4ai-url');
+  const token = panel.querySelector('#crawl4ai-token');
+  assert.equal(searx.value, 'https://search.example');
+  assert.equal(crawl.value, 'https://crawl.example');
+  token.value = 'crawl4ai-private-token';
+  const save = [...panel.querySelectorAll('button')].find(button => button.textContent.includes('حفظ'));
+  save.click(); await tick(); await tick();
+  const request = calls.find(c => c.path === '/api/search-layer/save');
+  assert(request);
+  assert.equal(request.body.searxng, 'https://search.example');
+  assert.equal(request.body.crawl4ai, 'https://crawl.example');
+  assert.equal(request.body.crawl4ai_token, 'crawl4ai-private-token');
+  assert.equal(token.value, '');
+  assert.equal(w.document.body.textContent.includes('crawl4ai-private-token'), false);
+});
+
+test('search layer tests SearXNG and Crawl4AI through real backend routes', async t => {
+  const {w,calls} = await setup(t);
+  const panel = w.document.querySelector('.search-layer');
+  const buttons = [...panel.querySelectorAll('button')];
+  buttons.find(button => button.textContent.includes('SearXNG')).click();
+  await tick(); await tick();
+  assert(calls.some(c => c.path === '/api/search-layer/test' && c.body?.provider === 'searxng'));
+  buttons.find(button => button.textContent.includes('Crawl4AI') && button.textContent.includes('اختبار')).click();
+  await tick(); await tick();
+  assert(calls.some(c => c.path === '/api/search-layer/test' && c.body?.provider === 'crawl4ai'));
 });
 
 test('official bundle is only enabled after a real backend activation response', async t => {
