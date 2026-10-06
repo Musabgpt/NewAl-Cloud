@@ -180,14 +180,14 @@
       'Search the official registry. MusabAI inspects server.json and auto-installs only literal HTTPS Streamable HTTP endpoints after a real MCP handshake. Package commands are never executed automatically.',
       'ابحث في سجل MCP الرسمي. يفحص MusabAI ملف server.json ولا يثبت تلقائياً إلا نقاط Streamable HTTP حرفية عبر HTTPS بعد اختبار MCP حقيقي. أوامر الحزم لا تُشغّل تلقائياً أبداً.'
     )));
-    const registryForm = node('form');
+    const registryForm = node('div');
     const registryQuery = node('input');
     registryQuery.type = 'search';
     registryQuery.placeholder = tr('Search MCP servers', 'ابحث عن خوادم MCP');
     registryQuery.maxLength = 120;
     registryQuery.setAttribute('aria-label', tr('Registry search', 'بحث السجل'));
     const registrySearch = node('button', tr('Search', 'بحث'));
-    registrySearch.type = 'submit'; registrySearch.className = 'btn primary';
+    registrySearch.type = 'button'; registrySearch.className = 'btn primary';
     registryForm.append(registryQuery, registrySearch);
     const registryMessage = node('p');
     registryMessage.setAttribute('role', 'status');
@@ -258,9 +258,9 @@
       registryMessage.textContent = tr('Results: ', 'النتائج: ') + (data.count || 0);
     }
 
-    registryForm.onsubmit = event => {
-      event.preventDefault();
-      registryRun(() => loadRegistry(registryQuery.value.trim()));
+    registrySearch.onclick = () => registryRun(() => loadRegistry(registryQuery.value.trim()));
+    registryQuery.onkeydown = event => {
+      if (event.key === 'Enter') { event.preventDefault(); registrySearch.click(); }
     };
 
     // ---------------------------------------------------------------- Custom remote HTTP MCP
