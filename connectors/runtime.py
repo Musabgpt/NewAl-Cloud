@@ -269,9 +269,12 @@ def route(handler, method, path, body=None):
             q = handler._query()
             # This loopback-only callback is deliberately usable without the app cookie.
             # Android validates the one-time OAuth state before redeeming the code.
-            result = native("oauth_complete", provider="activepieces", code=q.get("code", ""),
-                            state=q.get("state", ""), iss=q.get("iss", ""), error=q.get("error", ""))
-            ok = bool(result.get("ok"))
+            try:
+                result = native("oauth_complete", provider="activepieces", code=q.get("code", ""),
+                                state=q.get("state", ""), iss=q.get("iss", ""), error=q.get("error", ""))
+                ok = bool(result.get("ok"))
+            except Exception:
+                ok = False
             title = "Activepieces connected" if ok else "Activepieces authorization failed"
             text = "Return to MusabAI. The connection has been tested." if ok else "Return to MusabAI and connect again."
             html = ("<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
