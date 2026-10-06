@@ -388,7 +388,7 @@ final class ActivepiecesMcp {
     static String resourceMetadataFromChallenge(String header, String endpoint) throws Exception {
         if (header == null || header.length() > 8192) return null;
         java.util.regex.Matcher quoted = java.util.regex.Pattern.compile(
-                "(?i)(?:^|[,\\s])resource_metadata=\\"([^\\"]+)\\"").matcher(header);
+                "(?i)(?:^|[,\\s])resource_metadata=\"([^\"]+)\"").matcher(header);
         String value = null;
         if (quoted.find()) value = quoted.group(1);
         if (value == null) {
