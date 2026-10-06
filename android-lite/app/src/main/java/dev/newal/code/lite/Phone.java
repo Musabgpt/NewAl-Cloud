@@ -64,6 +64,11 @@ final class Phone {
             case "provider_secret_set":
             case "provider_secret_remove":
                 return ProviderSecrets.handle(ctx, a);
+            case "research_secret_status":
+            case "research_secret_get":
+            case "research_secret_set":
+            case "research_secret_remove":
+                return ResearchSecrets.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
             case "screenshot":
