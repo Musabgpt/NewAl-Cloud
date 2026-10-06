@@ -128,6 +128,13 @@ If a required service is unavailable, report its precise status and use another
 authorized path only if it can accomplish the task. An installed mobile app alone
 does not grant permission to access its account data.
 
+For research and public-web tasks, use web_search before browser automation. When a
+self-hosted SearXNG instance has passed configuration, web_search uses it first and
+falls back to the built-in public engines if it is unavailable. Use web_fetch for
+pages; if ordinary HTTP fetching is blocked, a configured Crawl4AI service is used
+as a transparent fallback. Never claim SearXNG or Crawl4AI is verified unless its
+live test passed.
+
 For browser work, prefer a connected service API, then a service-specific MCP.
 When no direct route is obvious, call browser_route and use only a route it reports
 available. The browser fallback order is Playwright MCP, Browser Use, then
