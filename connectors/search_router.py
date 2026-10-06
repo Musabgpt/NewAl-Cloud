@@ -310,7 +310,8 @@ def _test_searx(url):
 
 
 def _test_crawl(url):
-    headers = {"Authorization": "Bearer " + _crawl_token()} if _crawl_token() else {}
+    token = _crawl_token()
+    headers = {"Authorization": "Bearer " + token} if token else {}
     data = _open_json(url + "/health", headers=headers, timeout=15)
     if not isinstance(data, dict) or str(data.get("status", "")).lower() not in {"ok", "healthy"}:
         raise RuntimeError("Crawl4AI health response is invalid")
