@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v5'
+MARKER = 'MusabAI behavior profile v6'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -42,11 +42,15 @@ TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/sessi
                        "with task_checkpoint. When the user says continue, resume, or asks where work stopped, call task_resume "
                        "before reconstructing state from guesses. Task checkpoints are local summaries only: they do not run in "
                        "the background. Call task_complete only after the stated result has been verified.")
+VERIFICATION_GUIDANCE = ("Do not equate a write/action returning success with independently verified completion. After effectful "
+                         "file, account, MCP, phone or execution actions, inspect the resulting state or run a relevant test before "
+                         "claiming success. The runtime records privacy-safe evidence in verification_status/verification_tail. "
+                         "When verification fails, diagnose the evidence and change the approach; never blindly repeat the same action.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + VERIFICATION_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
 
 
 def stale_builtin(text):
@@ -103,5 +107,8 @@ def runtime_context(agent):
                  'checkpoint': 'task_checkpoint' in names,
                  'resume': 'task_resume' in names,
                  'complete': 'task_complete' in names,
-                 'list': 'task_list' in names}}
+                 'list': 'task_list' in names},
+             'verification': {
+                 'status': 'verification_status' in names,
+                 'tail': 'verification_tail' in names}}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
