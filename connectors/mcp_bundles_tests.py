@@ -18,7 +18,7 @@ class McpBundlesTest(unittest.TestCase):
 
     def test_exact_requested_bundle_catalog_is_real_and_honest(self):
         ids = [item["id"] for item in mcp_bundles.BUNDLES]
-        self.assertEqual(ids, ["playwright", "browser-use", "open-browser-use", "github", "filesystem", "android", "memory"])
+        self.assertEqual(ids, ["playwright", "browser-use", "open-browser-use", "docling", "github", "filesystem", "android", "memory"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
 
         def no_runtime(name):
@@ -30,6 +30,7 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
         self.assertEqual(catalog["browser-use"]["status"], "runtime_missing")
         self.assertEqual(catalog["open-browser-use"]["status"], "runtime_missing")
+        self.assertEqual(catalog["docling"]["status"], "runtime_missing")
         self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
         self.assertEqual(catalog["memory"]["status"], "runtime_missing")
         self.assertEqual(catalog["android"]["status"], "runtime_missing")
@@ -62,6 +63,15 @@ class McpBundlesTest(unittest.TestCase):
             "args": ["mcp", "stdio"],
             "env": {},
         })
+
+    def test_docling_bundle_is_pinned_to_reviewed_local_stdio_contract(self):
+        docling = mcp_bundles._spec(mcp_bundles._item("docling"), self.root)
+        self.assertEqual(docling["command"], "uvx")
+        self.assertEqual(docling["args"], [
+            "--from", "docling-mcp[local]==3.3.0", "docling-mcp-server", "--transport", "stdio"
+        ])
+        self.assertEqual(docling["env"]["DOCLING_MCP_CONVERSION_MODE"], "local")
+        self.assertEqual(docling["env"]["DOCLING_MCP_KEEP_IMAGES"], "false")
 
     def test_github_token_is_only_in_child_process_environment(self):
         item = mcp_bundles._item("github")
