@@ -35,6 +35,14 @@ async function setup(t, fail = false) {
         {id:'github',name:'GitHub MCP Server',description:'GitHub tools',status:'runtime_missing',available:false,enabled:false,missing:['github-mcp-server']}
       ]})};
     }
+    if (String(path).startsWith('/api/browser-router')) {
+      return {ok:true,json:async () => ({
+        route:'playwright',
+        label:'Microsoft Playwright MCP',
+        reason:'Playwright is the preferred structured browser backend.',
+        availability:{api:false,service_mcp:false,playwright:true,browser_use:false,open_browser_use:false,android_session:true}
+      })};
+    }
     if (String(path) === '/api/connectors') {
       return {ok:true,json:async () => ({ok:true,connectors:[
         {id:'activepieces',name:'Activepieces Automation Hub',status:'disconnected',configured:true,has_credentials:false,tool_count:0}
@@ -93,6 +101,28 @@ test('Activepieces card sends only the server URL and opens the native OAuth flo
   assert(request);
   assert.equal(request.body.url, 'https://automation.example/mcp');
   assert.equal(w.document.body.textContent.includes('access_token'), false);
+});
+
+test('browser router sends live task requirements and renders the selected backend', async t => {
+  const {w,calls} = await setup(t);
+  const panel = w.document.querySelector('.browser-router');
+  assert(panel);
+  const inputs = panel.querySelectorAll('input');
+  const url = [...inputs].find(x => x.type === 'url');
+  const service = [...inputs].find(x => x.type === 'text');
+  const checks = [...inputs].filter(x => x.type === 'checkbox');
+  url.value = 'https://example.com';
+  service.value = 'shop';
+  checks[0].checked = true;
+  checks[1].checked = true;
+  const button = [...panel.querySelectorAll('button')].find(x => x.textContent.includes('اختيار'));
+  button.click(); await tick(); await tick();
+  const request = calls.find(c => String(c.path).startsWith('/api/browser-router?'));
+  assert(request);
+  assert.match(request.path, /session=project/);
+  assert.match(request.path, /needs_session=1/);
+  assert.match(request.path, /complex_ui=1/);
+  assert.match(panel.querySelector('[role="status"]').textContent, /Playwright/);
 });
 
 test('official bundle is only enabled after a real backend activation response', async t => {
