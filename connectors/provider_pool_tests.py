@@ -117,5 +117,182 @@ class ProviderPoolTests(unittest.TestCase):
         candidates.assert_not_called()
 
 
+    def test_request_capabilities_detects_vision_tools_and_streaming(self):
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}},
+            ],
+        }]
+        required = provider_pool.request_capabilities(
+            messages,
+            tools=[{"type": "function", "function": {"name": "lookup"}}],
+        )
+        self.assertTrue({"text", "vision", "tools", "streaming"}.issubset(required))
+
+    def test_vision_candidates_exclude_text_only_models(self):
+        c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
+        env = {
+            "GROQ_API_KEY": "g",
+            "GEMINI_API_KEY": "m",
+            "OPENROUTER_API_KEY": "o",
+            "NVIDIA_API_KEY": "n",
+        }
+        required = {"text", "vision", "streaming"}
+        with patch.dict(os.environ, env, clear=True), patch.object(
+                provider_pool.settings, "user", return_value={}):
+            ids = [x["id"] for x in provider_pool.candidates(c, required)]
+        self.assertEqual(ids, ["gemini/3.7-flash-free", "openrouter/free"])
+
+    def test_tool_requirement_skips_undeclared_custom_fallback(self):
+        c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
+        configured = [
+            {
+                "id": "text-only/free",
+                "base_url": "https://text.example/v1",
+                "api_key": "x",
+                "model": "text-only",
+                "free": True,
+            },
+            {
+                "id": "tools/free",
+                "base_url": "https://tools.example/v1",
+                "api_key": "x",
+                "model": "tools",
+                "free": True,
+                "capabilities": ["text", "streaming", "tools"],
+            },
+        ]
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+                provider_pool.settings, "user", return_value={"fallback_models": configured}):
+            ids = [x["id"] for x in provider_pool.candidates(
+                c, {"text", "streaming", "tools"})]
+        self.assertEqual(ids, ["tools/free"])
+
+    def test_vision_request_skips_incompatible_current_before_network_call(self):
+        class Never:
+            calls = 0
+
+            def chat(self, *a, **k):
+                self.calls += 1
+                raise AssertionError("text-only current provider must not receive an image")
+
+        class Good:
+            def chat(self, *a, **k):
+                return "vision-ok"
+
+        current = Never()
+        c = SimpleNamespace(
+            spec={
+                "id": "text-only",
+                "base_url": "https://text.example/v1",
+                "capabilities": ["text", "tools", "streaming"],
+            },
+            model_name="text-only",
+            provider=current,
+        )
+        backup = {
+            "id": "vision/free",
+            "model": "vision",
+            "base_url": "https://vision.example/v1",
+            "provider": "openai",
+            "free": True,
+            "capabilities": ["text", "vision", "streaming"],
+        }
+        messages = [{
+            "role": "user",
+            "content": [{"type": "image_url", "image_url": {"url": "https://example.test/a.png"}}],
+        }]
+        with patch.object(provider_pool, "candidates", return_value=[backup]), patch.object(
+                provider_pool, "provider", return_value=Good()):
+            self.assertEqual(provider_pool.chat(c, messages, tools=[]), "vision-ok")
+        self.assertEqual(current.calls, 0)
+        self.assertEqual(c._last_fallback["to"], "vision/free")
+
+    def test_legacy_current_provider_keeps_existing_tool_behavior(self):
+        class Good:
+            def chat(self, *a, **k):
+                return "ok"
+
+        c = SimpleNamespace(
+            spec={"id": "legacy-current", "base_url": "https://legacy.example/v1"},
+            model_name="legacy-current",
+            provider=Good(),
+        )
+        with patch.object(provider_pool, "candidates") as candidates:
+            result = provider_pool.chat(
+                c,
+                [{"role": "user", "content": "Use a tool"}],
+                tools=[{"type": "function", "function": {"name": "lookup"}}],
+            )
+        self.assertEqual(result, "ok")
+        candidates.assert_not_called()
+
+    def test_no_compatible_provider_returns_capability_safe_error(self):
+        class Never:
+            def chat(self, *a, **k):
+                raise AssertionError("incompatible provider must not be called")
+
+        c = SimpleNamespace(
+            spec={
+                "id": "text-only",
+                "base_url": "https://text.example/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="text-only",
+            provider=Never(),
+        )
+        messages = [{
+            "role": "user",
+            "content": [{"type": "image_url", "image_url": {"url": "https://example.test/a.png"}}],
+        }]
+        with patch.object(provider_pool, "candidates", return_value=[]):
+            with self.assertRaises(providers.ProviderError) as caught:
+                provider_pool.chat(c, messages)
+        text = str(caught.exception).lower()
+        self.assertIn("supports this request", text)
+        self.assertIn("vision", text)
+        self.assertNotIn("https://text.example", text)
+
+    def test_aggregate_error_does_not_leak_backend_error_body(self):
+        class CurrentBad:
+            def chat(self, *a, **k):
+                raise providers.ProviderError("sensitive backend detail token=abc", 503)
+
+        class FallbackBad:
+            def chat(self, *a, **k):
+                raise providers.ProviderError("secret quota payload xyz", 429)
+
+        c = SimpleNamespace(
+            spec={
+                "id": "current",
+                "base_url": "https://current.example/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="current",
+            provider=CurrentBad(),
+        )
+        backup = {
+            "id": "backup/free",
+            "model": "backup",
+            "base_url": "https://backup.example/v1",
+            "provider": "openai",
+            "free": True,
+            "capabilities": ["text", "streaming"],
+        }
+        with patch.object(provider_pool, "candidates", return_value=[backup]), \
+             patch.object(provider_pool, "provider", return_value=FallbackBad()), \
+             patch.object(provider_pool.time, "sleep", return_value=None), \
+             patch.object(provider_pool.random, "random", return_value=0):
+            with self.assertRaises(providers.ProviderError) as caught:
+                provider_pool.chat(c, [{"role": "user", "content": "hello"}])
+        text = str(caught.exception).lower()
+        self.assertIn("temporarily unavailable", text)
+        self.assertIn("rate limited", text)
+        self.assertNotIn("token=abc", text)
+        self.assertNotIn("quota payload", text)
+
+
 if __name__ == "__main__":
     unittest.main()
