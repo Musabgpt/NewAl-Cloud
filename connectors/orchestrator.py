@@ -36,7 +36,11 @@ def plan(names, request=""):
     phoneish = bool(re.search(r"\b(android|phone|app|notification|termux|هاتف|اندرويد|تطبيق|اشعار|ترمكس)\b", text))
     executionish = bool(re.search(r"\b(run|execute|build|test|sandbox|termux|command|git|commit|diff|نفذ|نفّذ|شغل|شغّل|بناء|اختبار|ترمكس|مستودع|كوميت)\b", text))
     gitish = bool(re.search(r"\b(git|commit|branch|diff|repository|repo|مستودع|فرع|كوميت)\b", text))
+    continuationish = bool(re.search(r"\b(continue|resume|previous task|pick up|where.*stopped|كمل|كمّل|اكمل|أكمل|تابع|استأنف|استكمال)\b", text))
+    longish = bool(re.search(r"\b(long|multi[- ]?step|phase|project|implementation|build|migration|طويل|مراحل|مرحلة|مشروع|تنفيذ|بناء)\b", text))
 
+    if continuationish:
+        add("task_resume", "Load the latest durable project checkpoint before reconstructing unfinished work.")
     if codeish:
         add("project_rag_search", "Retrieve relevant project evidence before broad edits or guesses.")
     if memoryish:
@@ -55,6 +59,8 @@ def plan(names, request=""):
         add("execution_plan", "Choose the actual available execution host before running cross-environment commands.")
     if gitish:
         add("git_status", "Inspect real local repository state before Git changes.")
+    if longish:
+        add("task_checkpoint", "Persist meaningful verified progress so long work can resume after a restart.")
     if codeish:
         add("read", "Inspect exact files before modifying them.")
         add("grep", "Locate exact symbols or references after retrieval.")
@@ -82,6 +88,7 @@ def plan(names, request=""):
             "execution_router": "execution_plan" in names,
             "scratch": "sandbox_exec" in names,
             "git": "git_status" in names,
+            "task_state": "task_resume" in names and "task_checkpoint" in names,
             "mcp_tools": len(_has_prefix(names, "mcp__")),
         },
         "note": "This plan is advisory only; normal permissions still apply and unavailable tools are never invented.",
