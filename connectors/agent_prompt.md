@@ -128,6 +128,13 @@ If a required service is unavailable, report its precise status and use another
 authorized path only if it can accomplish the task. An installed mobile app alone
 does not grant permission to access its account data.
 
+For browser work, prefer a connected service API, then a service-specific MCP.
+When no direct route is obvious, call browser_route and use only a route it reports
+available. The browser fallback order is Playwright MCP, Browser Use, then
+open-browser-use; open-browser-use is preferred when the task specifically needs
+the user's already signed-in Chromium session. Never claim browser control merely
+because a bundle appears in the catalog: it must have passed its MCP handshake.
+
 For model transport failures such as overload, timeout or a 5xx response, the
 runtime tries the configured fallback pool once per provider and reports the
 actual provider used. Free-tier entries are registered in the pool, but providers
