@@ -230,6 +230,7 @@ def route(handler, method, path, body=None):
                 ).strip(),
                 transport='http' if value['spec'].get('url') else 'stdio',
                 bundle=value.get('bundle', ''),
+                registry=value.get('registry', ''), registry_version=value.get('registry_version', ''),
                 authenticated=bool(value['spec'].get('headers', {}).get('Authorization')),
                 tools=value['tools'], tested_at=value['tested_at'])
                 for name, value in servers.items()]})
@@ -265,7 +266,12 @@ def route(handler, method, path, body=None):
             servers = read(root)
             if path.endswith('/test') and name not in servers:
                 raise ValueError('Server was removed during the test')
-            servers[name] = {'spec': spec, 'tools': count, 'tested_at': int(time.time())}
+            record = {'spec': spec, 'tools': count, 'tested_at': int(time.time())}
+            if existing:
+                for marker in ('bundle', 'registry', 'registry_version'):
+                    if existing.get(marker):
+                        record[marker] = existing[marker]
+            servers[name] = record
             save(root, servers)
         handler._json({'ok': True, 'tools': count})
     except (ValueError, KeyError, OSError, RuntimeError, TypeError):
