@@ -204,6 +204,12 @@ class RuntimeTest(unittest.TestCase):
         self.assertNotIn("one-time-code", handler.value)
         self.assertIn("text/html", handler.ctype)
 
+        failed = Handler()
+        with patch.object(self.c, "native", side_effect=self.t.ToolError("declined")):
+            self.assertTrue(self.c.route(failed, "GET", "/api/mcp-oauth/callback"))
+        self.assertIn("authorization failed", failed.value)
+        self.assertNotIn("declined", failed.value)
+
 
 class ReadinessTest(unittest.TestCase):
     def test_health_requires_key_and_never_runs_expensive_state_probes(self):
