@@ -30,7 +30,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests"):
+    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "phone.py", '           "intent", "wait")', '           "intent", "wait", "screenshot", "install_apk", "notifications_read", "automation_start", "automation_stop", "automation_list", "automation_replay", "crash_reports")')
@@ -50,6 +50,80 @@ def apply(root):
     replace(package / "agent.py", '        return [{"role": "system", "content": self.system_prompt()}]', '        from . import agent_policy\n        return [{"role": "system", "content": self.system_prompt() + agent_policy.runtime_context(self)}]')
     replace(package / "agent.py", '("text_delta", "reasoning_delta", "output", "tool_args")', '("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output")')
     replace(package / "agent.py", '        ev.setdefault("t", round(time.time(), 3))\n        if self.persist and ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n', '        ev.setdefault("t", round(time.time(), 3))\n        try:\n            from . import observability\n            if ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n                observability.record(self.session.root, ev)\n        except Exception:\n            pass\n        if self.persist and ev.get("type") not in ("text_delta", "reasoning_delta", "output", "tool_args", "terminal_output"):\n')
+    # Phase 4: one supervisor coordinates existing cancellation + durable task_state.
+    replace(package / "agent.py", '        self.cancel = agent.cancel\\n', '        self.cancel = getattr(agent, "operation_cancel", agent.cancel)\\n')
+    replace(package / "agent.py", '        self.cancel = parent.cancel if parent else threading.Event()\\n        self.cfg = settings.project(session.root)\\n', '        self.cancel = parent.cancel if parent else threading.Event()\\n        self.operation_cancel = self.cancel\\n        self.supervisor = None\\n        self.cfg = settings.project(session.root)\\n')
+    replace(package / "agent.py", '        ev.setdefault("t", round(time.time(), 3))\\n        try:\\n            from . import observability\\n', '        ev.setdefault("t", round(time.time(), 3))\\n        ev.setdefault("step", self.step)\\n        supervisor = getattr(self, "supervisor", None)\\n        if supervisor is not None:\\n            supervisor.observe(ev)\\n        try:\\n            from . import observability\\n')
+    replace(package / "agent.py", '    def connect(self):\\n', '''    def request_stop(self):
+        supervisor = getattr(self, "supervisor", None)
+        if supervisor is not None:
+            supervisor.request_stop("user")
+        else:
+            self.cancel.set()
+
+    def connect(self):
+''')
+    replace(package / "agent.py", '        self.last_error = ""\\n        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})\\n        cfg = self.cfg\\n        hook_cfg = cfg.get("hooks") or {}\\n        extra_context = []\\n', '''        self.last_error = ""
+        supervisor_context = []
+        if self.depth == 0:
+            from . import task_supervisor
+            self.supervisor = task_supervisor.TaskSupervisor(s, self.cancel, self._emit, text, s.turn)
+            self.operation_cancel = self.supervisor.cancel_token
+            supervisor_context = [x for x in (
+                self.supervisor.resume_context(text), self.supervisor.planning_context(text)
+            ) if x]
+            self.supervisor.start()
+        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})
+        cfg = self.cfg
+        hook_cfg = cfg.get("hooks") or {}
+        extra_context = list(supervisor_context)
+''')
+    replace(package / "agent.py", '                           reasoning=reasoning, on_event=on_event, cancel=self.cancel, extra=extra)\\n', '                           reasoning=reasoning, on_event=on_event, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\\n')
+    replace(package / "agent.py", '        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model\\n            ok, text = False, "error: %s: %s" % (type(e).__name__, e)\\n        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))\\n', '''        except Exception as e:  # noqa: BLE001 - a tool failure is information for the model
+            ok, text = False, "error: %s: %s" % (type(e).__name__, e)
+        supervisor = getattr(self, "supervisor", None)
+        if supervisor is not None and supervisor.cancel_token.reason() == "watchdog_stall":
+            supervisor.consume_watchdog()
+            ok = False
+            text += "\\n\\nTask supervisor stopped this operation after no progress. Do not repeat it unchanged; use another tool/route or a smaller bounded step."
+        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))
+''')
+    replace(package / "agent.py", '        except providers.Cancelled:\\n            error = "interrupted"\\n            answer = answer or "(interrupted)"\\n            self._close_dangling_calls()\\n', '''        except providers.Cancelled:
+            supervisor = getattr(self, "supervisor", None)
+            reason = supervisor.cancel_token.reason() if supervisor is not None else "user"
+            if reason == "hard_timeout":
+                error = "timeout"
+                answer = answer or "Stopped safely after the task timeout. Resume to continue from the saved checkpoint."
+            else:
+                error = "interrupted"
+                answer = answer or "(interrupted)"
+            self._close_dangling_calls()
+''')
+    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\\n                tools.stop_jobs(s)\\n', '            if self.depth == 0 and error in ("interrupted", "timeout"):\\n                tools.stop_jobs(s)\\n')
+    replace(package / "agent.py", '        seconds = time.time() - started\\n', '''        supervisor = getattr(self, "supervisor", None)
+        if self.depth == 0 and supervisor is not None:
+            supervisor.finish(error=error, answer=answer)
+            self.operation_cancel = self.cancel
+        seconds = time.time() - started
+''')
+    replace(package / "service.py", '    def interrupt(self, sid):\\n        a = self.agents.get(sid)\\n        if a:\\n            a.cancel.set()\\n', '''    def interrupt(self, sid):
+        a = self.agents.get(sid)
+        if a:
+            a.request_stop()
+''')
+    replace(package / "ui/app.js", '      case "status":\\n        if (!replay && S.busy.has(S.current)) ensureWorking(ev.text);\\n        break;\\n', '''      case "status":
+        if (!replay && S.busy.has(S.current)) ensureWorking(ev.text);
+        break;
+      case "task_heartbeat":
+        if (!replay && S.busy.has(S.current)) ensureWorking("Working · step " + (ev.step || 0));
+        break;
+''')
+    replace(package / "ui/app.js", '  async function interrupt() {\\n    if (S.current) await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});\\n  }\\n', '''  async function interrupt() {
+    if (!S.current) return;
+    if (S.busy.has(S.current)) ensureWorking("Stopping…");
+    await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});
+  }
+''')
     shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
     shutil.copyfile(here / "mcp_ui.js", package / "ui/mcp_ui.js")
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
