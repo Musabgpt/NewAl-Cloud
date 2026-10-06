@@ -23,3 +23,9 @@ tests:
         value: "search_router"
       - type: contains
         value: "project_rag_search"
+
+  - vars:
+      task: "Continue the previous task from where it stopped"
+    assert:
+      - type: contains
+        value: "task_resume"
