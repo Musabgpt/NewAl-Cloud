@@ -38,6 +38,7 @@ def plan(names, request=""):
     gitish = bool(re.search(r"\b(git|commit|branch|diff|repository|repo|مستودع|فرع|كوميت)\b", text))
     continuationish = bool(re.search(r"\b(continue|resume|previous task|pick up|where.*stopped|كمل|كمّل|اكمل|أكمل|تابع|استأنف|استكمال)\b", text))
     longish = bool(re.search(r"\b(long|multi[- ]?step|phase|project|implementation|build|migration|طويل|مراحل|مرحلة|مشروع|تنفيذ|بناء)\b", text))
+    verifyish = bool(re.search(r"\b(verify|verified|check|confirm|prove|tested|test|تحقق|تأكد|اختبر|فحص|تاكد)\b", text))
 
     if continuationish:
         add("task_resume", "Load the latest durable project checkpoint before reconstructing unfinished work.")
@@ -61,6 +62,8 @@ def plan(names, request=""):
         add("git_status", "Inspect real local repository state before Git changes.")
     if longish:
         add("task_checkpoint", "Persist meaningful verified progress so long work can resume after a restart.")
+    if verifyish:
+        add("verification_status", "Inspect the local verification ledger before claiming an effectful action is complete.")
     if codeish:
         add("read", "Inspect exact files before modifying them.")
         add("grep", "Locate exact symbols or references after retrieval.")
@@ -89,6 +92,7 @@ def plan(names, request=""):
             "scratch": "sandbox_exec" in names,
             "git": "git_status" in names,
             "task_state": "task_resume" in names and "task_checkpoint" in names,
+            "verification": "verification_status" in names,
             "mcp_tools": len(_has_prefix(names, "mcp__")),
         },
         "note": "This plan is advisory only; normal permissions still apply and unavailable tools are never invented.",
