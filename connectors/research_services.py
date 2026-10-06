@@ -141,8 +141,9 @@ def _request(url, method="GET", body=None, token="", timeout=TIMEOUT):
 
 def searxng_search(query, n=6):
     """Return search rows, or None when SearXNG is not configured/usable."""
-    base = _config().get("searxng_url", "")
-    if not base:
+    cfg = _config()
+    base = cfg.get("searxng_url", "")
+    if not base or not cfg.get("searxng_tested_at"):
         return None
     try:
         params = urllib.parse.urlencode({"q": str(query), "format": "json"})
@@ -169,10 +170,11 @@ def searxng_search(query, n=6):
         return None
 
 
-def crawl4ai_fetch(url):
-    """Return extracted markdown, or None when Crawl4AI is not configured/usable."""
-    base = _config().get("crawl4ai_url", "")
-    if not base:
+def crawl4ai_fetch(url, _allow_unverified=False):
+    """Return extracted markdown, or None when Crawl4AI is not verified/usable."""
+    cfg = _config()
+    base = cfg.get("crawl4ai_url", "")
+    if not base or (not _allow_unverified and not cfg.get("crawl4ai_tested_at")):
         return None
     token = _secret()
     try:
@@ -244,7 +246,7 @@ def _test_service(service):
         health = _request(base + "/health", timeout=15)
         if not isinstance(health, dict):
             raise RuntimeError("Crawl4AI health check failed")
-        text = crawl4ai_fetch("https://example.com")
+        text = crawl4ai_fetch("https://example.com", _allow_unverified=True)
         if not text:
             raise RuntimeError("Crawl4AI could not complete a test crawl")
         return {"ok": True, "service": service, "chars": len(text)}
@@ -301,5 +303,14 @@ def route(handler, method, path, body=None):
             handler._json(result)
             return True
     except (ValueError, RuntimeError, OSError, phone.PhoneError):
+        try:
+            data = body or {}
+            service = data.get("service", "")
+            if path.endswith("/test") and service in {"searxng", "crawl4ai"}:
+                cfg = _config()
+                if cfg.pop(service + "_tested_at", None) is not None:
+                    _save_config(cfg)
+        except Exception:
+            pass
         handler._json({"error": "Research service configuration or live test failed"}, 400)
     return True
