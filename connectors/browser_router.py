@@ -58,6 +58,19 @@ def _api_candidate(names, url):
     host = _host(url)
     if not host:
         return None
+    try:
+        path = (urlsplit(str(url or "")).path or "").lower()
+    except ValueError:
+        path = ""
+    if _matches_host(host, "docs.google.com") and "/spreadsheets/" in path:
+        matching = sorted(name for name in names if name.startswith("sheets_"))
+        if matching:
+            return {
+                "route": "api",
+                "label": "Google Sheets API",
+                "tools": matching,
+                "reason": "A connected Google Sheets API is available for this spreadsheet.",
+            }
     for domains, prefix, label in _API_HOSTS:
         if any(_matches_host(host, domain) for domain in domains):
             matching = sorted(name for name in names if name.startswith(prefix))
@@ -199,9 +212,6 @@ def install():
     def browser_tool_selector(ctx, url="", service="", needs_session=False, complex_ui=False):
         session = getattr(ctx, "session", None)
         names = set(getattr(session, "tool_names", None) or ())
-        # Built-in tools can exist before session.tool_names has been fully populated.
-        if "phone" in tools.REGISTRY:
-            names.add("phone")
         result = select(names, url, service, needs_session, complex_ui)
         return json.dumps(result, ensure_ascii=False), {"browser_route": result["route"]}
 
@@ -219,8 +229,6 @@ def route(handler, method, path, body=None):
             raise ValueError("Open a project conversation first")
         session = handler.service.get(sid)
         names = set(getattr(session, "tool_names", None) or ())
-        if "phone" in tools.REGISTRY:
-            names.add("phone")
         handler._json(select(
             names,
             data.get("url", ""),
