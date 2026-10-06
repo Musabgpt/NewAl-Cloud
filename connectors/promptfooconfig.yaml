@@ -29,3 +29,9 @@ tests:
     assert:
       - type: contains
         value: "task_resume"
+
+  - vars:
+      task: "Verify the result before saying the task is complete"
+    assert:
+      - type: contains
+        value: "verification_status"
