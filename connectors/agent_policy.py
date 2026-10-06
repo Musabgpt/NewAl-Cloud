@@ -13,11 +13,15 @@ BROWSER_GUIDANCE = ("For browser tasks use browser_tool_selector when the best r
                     "open-browser-use. If the task explicitly needs the user's existing logged-in browser session, "
                     "prefer open-browser-use among browser backends. Never claim a backend is available unless its "
                     "tool is actually exposed.")
+SEARCH_GUIDANCE = ("For web research, use search_router when configured: SearXNG discovers candidate sources and "
+                   "Crawl4AI deep-reads selected pages into bounded Markdown. Use searxng_search for discovery-only "
+                   "tasks and crawl4ai_read for a known URL. Do not claim search/crawl is configured or successful "
+                   "unless the corresponding tool call succeeds.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
+    return MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip()
 
 
 def stale_builtin(text):
@@ -42,5 +46,9 @@ def runtime_context(agent):
              'background_jobs': 'job' in names,
              'connected_service_tools': providers,
              'custom_mcp_tools': sum(name.startswith('mcp__') for name in names),
-             'browser_route': browser_router.select(names)}
+             'browser_route': browser_router.select(names),
+             'search_tools': {
+                 'router': 'search_router' in names,
+                 'searxng': 'searxng_search' in names,
+                 'crawl4ai': 'crawl4ai_read' in names}}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
