@@ -1,14 +1,15 @@
-"""Free-only provider failover for MusabAI.
+"""Capability-aware, free-only provider failover for MusabAI.
 
-The currently selected model is tried first.  If it fails before emitting any
-stream event, MusabAI walks the canonical free pool:
+The selected model is used only when it can satisfy the request capabilities.
+If it fails before emitting any visible stream event, MusabAI walks the
+canonical free pool:
 
 Groq -> Gemini -> OpenRouter Free -> NVIDIA.
 
-Providers without credentials are skipped. Retryable failures use one short
-retry, then a circuit-breaker cooldown so a busy provider is not hammered.
-A fallback never starts after visible streaming output has begun, preventing
-duplicate text/tool events in the chat.
+Selection is protocol-aware (text, vision, tools, streaming, structured JSON,
+reasoning and explicit extended capabilities) while preserving the Phase 1
+retry/cooldown circuit breaker. Providers without credentials are skipped and
+a fallback never starts after visible streaming output has begun.
 """
 import os
 import random
@@ -27,6 +28,7 @@ FREE_POOL = [
         "api_key_envs": ["GROQ_API_KEY"],
         "secret_id": "groq",
         "free": True,
+        "capabilities": ["text", "tools", "streaming", "json", "reasoning", "long_context", "coding"],
     },
     {
         "id": "gemini/3.7-flash-free",
@@ -37,6 +39,7 @@ FREE_POOL = [
         "api_key_envs": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
         "secret_id": "gemini",
         "free": True,
+        "capabilities": ["text", "vision", "tools", "streaming", "json", "reasoning", "long_context", "coding"],
     },
     {
         "id": "openrouter/free",
@@ -47,6 +50,7 @@ FREE_POOL = [
         "api_key_envs": ["OPENROUTER_API_KEY"],
         "secret_id": "openrouter",
         "free": True,
+        "capabilities": ["text", "vision", "tools", "streaming", "json", "reasoning", "long_context", "coding"],
     },
     {
         "id": "nvidia/nemotron-3-ultra-free",
@@ -57,6 +61,7 @@ FREE_POOL = [
         "api_key_envs": ["NVIDIA_API_KEY", "NVAPI_KEY"],
         "secret_id": "nvidia",
         "free": True,
+        "capabilities": ["text", "tools", "streaming", "reasoning", "long_context", "coding"],
     },
 ]
 
@@ -201,7 +206,120 @@ def reset_health():
         _HEALTH.clear()
 
 
-def candidates(current):
+_CAPABILITY_NAMES = frozenset({
+    "text", "vision", "tools", "streaming", "json", "reasoning",
+    "long_context", "coding",
+})
+_IMAGE_TYPES = frozenset({"image", "image_url", "input_image", "input_image_url"})
+
+
+def _normalize_capabilities(value):
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        value = value.replace(",", " ").split()
+    if isinstance(value, dict):
+        value = [name for name, enabled in value.items() if enabled]
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return frozenset()
+    return frozenset(str(name).strip().lower() for name in value if str(name).strip())
+
+
+def capabilities(spec):
+    """Return declared/known capabilities, or None for a legacy unknown model."""
+    spec = spec or {}
+    if "capabilities" in spec:
+        return _normalize_capabilities(spec.get("capabilities"))
+
+    pid, base = _provider_id(spec), _base(spec)
+    model = str(spec.get("model") or "")
+    for known in FREE_POOL:
+        known_model = str(known.get("model") or "")
+        if pid == _provider_id(known) or (model and model == known_model) or (
+                not model and base and base == _base(known)):
+            return _normalize_capabilities(known.get("capabilities"))
+
+    # User/local specs can opt in without adopting the full capabilities field.
+    hints = set()
+    modalities = _normalize_capabilities(spec.get("modalities") or spec.get("input_modalities"))
+    if modalities:
+        hints.update({"text", "streaming"})
+        if "image" in modalities or "vision" in modalities:
+            hints.add("vision")
+    for field, cap in (
+        ("vision", "vision"), ("tool_use", "tools"), ("tools", "tools"),
+        ("streaming", "streaming"), ("json", "json"),
+        ("reasoning", "reasoning"), ("coding", "coding"),
+        ("long_context", "long_context"),
+    ):
+        if spec.get(field) is True:
+            hints.add(cap)
+    return frozenset(hints | {"text"}) if hints else None
+
+
+def _contains_image(value):
+    if isinstance(value, (list, tuple)):
+        return any(_contains_image(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    kind = str(value.get("type") or "").lower()
+    if kind in _IMAGE_TYPES or kind.startswith("image_") or "image_url" in value:
+        return True
+    return any(_contains_image(v) for k, v in value.items() if k != "text")
+
+
+def request_capabilities(messages, tools=None, required_capabilities=None, **kwargs):
+    """Infer hard request requirements; callers may add explicit capabilities."""
+    required = {"text", "streaming"}
+    if _contains_image(messages or []):
+        required.add("vision")
+    if tools:
+        required.add("tools")
+
+    extra = kwargs.get("extra") if isinstance(kwargs.get("extra"), dict) else {}
+    response_format = kwargs.get("response_format") or extra.get("response_format")
+    if response_format or kwargs.get("json_schema") or extra.get("json_schema"):
+        required.add("json")
+
+    reasoning = kwargs.get("reasoning")
+    if reasoning not in (None, "", "off", "none", False):
+        required.add("reasoning")
+
+    required.update(_normalize_capabilities(required_capabilities))
+    return frozenset(required)
+
+
+def _supports(spec, required, legacy_current=False):
+    caps = capabilities(spec)
+    if caps is None:
+        # Preserve legacy selected-model behavior for text/tool turns, but never
+        # guess that an unknown model can see images. Unknown fallbacks are
+        # limited to plain streamed text unless they declare capabilities.
+        assumed = {"text", "streaming"}
+        if legacy_current:
+            assumed.update({"tools", "reasoning"})
+        return set(required).issubset(assumed)
+    return set(required).issubset(caps)
+
+
+def _safe_error(error):
+    """Classify provider failures without leaking backend bodies/metadata."""
+    status = _status(error)
+    text = str(error).lower()
+    if status in {401, 403}:
+        return "authentication failed"
+    if status == 429 or "rate limit" in text or "too many requests" in text:
+        return "rate limited"
+    if status in {500, 502, 503, 504} or "overload" in text or "temporarily unavailable" in text:
+        return "temporarily unavailable"
+    if isinstance(error, (TimeoutError, OSError)) or "timeout" in text or "cannot reach" in text:
+        return "connection failed"
+    if status == 400:
+        return "request rejected"
+    return "request failed"
+
+
+def candidates(current, required_capabilities=None):
     """Return configured, credentialed, free fallbacks in canonical order."""
     current_spec = getattr(current, "spec", {}) or {}
     seen_ids = {_provider_id(current_spec)}
@@ -223,6 +341,8 @@ def candidates(current):
         if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
             continue
         if not _explicitly_free(spec) or not _available(spec):
+            continue
+        if required_capabilities is not None and not _supports(spec, required_capabilities):
             continue
         spec["api_key"] = key
         seen_ids.add(mid)
@@ -289,25 +409,38 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
     raise last
 
 
-def chat(client, messages, tools=None, **kwargs):
+def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
     current_spec = dict(getattr(client, "spec", {}) or {})
     current_spec.setdefault("id", getattr(client, "model_name", "current"))
     current_spec.setdefault("model", getattr(client, "model_name", "current"))
     old_id = _provider_id(current_spec)
+    required = request_capabilities(
+        messages, tools=tools, required_capabilities=required_capabilities, **kwargs
+    )
     errors = []
+    incompatible = []
 
-    if _available(current_spec):
+    if not _supports(current_spec, required, legacy_current=True):
+        incompatible.append(old_id)
+    elif _available(current_spec):
         try:
             return _call_with_retry(current_spec, client.provider, client.model_name, messages, tools, kwargs)
         except (providers.ProviderError, TimeoutError, OSError) as first:
             # Do not fall back after any visible stream event.
             if getattr(first, "_musab_emitted", False):
                 raise
-            errors.append(old_id + ": " + str(first))
+            errors.append(old_id + ": " + _safe_error(first))
     else:
-        errors.append(old_id + ": provider is cooling down")
+        errors.append(old_id + ": cooling down")
 
-    for spec in candidates(client):
+    fallbacks = candidates(client, required)
+    if incompatible and not fallbacks:
+        names = ", ".join(sorted(required))
+        raise providers.ProviderError(
+            "No configured free AI provider supports this request (requires: %s)" % names
+        )
+
+    for spec in fallbacks:
         next_provider = provider(spec)
         try:
             result = _call_with_retry(spec, next_provider, spec.get("model") or spec["id"], messages, tools, kwargs)
@@ -323,9 +456,9 @@ def chat(client, messages, tools=None, **kwargs):
         except (providers.ProviderError, TimeoutError, OSError) as error:
             if getattr(error, "_musab_emitted", False):
                 raise
-            errors.append(spec["id"] + ": " + str(error))
+            errors.append(spec["id"] + ": " + _safe_error(error))
 
     message = "Free AI providers are temporarily unavailable"
     if errors:
-        message += ": " + " | ".join(errors)[:1400]
+        message += " (" + " | ".join(errors)[:900] + ")"
     raise providers.ProviderError(message)
