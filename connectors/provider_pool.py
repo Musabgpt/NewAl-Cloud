@@ -529,6 +529,29 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
             result, emitted, latency = _attempt(client_provider, model, messages, tools, kwargs)
             _mark_success(spec, latency)
             return result
+        except providers.Cancelled as cancelled:
+            # A TaskSupervisor watchdog cancel is not the user's Stop. Before
+            # any visible stream output it is safe to convert the stall into a
+            # timeout so the Phase 3 pool can move to another healthy provider.
+            # User cancellation must always propagate immediately.
+            token = kwargs.get("cancel")
+            reason = token.reason() if token is not None and hasattr(token, "reason") else ""
+            if reason != "watchdog_stall":
+                raise
+            emitted = bool(getattr(cancelled, "_musab_emitted", False))
+            if token is not None and hasattr(token, "consume_watchdog"):
+                token.consume_watchdog()
+            if emitted:
+                safe = providers.ProviderError(
+                    "Model stream stalled after partial output; resume from the saved checkpoint."
+                )
+                setattr(safe, "_musab_emitted", True)
+                _mark_failure(spec, safe)
+                raise safe
+            error = TimeoutError("provider stalled without progress")
+            setattr(error, "_musab_emitted", False)
+            _mark_failure(spec, error)
+            raise error
         except (providers.ProviderError, TimeoutError, OSError) as error:
             last = error
             # Once the UI has received stream output, switching providers would
