@@ -61,7 +61,7 @@ class TaskSupervisorTests(unittest.TestCase):
         self.assertTrue(self.wait_for(lambda: any(e.get("type") == "task_heartbeat" for e in self.events)))
         self.assertTrue(self.wait_for(lambda: sup.cancel_token.reason() == "watchdog_stall"))
         self.assertEqual(sup.recoveries, 1)
-        self.assertTrue(any("another route" in (e.get("text") or "") for e in self.events))
+        self.assertTrue(self.wait_for(lambda: any("another route" in (e.get("text") or "") for e in self.events)))
         row = task_state.resume(self.root, sup.task_id)
         self.assertIn("No progress", row["checkpoint"]["blocker"])
         self.assertTrue(sup.consume_watchdog())
