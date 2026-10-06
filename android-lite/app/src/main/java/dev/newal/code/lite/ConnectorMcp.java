@@ -34,6 +34,51 @@ final class ConnectorMcp {
 
     static void forget(String provider) { SESSIONS.remove(provider); }
 
+    static void forgetRemote(String label) {
+        String prefix = "remote:" + label + ":";
+        for (String key : SESSIONS.keySet()) if (key.startsWith(prefix)) SESSIONS.remove(key);
+    }
+
+    private static String remoteKey(String label, String endpoint) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(endpoint.getBytes(StandardCharsets.UTF_8));
+        return "remote:" + label + ":" + android.util.Base64.encodeToString(
+                digest, android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+    }
+
+    static JSONObject toolsRemote(String label, String endpoint, String token) throws Exception {
+        String key = remoteKey(label, endpoint);
+        Session session = SESSIONS.get(key);
+        if (session == null) {
+            Session created = new Session(label, endpoint);
+            Session raced = SESSIONS.putIfAbsent(key, created);
+            session = raced == null ? created : raced;
+        }
+        synchronized (session) {
+            session.initialize(token);
+            return new JSONObject().put("tools", new JSONArray(session.tools.toString()))
+                    .put("server", session.server).put("protocol", session.protocol);
+        }
+    }
+
+    static JSONObject callRemote(String label, String endpoint, String token, String name, JSONObject arguments) throws Exception {
+        String key = remoteKey(label, endpoint);
+        Session session = SESSIONS.get(key);
+        if (session == null) {
+            Session created = new Session(label, endpoint);
+            Session raced = SESSIONS.putIfAbsent(key, created);
+            session = raced == null ? created : raced;
+        }
+        synchronized (session) {
+            session.initialize(token);
+            boolean listed = false;
+            for (int i = 0; i < session.tools.length(); i++)
+                if (name.equals(session.tools.getJSONObject(i).optString("name"))) { listed = true; break; }
+            if (!listed) throw new IllegalArgumentException("Tool is not offered by the connected service");
+            return session.request(token, "tools/call", new JSONObject().put("name", name)
+                    .put("arguments", arguments == null ? new JSONObject() : arguments));
+        }
+    }
+
     static JSONObject tools(String provider, String token) throws Exception {
         Session session = SESSIONS.computeIfAbsent(provider, Session::new);
         synchronized (session) {
@@ -64,11 +109,16 @@ final class ConnectorMcp {
 
     private static final class Session {
         final String provider;
+        final String customEndpoint;
         String id = "", protocol = PROTOCOL, fingerprint = "", server = "";
         JSONArray tools = new JSONArray();
         int sequence;
         boolean ready;
-        Session(String provider) { this.provider = provider; }
+        Session(String provider) { this(provider, null); }
+        Session(String provider, String customEndpoint) {
+            this.provider = provider;
+            this.customEndpoint = customEndpoint;
+        }
 
         void initialize(String token) throws Exception {
             String digest = android.util.Base64.encodeToString(MessageDigest.getInstance("SHA-256")
@@ -110,7 +160,7 @@ final class ConnectorMcp {
         }
 
         JSONObject post(String token, JSONObject message) throws Exception {
-            HttpURLConnection conn = (HttpURLConnection) new URL(endpoint(provider)).openConnection();
+            HttpURLConnection conn = (HttpURLConnection) new URL(customEndpoint == null ? endpoint(provider) : customEndpoint).openConnection();
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(15000); conn.setReadTimeout(60000);
             conn.setRequestMethod("POST"); conn.setDoOutput(true);
