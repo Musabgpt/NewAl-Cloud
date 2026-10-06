@@ -259,7 +259,7 @@
       const row = node('section'); row.className = 'connector-card research-service';
       row.append(node('strong', name));
       const state = item.tested_at
-        ? tr('Live test passed', 'نجح الاختبار الفعلي')
+        ? tr('Last live test passed', 'نجح آخر اختبار فعلي')
         : item.configured
           ? tr('Configured — not verified yet', 'مهيأ — لم يتم التحقق منه بعد')
           : tr('Not configured', 'غير مهيأ');
