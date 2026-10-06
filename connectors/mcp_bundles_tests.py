@@ -18,7 +18,7 @@ class McpBundlesTest(unittest.TestCase):
 
     def test_exact_requested_bundle_catalog_is_real_and_honest(self):
         ids = [item["id"] for item in mcp_bundles.BUNDLES]
-        self.assertEqual(ids, ["playwright", "github", "filesystem", "android", "memory"])
+        self.assertEqual(ids, ["playwright", "browser-use", "open-browser-use", "github", "filesystem", "android", "memory"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
 
         def no_runtime(name):
@@ -28,11 +28,23 @@ class McpBundlesTest(unittest.TestCase):
              mock.patch.dict(os.environ, {}, clear=True):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
         self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
+        self.assertEqual(catalog["browser-use"]["status"], "runtime_missing")
+        self.assertEqual(catalog["open-browser-use"]["status"], "runtime_missing")
         self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
         self.assertEqual(catalog["memory"]["status"], "runtime_missing")
         self.assertEqual(catalog["android"]["status"], "runtime_missing")
         self.assertEqual(catalog["github"]["status"], "credentials_missing")
         self.assertFalse(any(item["enabled"] for item in catalog.values()))
+
+    def test_browser_bundle_commands_match_vetted_upstreams(self):
+        with mock.patch.object(mcp_bundles.shutil, "which", return_value="/usr/bin/tool"):
+            browser_use = mcp_bundles._spec(mcp_bundles._item("browser-use"), self.root)
+            obu = mcp_bundles._spec(mcp_bundles._item("open-browser-use"), self.root)
+        self.assertEqual(browser_use["command"], "uvx")
+        self.assertEqual(browser_use["args"], ["--from", "browser-use[cli]", "browser-use", "--mcp"])
+        self.assertEqual(obu["command"], "obu")
+        self.assertEqual(obu["args"], ["mcp", "stdio"])
+
 
     def test_filesystem_and_memory_are_scoped_to_current_project(self):
         with mock.patch.object(mcp_bundles.shutil, "which", return_value="/usr/bin/npx"):
