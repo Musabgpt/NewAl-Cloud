@@ -30,6 +30,10 @@ class DocumentEngineTest(unittest.TestCase):
         self.assertEqual(result["route"], "docling")
         self.assertEqual(len(result["tools"]), 2)
 
+    def test_zip_create_does_not_claim_document_create_support(self):
+        result = document_engine.select({"document_create"}, "files.zip", "create")
+        self.assertEqual(result["route"], "unavailable")
+
     def test_zip_stays_on_native_archive_tools(self):
         names = {"archive_pack", "archive_extract", "mcp__docling__convert_document_into_docling_document"}
         result = document_engine.select(names, "files.zip", "archive")
