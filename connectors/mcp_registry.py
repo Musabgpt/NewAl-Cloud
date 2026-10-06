@@ -135,7 +135,7 @@ def _literal_https_remote(server):
             continue
         parsed = urllib.parse.urlsplit(url)
         if (parsed.scheme == "https" and parsed.hostname and not parsed.username and
-                not parsed.password and not parsed.fragment):
+                not parsed.password and not parsed.query and not parsed.fragment):
             return remote
     return None
 
