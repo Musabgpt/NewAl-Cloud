@@ -25,6 +25,7 @@ final class Connectors {
     }
     private final Context ctx;
     private final ConnectorVault vault;
+    private final ActivepiecesMcp activepieces;
     private final String broker;
     private final Set<String> polling = new HashSet<>();
     private JSONObject deployed = new JSONObject();
@@ -36,6 +37,7 @@ final class Connectors {
     private Connectors(Context c) throws Exception {
         ctx = c;
         vault = new ConnectorVault(c);
+        activepieces = new ActivepiecesMcp(c, vault);
         JSONObject config;
         try (InputStream in = c.getAssets().open("connectors.json")) {
             config = new JSONObject(new String(read(in, 65536), StandardCharsets.UTF_8));
@@ -63,6 +65,17 @@ final class Connectors {
         if (provider.equals("termux") && op.equals("disconnect")) {
             TermuxJobs.disconnect(c);
             return new JSONObject().put("ok", true);
+        }
+        if (provider.equals(ActivepiecesMcp.ID)) {
+            if (op.equals("connect")) return self.activepieces.start(a.optString("url"));
+            if (op.equals("disconnect")) return self.activepieces.disconnect();
+            if (op.equals("test")) return self.activepieces.test();
+            if (op.equals("oauth_complete")) return self.activepieces.complete(
+                    a.optString("code"), a.optString("state"), a.optString("iss"), a.optString("error"));
+            if (op.equals("mcp_tools")) return new JSONObject().put("ok", true).put("data", self.activepieces.tools());
+            if (op.equals("mcp_call")) return new JSONObject().put("ok", true).put("data",
+                    self.activepieces.call(a.getString("name"), a.optJSONObject("arguments")));
+            throw new IllegalArgumentException("Unknown Activepieces operation");
         }
         valid(provider);
         if (op.equals("connect")) return self.connect(provider);
@@ -108,6 +121,7 @@ final class Connectors {
                     .put("transport", ConnectorMcp.supports(IDS[i]) ? "mcp" : "rest")
                     .put("generation", rec.optString("generation")).put("tool_count", rec.optInt("tool_count")));
         }
+        list.put(activepieces.status());
         JSONObject termux = vault.get("termux");
         boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
         list.put(new JSONObject().put("id", "termux").put("name", "Termux").put("configured", true)
