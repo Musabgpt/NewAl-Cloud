@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v3'
+MARKER = 'MusabAI behavior profile v4'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -35,11 +35,14 @@ EXECUTION_GUIDANCE = ("For command execution use execution_plan when the correct
                       "Prefer connected Termux for Android/Linux commands on the device; Appium or E2B are optional only when exposed.")
 GIT_GUIDANCE = ("For local repository inspection use git_status, git_diff and git_log. git_commit stages only explicit relative "
                 "paths and creates a local commit; it never pushes, force-updates history, changes remotes or stores credentials.")
+OBSERVABILITY_GUIDANCE = ("Operational tracing is local and metadata-only by default. Use observability_status or "
+                          "observability_tail to inspect it. Never claim external telemetry is active automatically; "
+                          "observability_export sends only sanitized metadata and only after explicit use with a configured backend.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
 
 
 def stale_builtin(text):
@@ -87,5 +90,9 @@ def runtime_context(agent):
                  'status': 'git_status' in names,
                  'diff': 'git_diff' in names,
                  'log': 'git_log' in names,
-                 'commit': 'git_commit' in names}}
+                 'commit': 'git_commit' in names},
+             'observability': {
+                 'status': 'observability_status' in names,
+                 'tail': 'observability_tail' in names,
+                 'export': 'observability_export' in names}}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
