@@ -30,11 +30,16 @@ RAG_GUIDANCE = ("For existing project code and long workspaces, use project_rag_
 ORCHESTRATION_GUIDANCE = ("For multi-step tasks spanning several tool families, use orchestrator_plan when routing is not "
                           "obvious. It can recommend only tools exposed to the current session and never executes actions, "
                           "changes permissions, or invents unavailable backends.")
+EXECUTION_GUIDANCE = ("For command execution use execution_plan when the correct host is unclear. sandbox_exec runs only "
+                      "explicit scratch inputs in a temporary directory and is not a container or OS security boundary. "
+                      "Prefer connected Termux for Android/Linux commands on the phone; Appium or E2B are optional only when exposed.")
+GIT_GUIDANCE = ("For local repository inspection use git_status, git_diff and git_log. git_commit stages only explicit relative "
+                "paths and creates a local commit; it never pushes, force-updates history, changes remotes or stores credentials.")
 
 
 @lru_cache(maxsize=1)
 def profile():
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
 
 
 def stale_builtin(text):
@@ -71,5 +76,16 @@ def runtime_context(agent):
              'project_rag': {
                  'search': 'project_rag_search' in names,
                  'index': 'project_rag_index' in names},
-             'orchestrator': 'orchestrator_plan' in names}
+             'orchestrator': 'orchestrator_plan' in names,
+             'execution': {
+                 'router': 'execution_plan' in names,
+                 'scratch': 'sandbox_exec' in names,
+                 'termux': 'termux_exec' in names,
+                 'appium': any(name.startswith('mcp__appium') for name in names),
+                 'e2b': any(name.startswith('mcp__e2b') for name in names)},
+             'git': {
+                 'status': 'git_status' in names,
+                 'diff': 'git_diff' in names,
+                 'log': 'git_log' in names,
+                 'commit': 'git_commit' in names}}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
