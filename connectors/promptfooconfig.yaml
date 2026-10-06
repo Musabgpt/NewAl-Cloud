@@ -2,7 +2,7 @@ description: MusabAI Phase 7 deterministic routing contracts
 prompts:
   - "{{task}}"
 providers:
-  - "exec: python3 connectors/promptfoo_provider.py"
+  - "exec: python3 promptfoo_provider.py"
 tests:
   - vars:
       task: "Build and test this Android APK in Termux"
