@@ -55,6 +55,7 @@
       const focused = document.activeElement?.dataset.action;
       list.replaceChildren();
       for (const item of result.connectors) {
+        if (item.id === "activepieces") continue; // configured in the dedicated Automation Hub card
         const row = element("section", "", "connector-card"), detail = element("div");
         detail.append(element("strong", item.name));
         const label = labels[item.status] || [item.status, item.status];
