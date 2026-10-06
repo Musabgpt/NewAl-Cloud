@@ -101,6 +101,131 @@
     providerRefresh.onclick = () => withProviderBusy(async () => { providerMessage.textContent = ''; await loadProviders(); });
     withProviderBusy(loadProviders);
 
+    // ---------------------------------------------------------------- Activepieces Automation Hub
+    const activepiecesSection = node('section');
+    activepiecesSection.className = 'connector-card activepieces-hub';
+    activepiecesSection.append(node('h3', tr('Activepieces Automation Hub', 'مركز أتمتة Activepieces')));
+    activepiecesSection.append(node('p', tr(
+      'Connect the MCP Server URL from Activepieces Settings. OAuth opens in your browser; tokens stay encrypted in Android Keystore and are never exposed to the WebView or Python.',
+      'اربط رابط MCP Server من إعدادات Activepieces. يفتح OAuth في المتصفح، وتبقى الرموز مشفرة داخل Android Keystore ولا تظهر للـ WebView أو Python.'
+    )));
+    const activepiecesUrl = node('input');
+    activepiecesUrl.type = 'url';
+    activepiecesUrl.id = 'activepieces-mcp-url';
+    activepiecesUrl.placeholder = 'https://your-instance.com/mcp';
+    activepiecesUrl.autocomplete = 'off';
+    activepiecesUrl.setAttribute('aria-label', tr('Activepieces MCP Server URL', 'رابط خادم Activepieces MCP'));
+    const activepiecesMessage = node('p');
+    activepiecesMessage.setAttribute('role', 'status');
+    const activepiecesState = node('p');
+    const activepiecesActions = node('div');
+    activepiecesActions.className = 'connector-actions';
+    const activepiecesConnect = node('button', tr('Connect Activepieces', 'ربط Activepieces'));
+    activepiecesConnect.type = 'button'; activepiecesConnect.className = 'btn primary';
+    const activepiecesTest = node('button', tr('Test', 'اختبار'));
+    activepiecesTest.type = 'button'; activepiecesTest.className = 'btn';
+    const activepiecesDisconnect = node('button', tr('Disconnect', 'فصل'));
+    activepiecesDisconnect.type = 'button'; activepiecesDisconnect.className = 'btn';
+    activepiecesActions.append(activepiecesConnect, activepiecesTest, activepiecesDisconnect);
+    activepiecesSection.append(activepiecesUrl, activepiecesActions, activepiecesState, activepiecesMessage);
+    panel.insertBefore(activepiecesSection, document.querySelector('#connector-list'));
+
+    let activepiecesBusy = false, activepiecesPoll = 0;
+    async function activepiecesAccount() {
+      const data = await api('/api/connectors');
+      return (data.connectors || []).find(item => item.id === 'activepieces') || null;
+    }
+    function renderActivepieces(item) {
+      if (!item) {
+        activepiecesState.textContent = tr('Available on Android builds.', 'متاح في نسخة Android.');
+        activepiecesTest.disabled = activepiecesDisconnect.disabled = true;
+        return;
+      }
+      if (item.server_url && !activepiecesUrl.value) activepiecesUrl.value = item.server_url;
+      const labels = {
+        connected: tr('Connected', 'متصل'),
+        authorizing: tr('Waiting for browser authorization', 'بانتظار التفويض في المتصفح'),
+        exchanging: tr('Finishing OAuth', 'جارٍ إكمال OAuth'),
+        testing: tr('Testing MCP tools', 'جارٍ اختبار أدوات MCP'),
+        reauthorize: tr('Reconnect required', 'يلزم إعادة الربط'),
+        error: tr('Connection failed', 'فشل الاتصال'),
+        disconnected: tr('Not connected', 'غير متصل')
+      };
+      activepiecesState.textContent = (labels[item.status] || item.status || tr('Not connected', 'غير متصل'))
+        + (item.tool_count ? tr(' · Tools: ', ' · الأدوات: ') + item.tool_count : '')
+        + (item.account ? ' · ' + item.account : '');
+      if (item.error) activepiecesMessage.textContent = item.error;
+      const connected = item.status === 'connected';
+      activepiecesTest.disabled = !item.has_credentials;
+      activepiecesDisconnect.disabled = !item.has_credentials && !['authorizing','exchanging','testing','error','reauthorize'].includes(item.status);
+      activepiecesConnect.textContent = connected || item.status === 'reauthorize' || item.status === 'error'
+        ? tr('Reconnect', 'إعادة الربط') : tr('Connect Activepieces', 'ربط Activepieces');
+    }
+    async function loadActivepieces() {
+      try { renderActivepieces(await activepiecesAccount()); }
+      catch (error) {
+        activepiecesState.textContent = tr('Android connector host unavailable.', 'مضيف اتصالات Android غير متاح.');
+        activepiecesTest.disabled = activepiecesDisconnect.disabled = true;
+      }
+    }
+    async function activepiecesRun(fn) {
+      if (activepiecesBusy) return;
+      activepiecesBusy = true;
+      activepiecesConnect.disabled = activepiecesTest.disabled = activepiecesDisconnect.disabled = true;
+      try { await fn(); }
+      catch (error) { activepiecesMessage.textContent = error.message; }
+      finally {
+        activepiecesBusy = false;
+        activepiecesConnect.disabled = false;
+        await loadActivepieces();
+      }
+    }
+    async function pollActivepieces(token) {
+      for (let attempt = 0; attempt < 300 && token === activepiecesPoll; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (token !== activepiecesPoll) return;
+        let item;
+        try { item = await activepiecesAccount(); }
+        catch (_) { continue; }
+        renderActivepieces(item);
+        if (!item || !['authorizing','exchanging','testing'].includes(item.status)) {
+          if (item?.status === 'connected') activepiecesMessage.textContent = tr(
+            'Activepieces connected and MCP tools verified.',
+            'تم ربط Activepieces والتحقق من أدوات MCP.'
+          );
+          return;
+        }
+      }
+    }
+    activepiecesConnect.onclick = () => activepiecesRun(async () => {
+      const url = activepiecesUrl.value.trim();
+      if (!url) throw new Error(tr('Paste the MCP Server URL first.', 'ألصق رابط MCP Server أولاً.'));
+      activepiecesMessage.textContent = tr(
+        'Discovering OAuth and opening your browser…',
+        'جارٍ اكتشاف OAuth وفتح المتصفح…'
+      );
+      const result = await api('/api/connectors/connect', {provider:'activepieces', url});
+      if (result.status === 'authorizing') {
+        const token = ++activepiecesPoll;
+        activepiecesMessage.textContent = tr(
+          'Approve access in the browser. MusabAI will verify the tools automatically.',
+          'وافق على الوصول في المتصفح. سيتحقق MusabAI من الأدوات تلقائياً.'
+        );
+        pollActivepieces(token);
+      }
+    });
+    activepiecesTest.onclick = () => activepiecesRun(async () => {
+      activepiecesMessage.textContent = tr('Testing the live MCP server…', 'جارٍ اختبار خادم MCP الفعلي…');
+      const result = await api('/api/connectors/test', {provider:'activepieces'});
+      activepiecesMessage.textContent = tr('Connection verified. Tools: ', 'تم التحقق من الاتصال. الأدوات: ') + result.tool_count;
+    });
+    activepiecesDisconnect.onclick = () => activepiecesRun(async () => {
+      ++activepiecesPoll;
+      await api('/api/connectors/disconnect', {provider:'activepieces'});
+      activepiecesMessage.textContent = tr('Disconnected on this device.', 'تم الفصل على هذا الجهاز.');
+    });
+    loadActivepieces();
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
