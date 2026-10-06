@@ -11,12 +11,16 @@ reasoning and explicit extended capabilities) while preserving the Phase 1
 retry/cooldown circuit breaker. Providers without credentials are skipped and
 a fallback never starts after visible streaming output has begun.
 """
+import json
+import logging
 import os
 import random
+import re
 import threading
 import time
+from email.utils import parsedate_to_datetime
 
-from . import providers, settings
+from . import free_provider_adapters, providers, settings
 
 FREE_POOL = [
     {
@@ -65,9 +69,8 @@ FREE_POOL = [
     },
 ]
 
-_RETRYABLE = {429, 500, 502, 503, 504}
-_HEALTH = {}
-_LOCK = threading.RLock()
+_RETRYABLE = {404, 408, 429, 500, 502, 503, 504}
+_LOG = logging.getLogger("newal.provider_pool")
 
 
 def _now():
@@ -109,29 +112,6 @@ def _explicitly_free(spec):
     return mid.endswith("/free") or model.endswith(":free") or model == "openrouter/free"
 
 
-def _state(pid):
-    with _LOCK:
-        return dict(_HEALTH.get(pid) or {})
-
-
-def _available(spec):
-    state = _state(_provider_id(spec))
-    return float(state.get("cooldown_until") or 0) <= _now()
-
-
-def _mark_success(spec, latency):
-    pid = _provider_id(spec)
-    with _LOCK:
-        _HEALTH[pid] = {
-            "state": "available",
-            "failures": 0,
-            "cooldown_until": 0.0,
-            "last_error": "",
-            "latency_ms": int(max(0.0, latency) * 1000),
-            "updated_at": time.time(),
-        }
-
-
 def _status(error):
     return int(getattr(error, "status", 0) or 0)
 
@@ -150,60 +130,203 @@ def _retryable(error):
     ))
 
 
+def _retry_after_seconds(error):
+    """Read a provider-directed Retry-After without trusting unbounded values."""
+    values = [
+        getattr(error, "retry_after", None),
+        getattr(error, "retry_after_seconds", None),
+    ]
+    headers = getattr(error, "headers", None)
+    if isinstance(headers, dict):
+        values += [headers.get("Retry-After"), headers.get("retry-after")]
+
+    body = getattr(error, "body", "")
+    if body:
+        try:
+            parsed = json.loads(body) if isinstance(body, str) else body
+        except (ValueError, TypeError):
+            parsed = None
+
+        def find(value):
+            if isinstance(value, dict):
+                for key in ("retry_after", "retry_after_seconds", "retryAfter"):
+                    if key in value:
+                        return value[key]
+                for nested in value.values():
+                    found = find(nested)
+                    if found is not None:
+                        return found
+            elif isinstance(value, list):
+                for nested in value:
+                    found = find(nested)
+                    if found is not None:
+                        return found
+            return None
+
+        values.append(find(parsed))
+
+    text = str(error)
+    match = re.search(r"retry(?:-|\s*)after[^0-9]{0,12}(\d+(?:\.\d+)?)", text, re.I)
+    if match:
+        values.append(match.group(1))
+
+    for raw in values:
+        if raw in (None, ""):
+            continue
+        try:
+            seconds = float(raw)
+        except (TypeError, ValueError):
+            try:
+                dt = parsedate_to_datetime(str(raw))
+                seconds = dt.timestamp() - time.time()
+            except (TypeError, ValueError, OverflowError):
+                continue
+        if seconds >= 0:
+            return max(1, min(int(seconds + 0.999), 1800))
+    return None
+
+
 def _cooldown_seconds(error, failures):
     status = _status(error)
+    explicit = _retry_after_seconds(error)
+    if status == 404:
+        base = 90
+    elif status == 429 or "rate limit" in str(error).lower():
+        base = 30
+    elif status in {502, 503, 504} or "overload" in str(error).lower():
+        base = 60
+    elif status in {401, 403}:
+        base = 300
+    elif status == 400:
+        base = 180
+    elif status == 408 or isinstance(error, TimeoutError):
+        base = 20
+    else:
+        base = 20
     if failures >= 3:
-        return 120
-    if status == 429 or "rate limit" in str(error).lower():
-        return 30
-    if status in {502, 503, 504} or "overload" in str(error).lower():
-        return 60
-    if status in {401, 403}:
-        return 300
-    if status == 400:
-        return 180
-    return 20
+        base = max(base, 120)
+    return max(base, explicit or 0)
+
+
+def _redact_diagnostic(text):
+    text = str(text or "")
+    text = re.sub(
+        r"(?i)((?:api[_-]?key|authorization|token|secret)\s*[=:]\s*)([^\s,;]+)",
+        r"\1<redacted>",
+        text,
+    )
+    return text[:2000]
+
+
+def _diagnostic_failure(spec, error):
+    # Raw provider failures belong in diagnostics, never in the user-facing
+    # aggregate error. Obvious credential-shaped values are redacted first.
+    _LOG.warning(
+        "provider failure id=%s status=%s detail=%s",
+        _provider_id(spec),
+        _status(error),
+        _redact_diagnostic(error),
+    )
+
+
+class ProviderHealthManager:
+    """Thread-safe health/circuit-breaker state shared by the free provider pool."""
+
+    def __init__(self):
+        self._data = {}
+        self._lock = threading.RLock()
+
+    def state(self, provider_id):
+        with self._lock:
+            return dict(self._data.get(provider_id) or {})
+
+    def available(self, spec):
+        state = self.state(_provider_id(spec))
+        return float(state.get("cooldown_until") or 0) <= _now()
+
+    def success(self, spec, latency):
+        pid = _provider_id(spec)
+        with self._lock:
+            self._data[pid] = {
+                "state": "available",
+                "failures": 0,
+                "cooldown_until": 0.0,
+                "last_error_class": "",
+                "latency_ms": int(max(0.0, latency) * 1000),
+                "updated_at": time.time(),
+            }
+
+    def failure(self, spec, error):
+        pid = _provider_id(spec)
+        _diagnostic_failure(spec, error)
+        with self._lock:
+            old = self._data.get(pid) or {}
+            failures = int(old.get("failures") or 0) + 1
+            wait = _cooldown_seconds(error, failures)
+            status = _status(error)
+            if status in {401, 403}:
+                state = "auth_error"
+            elif status == 404:
+                state = "capability_mismatch"
+            elif status == 408 or isinstance(error, TimeoutError):
+                state = "timeout"
+            elif status == 429:
+                state = "rate_limited"
+            elif status in {500, 502, 503, 504} or "overload" in str(error).lower():
+                state = "overloaded"
+            else:
+                state = "cooldown"
+            self._data[pid] = {
+                "state": state,
+                "failures": failures,
+                "cooldown_until": _now() + wait,
+                "last_error_class": _safe_error(error),
+                "status": status,
+                "retry_after_seconds": _retry_after_seconds(error),
+                "latency_ms": old.get("latency_ms"),
+                "updated_at": time.time(),
+            }
+
+    def snapshot(self):
+        now = _now()
+        with self._lock:
+            return {
+                pid: dict(value, cooling_down=float(value.get("cooldown_until") or 0) > now)
+                for pid, value in self._data.items()
+            }
+
+    def clear(self):
+        with self._lock:
+            self._data.clear()
+
+
+HEALTH = ProviderHealthManager()
+
+
+def _state(pid):
+    return HEALTH.state(pid)
+
+
+def _available(spec):
+    return HEALTH.available(spec)
+
+
+def _mark_success(spec, latency):
+    HEALTH.success(spec, latency)
 
 
 def _mark_failure(spec, error):
-    pid = _provider_id(spec)
-    with _LOCK:
-        old = _HEALTH.get(pid) or {}
-        failures = int(old.get("failures") or 0) + 1
-        wait = _cooldown_seconds(error, failures)
-        status = _status(error)
-        if status in {401, 403}:
-            state = "auth_error"
-        elif status == 429:
-            state = "rate_limited"
-        elif status in {500, 502, 503, 504} or "overload" in str(error).lower():
-            state = "overloaded"
-        else:
-            state = "cooldown"
-        _HEALTH[pid] = {
-            "state": state,
-            "failures": failures,
-            "cooldown_until": _now() + wait,
-            "last_error": str(error)[:500],
-            "status": status,
-            "updated_at": time.time(),
-        }
+    HEALTH.failure(spec, error)
 
 
 def health_snapshot():
-    """Small diagnostics object for UI/tests; never contains credentials."""
-    now = _now()
-    with _LOCK:
-        return {
-            pid: dict(value, cooling_down=float(value.get("cooldown_until") or 0) > now)
-            for pid, value in _HEALTH.items()
-        }
+    """Small diagnostics object for UI/tests; never contains credentials or raw backend bodies."""
+    return HEALTH.snapshot()
 
 
 def reset_health():
     """Tests and explicit reconnect actions can clear the in-process breaker."""
-    with _LOCK:
-        _HEALTH.clear()
+    HEALTH.clear()
 
 
 _CAPABILITY_NAMES = frozenset({
@@ -308,6 +431,10 @@ def _safe_error(error):
     text = str(error).lower()
     if status in {401, 403}:
         return "authentication failed"
+    if status == 404:
+        return "capability unavailable"
+    if status == 408:
+        return "timed out"
     if status == 429 or "rate limit" in text or "too many requests" in text:
         return "rate limited"
     if status in {500, 502, 503, 504} or "overload" in text or "temporarily unavailable" in text:
@@ -328,7 +455,12 @@ def candidates(current, required_capabilities=None):
     # Canonical pool first. User-added fallbacks are accepted only when they
     # explicitly declare themselves free, so a fallback can never silently bill.
     configured = settings.user().get("fallback_models") or []
-    values = list(FREE_POOL) + [x for x in configured if isinstance(x, dict) and _explicitly_free(x)]
+    extras = free_provider_adapters.extra_free_specs()
+    gateways = [x for x in extras if x.get("provider") == "freellmapi"]
+    last_resort = [x for x in extras if x.get("provider") == "aihorde"]
+    values = gateways + list(FREE_POOL) + [
+        x for x in configured if isinstance(x, dict) and _explicitly_free(x)
+    ] + last_resort
 
     out = []
     for raw in values:
@@ -354,6 +486,11 @@ def candidates(current, required_capabilities=None):
 def provider(spec):
     if spec.get("provider") == "anthropic":
         return providers.Anthropic(spec.get("api_key", ""), spec.get("base_url") or "https://api.anthropic.com")
+    if spec.get("provider") == "aihorde":
+        return free_provider_adapters.AIHordeProvider(
+            spec.get("api_key", ""),
+            spec.get("base_url") or free_provider_adapters.AIHORDE_BASE,
+        )
     return providers.OpenAICompat(spec["base_url"], spec.get("api_key", ""), spec.get("headers"))
 
 
@@ -399,7 +536,10 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
             if getattr(error, "_musab_emitted", False):
                 _mark_failure(spec, error)
                 raise
-            if not _retryable(error) or attempt + 1 >= attempts:
+            # Capability/rate-limit/timeout responses should move to a healthy
+            # provider immediately; repeating the same request is blind retrying.
+            if (not _retryable(error) or _status(error) in {404, 408, 429}
+                    or attempt + 1 >= attempts):
                 _mark_failure(spec, error)
                 raise
             # Short jittered retry. We intentionally fail over quickly rather
