@@ -9,6 +9,7 @@ non-Android hosts). No service is reported ready until a real request succeeds.
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -210,11 +211,13 @@ def public_status():
         "searxng": {
             "url": cfg.get("searxng_url", ""),
             "configured": bool(cfg.get("searxng_url")),
+            "tested_at": int(cfg.get("searxng_tested_at") or 0),
         },
         "crawl4ai": {
             "url": cfg.get("crawl4ai_url", ""),
             "configured": bool(cfg.get("crawl4ai_url")),
             "token_configured": _secret_status(),
+            "tested_at": int(cfg.get("crawl4ai_tested_at") or 0),
         },
         "routing": {
             "search": ["searxng", "bing-rss", "duckduckgo", "wikipedia"],
@@ -268,6 +271,7 @@ def route(handler, method, path, body=None):
         key = service + "_url"
         if path.endswith("/save"):
             cfg[key] = _base(data.get("url", ""))
+            cfg.pop(service + "_tested_at", None)
             if service == "crawl4ai":
                 token = data.get("token")
                 if token is not None and str(token).strip():
@@ -281,6 +285,7 @@ def route(handler, method, path, body=None):
 
         if path.endswith("/remove"):
             cfg.pop(key, None)
+            cfg.pop(service + "_tested_at", None)
             _save_config(cfg)
             if service == "crawl4ai":
                 _remove_secret()
@@ -288,7 +293,12 @@ def route(handler, method, path, body=None):
             return True
 
         if path.endswith("/test"):
-            handler._json(_test_service(service))
+            result = _test_service(service)
+            cfg = _config()
+            cfg[service + "_tested_at"] = int(time.time())
+            _save_config(cfg)
+            result["tested_at"] = cfg[service + "_tested_at"]
+            handler._json(result)
             return True
     except (ValueError, RuntimeError, OSError, phone.PhoneError):
         handler._json({"error": "Research service configuration or live test failed"}, 400)
