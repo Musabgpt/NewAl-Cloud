@@ -34,6 +34,8 @@ def plan(names, request=""):
     browserish = bool(re.search(r"\b(browser|login|page|click|form|session|متصفح|تسجيل|صفحة|اضغط|نموذج)\b", text))
     memoryish = bool(re.search(r"\b(previous|remember|memory|last time|قبل|سابق|تذكر|ذاكرة)\b", text))
     phoneish = bool(re.search(r"\b(android|phone|app|notification|termux|هاتف|اندرويد|تطبيق|اشعار|ترمكس)\b", text))
+    executionish = bool(re.search(r"\b(run|execute|build|test|sandbox|termux|command|git|commit|diff|نفذ|نفّذ|شغل|شغّل|بناء|اختبار|ترمكس|مستودع|كوميت)\b", text))
+    gitish = bool(re.search(r"\b(git|commit|branch|diff|repository|repo|مستودع|فرع|كوميت)\b", text))
 
     if codeish:
         add("project_rag_search", "Retrieve relevant project evidence before broad edits or guesses.")
@@ -49,6 +51,10 @@ def plan(names, request=""):
     if phoneish:
         add("termux_exec", "Use Termux only when the separate Android shell environment is required.")
         add("phone", "Use the built-in local Android bridge for device UI/actions.")
+    if executionish:
+        add("execution_plan", "Choose the actual available execution host before running cross-environment commands.")
+    if gitish:
+        add("git_status", "Inspect real local repository state before Git changes.")
     if codeish:
         add("read", "Inspect exact files before modifying them.")
         add("grep", "Locate exact symbols or references after retrieval.")
@@ -73,6 +79,9 @@ def plan(names, request=""):
             "document_router": "document_engine_selector" in names,
             "termux": "termux_exec" in names,
             "phone": "phone" in names,
+            "execution_router": "execution_plan" in names,
+            "scratch": "sandbox_exec" in names,
+            "git": "git_status" in names,
             "mcp_tools": len(_has_prefix(names, "mcp__")),
         },
         "note": "This plan is advisory only; normal permissions still apply and unavailable tools are never invented.",
