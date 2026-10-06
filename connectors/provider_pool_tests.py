@@ -356,6 +356,82 @@ class ProviderPoolTests(unittest.TestCase):
         self.assertEqual(bad.calls, 1)
         self.assertEqual(provider_pool.health_snapshot()["current"]["state"], "capability_mismatch")
 
+    def test_watchdog_stall_before_output_fails_over_to_next_provider(self):
+        class Token:
+            def __init__(self):
+                self.consumed = 0
+
+            def reason(self):
+                return "watchdog_stall"
+
+            def consume_watchdog(self):
+                self.consumed += 1
+                return True
+
+        class Stalled:
+            def chat(self, *args, **kwargs):
+                raise providers.Cancelled()
+
+        class Good:
+            def chat(self, *args, **kwargs):
+                return "recovered"
+
+        token = Token()
+        current = SimpleNamespace(
+            spec={
+                "id": "stalled/free",
+                "base_url": "https://stalled.example/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="stalled",
+            provider=Stalled(),
+        )
+        backup = {
+            "id": "backup/free",
+            "model": "backup",
+            "base_url": "https://backup.example/v1",
+            "provider": "openai",
+            "free": True,
+            "capabilities": ["text", "streaming"],
+        }
+        with patch.object(provider_pool, "candidates", return_value=[backup]), \
+             patch.object(provider_pool, "provider", return_value=Good()):
+            result = provider_pool.chat(
+                current,
+                [{"role": "user", "content": "hello"}],
+                cancel=token,
+            )
+        self.assertEqual(result, "recovered")
+        self.assertEqual(token.consumed, 1)
+        self.assertEqual(current._last_fallback["to"], "backup/free")
+
+    def test_user_stop_is_never_converted_to_provider_failover(self):
+        class Token:
+            def reason(self):
+                return "user"
+
+        class CancelledByUser:
+            def chat(self, *args, **kwargs):
+                raise providers.Cancelled()
+
+        current = SimpleNamespace(
+            spec={
+                "id": "current",
+                "base_url": "https://current.example/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="current",
+            provider=CancelledByUser(),
+        )
+        with patch.object(provider_pool, "candidates") as candidates:
+            with self.assertRaises(providers.Cancelled):
+                provider_pool.chat(
+                    current,
+                    [{"role": "user", "content": "stop"}],
+                    cancel=Token(),
+                )
+        candidates.assert_not_called()
+
     def test_freellmapi_is_not_a_single_point_of_failure(self):
         class GatewayDown:
             def chat(self, *args, **kwargs):
