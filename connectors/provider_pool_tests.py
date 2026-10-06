@@ -29,12 +29,16 @@ class ProviderPoolTests(unittest.TestCase):
             "gemini/3.7-flash-free",
             "openrouter/free",
             "nvidia/nemotron-3-ultra-free",
+            "aihorde/anonymous-free",
         ])
 
     def test_skips_services_without_credentials(self):
         c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
         with patch.dict(os.environ, {}, clear=True), patch.object(provider_pool.settings, "user", return_value={}):
-            self.assertEqual(provider_pool.candidates(c), [])
+            self.assertEqual(
+                [x["id"] for x in provider_pool.candidates(c)],
+                ["aihorde/anonymous-free"],
+            )
 
     def test_android_keystore_credentials_feed_the_free_pool(self):
         c = SimpleNamespace(spec={"id": "current"}, model_name="current", provider=None)
@@ -47,6 +51,7 @@ class ProviderPoolTests(unittest.TestCase):
             "gemini/3.7-flash-free",
             "openrouter/free",
             "nvidia/nemotron-3-ultra-free",
+            "aihorde/anonymous-free",
         ])
 
     def test_paid_custom_fallback_is_never_silently_used(self):
@@ -292,6 +297,100 @@ class ProviderPoolTests(unittest.TestCase):
         self.assertIn("rate limited", text)
         self.assertNotIn("token=abc", text)
         self.assertNotIn("quota payload", text)
+
+
+    def test_retry_after_controls_cooldown_and_snapshot_hides_raw_body(self):
+        spec = {
+            "id": "rate-limited/free",
+            "base_url": "https://rate.example/v1",
+            "model": "m",
+            "free": True,
+        }
+        error = providers.ProviderError("backend token=secret-value rate limited", 429,
+                                        '{"error":{"retry_after":47,"detail":"private"}}')
+        with patch.object(provider_pool, "_now", return_value=100.0):
+            provider_pool._mark_failure(spec, error)
+            state = provider_pool.health_snapshot()[spec["id"]]
+        self.assertEqual(state["state"], "rate_limited")
+        self.assertEqual(state["cooldown_until"], 147.0)
+        self.assertEqual(state["retry_after_seconds"], 47)
+        self.assertEqual(state["last_error_class"], "rate limited")
+        self.assertNotIn("private", str(state))
+        self.assertNotIn("secret-value", str(state))
+
+    def test_404_capability_mismatch_fails_over_without_blind_retry(self):
+        class Missing:
+            def __init__(self):
+                self.calls = 0
+
+            def chat(self, *args, **kwargs):
+                self.calls += 1
+                raise providers.ProviderError("model route missing", 404)
+
+        class Good:
+            def chat(self, *args, **kwargs):
+                return "ok"
+
+        bad = Missing()
+        current = SimpleNamespace(
+            spec={
+                "id": "current",
+                "base_url": "https://current.example/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="current",
+            provider=bad,
+        )
+        backup = {
+            "id": "backup/free",
+            "model": "backup",
+            "base_url": "https://backup.example/v1",
+            "provider": "openai",
+            "free": True,
+            "capabilities": ["text", "streaming"],
+        }
+        with patch.object(provider_pool, "candidates", return_value=[backup]), \
+             patch.object(provider_pool, "provider", return_value=Good()), \
+             patch.object(provider_pool.time, "sleep", return_value=None):
+            self.assertEqual(provider_pool.chat(current, [{"role": "user", "content": "hello"}]), "ok")
+        self.assertEqual(bad.calls, 1)
+        self.assertEqual(provider_pool.health_snapshot()["current"]["state"], "capability_mismatch")
+
+    def test_freellmapi_is_not_a_single_point_of_failure(self):
+        class GatewayDown:
+            def chat(self, *args, **kwargs):
+                raise providers.ProviderError("gateway unavailable", 503)
+
+        class DirectGood:
+            def chat(self, *args, **kwargs):
+                return "direct-ok"
+
+        current = SimpleNamespace(
+            spec={
+                "id": "freellmapi/auto-free",
+                "base_url": "http://127.0.0.1:3001/v1",
+                "capabilities": ["text", "streaming"],
+            },
+            model_name="auto",
+            provider=GatewayDown(),
+        )
+        backup = {
+            "id": "groq/gpt-oss-120b-free",
+            "model": "openai/gpt-oss-120b",
+            "base_url": "https://api.groq.com/openai/v1",
+            "provider": "openai",
+            "free": True,
+            "capabilities": ["text", "streaming"],
+        }
+        with patch.object(provider_pool, "candidates", return_value=[backup]), \
+             patch.object(provider_pool, "provider", return_value=DirectGood()), \
+             patch.object(provider_pool.time, "sleep", return_value=None), \
+             patch.object(provider_pool.random, "random", return_value=0):
+            self.assertEqual(
+                provider_pool.chat(current, [{"role": "user", "content": "hello"}]),
+                "direct-ok",
+            )
+        self.assertEqual(current._last_fallback["to"], "groq/gpt-oss-120b-free")
 
 
 if __name__ == "__main__":
