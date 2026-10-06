@@ -187,6 +187,24 @@ class RuntimeTest(unittest.TestCase):
             self.assertNotIn("gmail_read", s.tool_names)
 
 
+    def test_activepieces_callback_forwards_only_short_lived_oauth_code_to_android(self):
+        class Handler:
+            def _query(self):
+                return {"code": "one-time-code", "state": "bound-state", "iss": "https://automation.example"}
+            def _text(self, value, ctype):
+                self.value, self.ctype = value, ctype
+            def _json(self, value, status=200):
+                self.json, self.status = value, status
+        handler = Handler()
+        with patch.object(self.c, "native", return_value={"ok": True, "status": "connected", "tools": 12}) as native:
+            self.assertTrue(self.c.route(handler, "GET", "/api/mcp-oauth/callback"))
+        native.assert_called_once_with("oauth_complete", provider="activepieces", code="one-time-code",
+                                      state="bound-state", iss="https://automation.example", error="")
+        self.assertIn("Activepieces connected", handler.value)
+        self.assertNotIn("one-time-code", handler.value)
+        self.assertIn("text/html", handler.ctype)
+
+
 class ReadinessTest(unittest.TestCase):
     def test_health_requires_key_and_never_runs_expensive_state_probes(self):
         import urllib.request
