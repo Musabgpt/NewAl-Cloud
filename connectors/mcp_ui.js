@@ -226,13 +226,62 @@
     });
     loadActivepieces();
 
+    // ---------------------------------------------------------------- Browser Tool Selector
+    const browserSection = node('section');
+    browserSection.className = 'connector-card browser-router';
+    browserSection.append(node('h3', tr('Browser routing', 'توجيه المتصفح')));
+    browserSection.append(node('p', tr(
+      'MusabAI chooses a live route instead of guessing: service API → matching MCP → Playwright → Browser Use → open-browser-use. Existing logged-in sessions can prefer open-browser-use.',
+      'يختار MusabAI مساراً متاحاً فعلياً بدل التخمين: API للخدمة ← MCP مطابق ← Playwright ← Browser Use ← open-browser-use. ويمكن تفضيل open-browser-use عند الحاجة إلى جلسة متصفح مسجلة الدخول.'
+    )));
+    const browserUrl = node('input');
+    browserUrl.type = 'url'; browserUrl.placeholder = 'https://example.com';
+    browserUrl.setAttribute('aria-label', tr('Target URL', 'الرابط المستهدف'));
+    const browserService = node('input');
+    browserService.type = 'text'; browserService.placeholder = tr('Service/MCP hint (optional)', 'اسم الخدمة/MCP (اختياري)');
+    browserService.setAttribute('aria-label', tr('Service or MCP hint', 'اسم الخدمة أو MCP'));
+    const sessionLabel = node('label');
+    const browserSession = node('input'); browserSession.type = 'checkbox';
+    sessionLabel.append(browserSession, document.createTextNode(tr(' Needs existing logged-in session', ' يحتاج جلسة مسجلة الدخول')));
+    const complexLabel = node('label');
+    const browserComplex = node('input'); browserComplex.type = 'checkbox';
+    complexLabel.append(browserComplex, document.createTextNode(tr(' Complex/visual UI', ' واجهة معقدة/بصرية')));
+    const browserCheck = node('button', tr('Choose browser route', 'اختيار مسار المتصفح'));
+    browserCheck.type = 'button'; browserCheck.className = 'btn primary';
+    const browserMessage = node('p'); browserMessage.setAttribute('role', 'status');
+    browserSection.append(browserUrl, browserService, sessionLabel, complexLabel, browserCheck, browserMessage);
+    panel.insertBefore(browserSection, document.querySelector('#connector-list'));
+
+    async function checkBrowserRoute() {
+      const sid = current();
+      if (!sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعاً أولاً.'));
+      const params = new URLSearchParams({session:sid});
+      if (browserUrl.value.trim()) params.set('url', browserUrl.value.trim());
+      if (browserService.value.trim()) params.set('service', browserService.value.trim());
+      if (browserSession.checked) params.set('needs_session', '1');
+      if (browserComplex.checked) params.set('complex_ui', '1');
+      const result = await api('/api/browser-router?' + params.toString());
+      const availability = result.availability || {};
+      const ready = Object.entries(availability).filter(([, value]) => value).map(([key]) => key.replaceAll('_', ' '));
+      browserMessage.textContent = tr('Selected: ', 'المسار المختار: ') + result.label
+        + ' — ' + result.reason
+        + (ready.length ? tr(' · Available: ', ' · المتاح: ') + ready.join(', ') : '');
+    }
+    browserCheck.onclick = async () => {
+      browserCheck.disabled = true;
+      browserMessage.textContent = tr('Checking live tools…', 'جارٍ فحص الأدوات المتاحة…');
+      try { await checkBrowserRoute(); }
+      catch (error) { browserMessage.textContent = error.message; }
+      finally { browserCheck.disabled = false; }
+    };
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
     bundlesSection.append(node('h3', tr('MCP tools', 'أدوات MCP')));
     bundlesSection.append(node('p', tr(
-      'Playwright, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
-      'يتم اختبار Playwright وGitHub والملفات وAndroid والذاكرة فعليًا قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
+      'Playwright, Browser Use, open-browser-use, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
+      'يتم اختبار Playwright وBrowser Use وopen-browser-use وGitHub والملفات وAndroid والذاكرة فعلياً قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
     )));
     const bundleMessage = node('p');
     bundleMessage.setAttribute('role', 'status');
@@ -264,6 +313,7 @@
         state.className = 'connector-status status-' + String(bundle.status || 'unknown');
         row.append(state);
         if (bundle.native_fallback) row.append(node('p', bundle.native_fallback));
+        if (bundle.manual_setup) row.append(node('p', bundle.manual_setup));
         if (bundle.missing?.length) row.append(node('p', tr('Missing: ', 'الناقص: ') + bundle.missing.join(', ')));
         if (bundle.enabled) row.append(node('p', tr('Tools: ', 'الأدوات: ') + bundle.tools));
 
