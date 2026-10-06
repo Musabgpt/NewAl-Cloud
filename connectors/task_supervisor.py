@@ -278,18 +278,24 @@ class TaskSupervisor:
                         )
                         self._emit({"type": "status", "text": "Repeated stalls detected; stopping safely…"})
                     return
+                # Persist and announce the recovery before exposing the cancel token.
+                # This prevents consumers from observing watchdog_stall while the
+                # user-visible recovery event/checkpoint are still pending.
+                recovery = self.recoveries + 1
+                self._checkpoint(
+                    progress="Watchdog detected no progress.",
+                    next_step="Retry from the last completed step using another provider/tool or a smaller action.",
+                    blocker="No progress for %.1f seconds." % idle,
+                    evidence="watchdog recovery %d/%d" % (recovery, self.max_recoveries),
+                )
+                if self.cancel_token.user_event.is_set():
+                    return
+                self._emit({
+                    "type": "status",
+                    "text": "No progress detected; cancelling the stuck operation and trying another route…",
+                })
                 if self.cancel_token.trigger_watchdog():
-                    self.recoveries += 1
-                    self._checkpoint(
-                        progress="Watchdog detected no progress.",
-                        next_step="Retry from the last completed step using another provider/tool or a smaller action.",
-                        blocker="No progress for %.1f seconds." % idle,
-                        evidence="watchdog recovery %d/%d" % (self.recoveries, self.max_recoveries),
-                    )
-                    self._emit({
-                        "type": "status",
-                        "text": "No progress detected; cancelling the stuck operation and trying another route…",
-                    })
+                    self.recoveries = recovery
 
     def request_stop(self, reason="user"):
         self._checkpoint(
