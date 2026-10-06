@@ -63,7 +63,7 @@ class ProviderPoolTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), patch.object(
                 provider_pool.settings, "user", return_value={"fallback_models": configured}):
             ids = [x["id"] for x in provider_pool.candidates(c)]
-        self.assertEqual(ids, ["free-custom"])
+        self.assertEqual(ids, ["free-custom", "aihorde/anonymous-free"])
 
     def test_switches_after_overload_and_reports_real_target(self):
         class Bad:
