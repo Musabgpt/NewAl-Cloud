@@ -53,6 +53,22 @@ BUNDLES = [
         "manual_setup": "Install and verify open-browser-use first; its browser extension/native host has a user-visible setup boundary.",
     },
     {
+        "id": "docling",
+        "name": "Docling MCP",
+        "repository": "https://github.com/docling-project/docling-mcp",
+        "runtimes": ["uvx"],
+        "command": "uvx",
+        "args": ["--from", "docling-mcp[local]==3.3.0", "docling-mcp-server", "--transport", "stdio"],
+        "env": {
+            "DOCLING_MCP_CONVERSION_MODE": "local",
+            "DOCLING_MCP_KEEP_IMAGES": "false",
+        },
+        "description": "Docling document understanding for PDF, Office, OCR, tables and structured conversion. The reviewed bundle pins Docling MCP 3.3.0 and starts its official stdio server in local mode.",
+        "document_role": "structured",
+        "manual_setup": "Requires uv/uvx. Local Docling is substantially larger than the built-in document reader and is downloaded only when you explicitly test/enable this bundle.",
+        "native_fallback": "MusabAI's built-in document tools remain available for Markdown, text, HTML, ordinary PDF text and ZIP files.",
+    },
+    {
         "id": "github",
         "name": "GitHub MCP Server",
         "repository": "https://github.com/github/github-mcp-server",
