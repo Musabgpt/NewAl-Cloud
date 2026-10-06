@@ -3,13 +3,13 @@ package dev.newal.code.lite;
 import android.content.Context;
 import org.json.JSONObject;
 
-/** Secure API credentials for the free AI provider pool. Values live only in Android Keystore-backed ConnectorVault. */
+/** Secure provider credentials. Values live only in Android Keystore-backed ConnectorVault. */
 final class ProviderSecrets {
     private ProviderSecrets() {}
 
     private static String provider(JSONObject a) {
         String p = a.optString("provider", "");
-        if (!("groq".equals(p) || "gemini".equals(p) || "openrouter".equals(p) || "nvidia".equals(p))) {
+        if (!("groq".equals(p) || "gemini".equals(p) || "openrouter".equals(p) || "nvidia".equals(p) || "crawl4ai".equals(p))) {
             throw new IllegalArgumentException("Unknown free AI provider");
         }
         return p;
