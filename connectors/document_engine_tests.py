@@ -16,6 +16,10 @@ class DocumentEngineTest(unittest.TestCase):
         self.assertEqual(result["route"], "docling")
         self.assertTrue(result["availability"]["docling"])
 
+    def test_structured_pdf_without_docling_is_not_silently_downgraded(self):
+        result = document_engine.select({"document_read"}, "paper.pdf", "read", structured=True)
+        self.assertEqual(result["route"], "unavailable")
+
     def test_office_document_never_fakes_native_support(self):
         result = document_engine.select({"document_read"}, "report.docx", "read")
         self.assertEqual(result["route"], "unavailable")
