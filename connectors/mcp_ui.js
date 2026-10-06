@@ -275,6 +275,93 @@
       finally { browserCheck.disabled = false; }
     };
 
+    // ---------------------------------------------------------------- Search & Crawl
+    const searchSection = node('section');
+    searchSection.className = 'connector-card search-layer';
+    searchSection.append(node('h3', tr('Search & Crawl', 'البحث والزحف')));
+    searchSection.append(node('p', tr(
+      'SearXNG discovers sources; Crawl4AI deep-reads selected pages. Provider URLs stay private to MusabAI. An optional Crawl4AI token is stored in Android Keystore and is never read back into the page.',
+      'يستخدم SearXNG لاكتشاف المصادر وCrawl4AI للقراءة العميقة للصفحات المختارة. تبقى روابط المزودات خاصة بـ MusabAI، ويُحفظ رمز Crawl4AI الاختياري داخل Android Keystore ولا يُعاد عرضه في الصفحة.'
+    )));
+    const searxUrl = node('input');
+    searxUrl.type = 'url'; searxUrl.id = 'searxng-url'; searxUrl.autocomplete = 'off';
+    searxUrl.placeholder = 'https://search.example.com';
+    searxUrl.setAttribute('aria-label', 'SearXNG URL');
+    const crawlUrl = node('input');
+    crawlUrl.type = 'url'; crawlUrl.id = 'crawl4ai-url'; crawlUrl.autocomplete = 'off';
+    crawlUrl.placeholder = 'https://crawl.example.com';
+    crawlUrl.setAttribute('aria-label', 'Crawl4AI URL');
+    const crawlToken = node('input');
+    crawlToken.type = 'password'; crawlToken.id = 'crawl4ai-token'; crawlToken.autocomplete = 'off';
+    crawlToken.placeholder = tr('Crawl4AI token (optional)', 'رمز Crawl4AI (اختياري)');
+    crawlToken.setAttribute('aria-label', tr('Crawl4AI token', 'رمز Crawl4AI'));
+    const searchActions = node('div'); searchActions.className = 'connector-actions';
+    const searchSave = node('button', tr('Save search layer', 'حفظ طبقة البحث'));
+    searchSave.type = 'button'; searchSave.className = 'btn primary';
+    const searxTest = node('button', tr('Test SearXNG', 'اختبار SearXNG'));
+    searxTest.type = 'button'; searxTest.className = 'btn';
+    const crawlTest = node('button', tr('Test Crawl4AI', 'اختبار Crawl4AI'));
+    crawlTest.type = 'button'; crawlTest.className = 'btn';
+    const crawlRemove = node('button', tr('Remove Crawl4AI token', 'حذف رمز Crawl4AI'));
+    crawlRemove.type = 'button'; crawlRemove.className = 'btn';
+    searchActions.append(searchSave, searxTest, crawlTest, crawlRemove);
+    const searchState = node('p');
+    const searchMessage = node('p'); searchMessage.setAttribute('role', 'status');
+    searchSection.append(searxUrl, crawlUrl, crawlToken, searchActions, searchState, searchMessage);
+    panel.insertBefore(searchSection, document.querySelector('#connector-list'));
+
+    let searchBusy = false;
+    async function loadSearchLayer() {
+      const data = await api('/api/search-layer');
+      searxUrl.value = data.searxng || '';
+      crawlUrl.value = data.crawl4ai || '';
+      searchState.textContent =
+        tr('SearXNG: ', 'SearXNG: ') + (data.searxng ? tr('configured', 'مهيأ') : tr('not configured', 'غير مهيأ')) +
+        tr(' · Crawl4AI: ', ' · Crawl4AI: ') + (data.crawl4ai ? tr('configured', 'مهيأ') : tr('not configured', 'غير مهيأ')) +
+        tr(' · token: ', ' · الرمز: ') + (data.crawl4ai_token ? tr('saved securely', 'محفوظ بأمان') : tr('not saved', 'غير محفوظ'));
+      crawlRemove.disabled = !data.crawl4ai_token;
+      return data;
+    }
+    async function searchRun(fn) {
+      if (searchBusy) return;
+      searchBusy = true;
+      [searchSave, searxTest, crawlTest, crawlRemove].forEach(button => button.disabled = true);
+      try { await fn(); }
+      catch (error) { searchMessage.textContent = error.message; }
+      finally {
+        searchBusy = false;
+        await loadSearchLayer().catch(error => { searchMessage.textContent = error.message; });
+        searchSave.disabled = searxTest.disabled = crawlTest.disabled = false;
+      }
+    }
+    searchSave.onclick = () => searchRun(async () => {
+      const token = crawlToken.value.trim();
+      const body = {searxng: searxUrl.value.trim(), crawl4ai: crawlUrl.value.trim()};
+      if (token) body.crawl4ai_token = token;
+      await api('/api/search-layer/save', body);
+      crawlToken.value = '';
+      searchMessage.textContent = tr(
+        'Search layer saved. Test each live provider before relying on it.',
+        'تم حفظ طبقة البحث. اختبر كل مزود فعلياً قبل الاعتماد عليه.'
+      );
+    });
+    searxTest.onclick = () => searchRun(async () => {
+      searchMessage.textContent = tr('Testing SearXNG JSON search…', 'جارٍ اختبار بحث SearXNG بصيغة JSON…');
+      const result = await api('/api/search-layer/test', {provider:'searxng'});
+      searchMessage.textContent = tr('SearXNG verified. Results: ', 'تم التحقق من SearXNG. النتائج: ') + result.results;
+    });
+    crawlTest.onclick = () => searchRun(async () => {
+      searchMessage.textContent = tr('Testing Crawl4AI health endpoint…', 'جارٍ اختبار حالة Crawl4AI…');
+      const result = await api('/api/search-layer/test', {provider:'crawl4ai'});
+      searchMessage.textContent = tr('Crawl4AI verified', 'تم التحقق من Crawl4AI') + (result.version ? ' · ' + result.version : '');
+    });
+    crawlRemove.onclick = () => searchRun(async () => {
+      await api('/api/search-layer/remove-token', {});
+      crawlToken.value = '';
+      searchMessage.textContent = tr('Crawl4AI token removed.', 'تم حذف رمز Crawl4AI.');
+    });
+    loadSearchLayer().catch(error => { searchMessage.textContent = error.message; });
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
