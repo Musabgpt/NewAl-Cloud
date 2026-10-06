@@ -28,6 +28,17 @@ async function setup(t, fail = false) {
         {id:'nvidia',name:'NVIDIA Free',configured:true}
       ]})};
     }
+    if (String(path).startsWith('/api/research-services')) {
+      if (options.method === 'POST') {
+        if (String(path).endsWith('/test')) return {ok:true,json:async () => ({ok:true,service:body.service,results:4,chars:1234,tested_at:10})};
+        return {ok:true,json:async () => ({ok:true,configured:!String(path).endsWith('/remove')})};
+      }
+      return {ok:true,json:async () => ({
+        searxng:{url:'',configured:false,tested_at:0},
+        crawl4ai:{url:'',configured:false,token_configured:false,tested_at:0},
+        routing:{search:['searxng'],fetch:['direct-http','crawl4ai']}
+      })};
+    }
     if (String(path).startsWith('/api/mcp-bundles')) {
       if (options.method === 'POST') return {ok:true,json:async () => ({ok:true,tools:7,enabled:true})};
       return {ok:true,json:async () => ({bundles:[
@@ -93,6 +104,22 @@ test('Activepieces card sends only the server URL and opens the native OAuth flo
   assert(request);
   assert.equal(request.body.url, 'https://automation.example/mcp');
   assert.equal(w.document.body.textContent.includes('access_token'), false);
+});
+
+test('research stack saves Crawl4AI token without rendering it back', async t => {
+  const {w,calls} = await setup(t);
+  const card = [...w.document.querySelectorAll('.research-service')].find(x => x.textContent.includes('Crawl4AI'));
+  assert(card);
+  const inputs = card.querySelectorAll('input');
+  inputs[0].value = 'https://crawl.example.com';
+  inputs[1].value = 'crawl-secret-token';
+  const save = [...card.querySelectorAll('button')].find(b => b.textContent.includes('حفظ'));
+  save.click(); await tick(); await tick();
+  const request = calls.find(c => c.path === '/api/research-services/save' && c.body?.service === 'crawl4ai');
+  assert(request);
+  assert.equal(request.body.url, 'https://crawl.example.com');
+  assert.equal(request.body.token, 'crawl-secret-token');
+  assert.equal(w.document.body.textContent.includes('crawl-secret-token'), false);
 });
 
 test('official bundle is only enabled after a real backend activation response', async t => {
