@@ -87,14 +87,14 @@ def select(names, path="", task="read", needs_ocr=False, preserve_layout=False, 
             "tools": [name for name in ("archive_pack", "archive_extract") if name in names],
             "reason": "ZIP handling is already supported safely inside the workspace.",
         }
-    elif task in {"read", "extract"} and ext in SIMPLE_READ and _has(names, "document_read"):
+    elif task in {"read", "extract"} and not complex_doc and ext in SIMPLE_READ and _has(names, "document_read"):
         route = {
             "route": "native",
             "label": "MusabAI native documents",
             "tools": ["document_read"],
             "reason": "The built-in reader is the lightweight path for this format.",
         }
-    elif task == "create" and ext in SIMPLE_CREATE and _has(names, "document_create"):
+    elif task == "create" and not complex_doc and ext in SIMPLE_CREATE and _has(names, "document_create"):
         route = {
             "route": "native",
             "label": "MusabAI native documents",
