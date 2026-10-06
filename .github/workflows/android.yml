@@ -1,7 +1,7 @@
 name: MusabAI — Android
 on:
   push:
-    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1"]
+    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
