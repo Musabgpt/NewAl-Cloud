@@ -362,13 +362,63 @@
     });
     loadSearchLayer().catch(error => { searchMessage.textContent = error.message; });
 
+    // ---------------------------------------------------------------- Document Engine
+    const documentSection = node('section');
+    documentSection.className = 'connector-card document-engine';
+    documentSection.append(node('h3', tr('Document Engine', 'محرك المستندات')));
+    documentSection.append(node('p', tr(
+      'MusabAI keeps simple files on the lightweight native tools and routes OCR, layout, Office and structured conversion to verified Docling MCP when it is connected.',
+      'يبقي MusabAI الملفات البسيطة على الأدوات المحلية الخفيفة، ويوجه OCR والتخطيط وملفات Office والتحويل المنظم إلى Docling MCP بعد التحقق من اتصاله.'
+    )));
+    const documentPath = node('input');
+    documentPath.type = 'text'; documentPath.placeholder = tr('Document path or URL', 'مسار المستند أو الرابط');
+    documentPath.setAttribute('aria-label', tr('Document path or URL', 'مسار المستند أو الرابط'));
+    const documentTask = node('select');
+    for (const value of ['read','convert','extract','create','edit','archive']) {
+      const option = node('option', value); option.value = value; documentTask.append(option);
+    }
+    const ocrLabel = node('label'), documentOcr = node('input'); documentOcr.type = 'checkbox';
+    ocrLabel.append(documentOcr, document.createTextNode(tr(' Needs OCR', ' يحتاج OCR')));
+    const layoutLabel = node('label'), documentLayout = node('input'); documentLayout.type = 'checkbox';
+    layoutLabel.append(documentLayout, document.createTextNode(tr(' Preserve layout/tables', ' الحفاظ على التخطيط/الجداول')));
+    const structuredLabel = node('label'), documentStructured = node('input'); documentStructured.type = 'checkbox';
+    structuredLabel.append(documentStructured, document.createTextNode(tr(' Structured conversion', ' تحويل منظم')));
+    const documentCheck = node('button', tr('Choose document engine', 'اختيار محرك المستند'));
+    documentCheck.type = 'button'; documentCheck.className = 'btn primary';
+    const documentMessage = node('p'); documentMessage.setAttribute('role', 'status');
+    documentSection.append(documentPath, documentTask, ocrLabel, layoutLabel, structuredLabel, documentCheck, documentMessage);
+    panel.insertBefore(documentSection, document.querySelector('#connector-list'));
+
+    documentCheck.onclick = async () => {
+      const sid = current();
+      if (!sid) {
+        documentMessage.textContent = tr('Open a project conversation first.', 'افتح محادثة أو مشروعاً أولاً.');
+        return;
+      }
+      const params = new URLSearchParams({session:sid, task:documentTask.value});
+      if (documentPath.value.trim()) params.set('path', documentPath.value.trim());
+      if (documentOcr.checked) params.set('needs_ocr', '1');
+      if (documentLayout.checked) params.set('preserve_layout', '1');
+      if (documentStructured.checked) params.set('structured', '1');
+      documentCheck.disabled = true;
+      documentMessage.textContent = tr('Checking live document tools…', 'جارٍ فحص أدوات المستندات المتاحة…');
+      try {
+        const result = await api('/api/document-engine?' + params.toString());
+        documentMessage.textContent = tr('Selected: ', 'المحرك المختار: ') + result.label + ' — ' + result.reason;
+      } catch (error) {
+        documentMessage.textContent = error.message;
+      } finally {
+        documentCheck.disabled = false;
+      }
+    };
+
     // ---------------------------------------------------------------- Official bundles
     const bundlesSection = node('section');
     bundlesSection.className = 'connector-card mcp-bundles';
     bundlesSection.append(node('h3', tr('MCP tools', 'أدوات MCP')));
     bundlesSection.append(node('p', tr(
-      'Playwright, Browser Use, open-browser-use, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
-      'يتم اختبار Playwright وBrowser Use وopen-browser-use وGitHub والملفات وAndroid والذاكرة فعلياً قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
+      'Playwright, Browser Use, open-browser-use, Docling, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
+      'يتم اختبار Playwright وBrowser Use وopen-browser-use وDocling وGitHub والملفات وAndroid والذاكرة فعلياً قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
     )));
     const bundleMessage = node('p');
     bundleMessage.setAttribute('role', 'status');
