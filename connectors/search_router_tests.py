@@ -43,7 +43,7 @@ class SearchRouterTest(unittest.TestCase):
             ]
         }
         with mock.patch.object(search_router, "_open_json", return_value=payload) as req:
-            rows = search_router._sear("https://search.example", "hello world", 2)
+            rows = search_router._searx("https://search.example", "hello world", 2)
         self.assertEqual([x["title"] for x in rows], ["One", "Two"])
         self.assertIn("/search?", req.call_args.args[0])
         self.assertIn("format=json", req.call_args.args[0])
