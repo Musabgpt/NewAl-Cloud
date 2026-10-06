@@ -63,7 +63,8 @@ def apply(root):
 
     def connect(self):
 ''')
-    replace(package / "agent.py", '        self.last_error = ""\n        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})\n        cfg = self.cfg\n        hook_cfg = cfg.get("hooks") or {}\n        extra_context = []\n', '''        self.last_error = ""
+    replace(package / "agent.py", '        self.last_error = ""\n        self._memory_task = text\n        self.emit({"type": "turn_start", "turn": s.turn, "text": text, "model": client.id, "mode": s.mode})\n        cfg = self.cfg\n        hook_cfg = cfg.get("hooks") or {}\n        extra_context = []\n', '''        self.last_error = ""
+        self._memory_task = text
         supervisor_context = []
         if self.depth == 0:
             from . import task_supervisor
