@@ -11,8 +11,10 @@ SOURCE_SHA = "0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3"
 
 def replace(path, before, after):
     text = path.read_text()
-    if text.count(before) != 1:
-        raise SystemExit(f"Unsafe patch refused: {path.name}: expected exactly one anchor")
+    count = text.count(before)
+    if count != 1:
+        preview = before[:120].replace("\n", "\\n")
+        raise SystemExit(f"Unsafe patch refused: {path.name}: anchor count={count}: {preview}")
     path.write_text(text.replace(before, after, 1))
 
 
