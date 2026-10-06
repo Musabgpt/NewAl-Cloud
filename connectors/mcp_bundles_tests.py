@@ -18,7 +18,7 @@ class McpBundlesTest(unittest.TestCase):
 
     def test_exact_requested_bundle_catalog_is_real_and_honest(self):
         ids = [item["id"] for item in mcp_bundles.BUNDLES]
-        self.assertEqual(ids, ["playwright", "github", "filesystem", "android", "memory"])
+        self.assertEqual(ids, ["playwright", "browser-use", "open-browser-use", "github", "filesystem", "android", "memory"])
         self.assertTrue(all(item["repository"].startswith("https://github.com/") for item in mcp_bundles.BUNDLES))
 
         def no_runtime(name):
@@ -28,6 +28,8 @@ class McpBundlesTest(unittest.TestCase):
              mock.patch.dict(os.environ, {}, clear=True):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
         self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
+        self.assertEqual(catalog["browser-use"]["status"], "runtime_missing")
+        self.assertEqual(catalog["open-browser-use"]["status"], "runtime_missing")
         self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
         self.assertEqual(catalog["memory"]["status"], "runtime_missing")
         self.assertEqual(catalog["android"]["status"], "runtime_missing")
@@ -42,6 +44,24 @@ class McpBundlesTest(unittest.TestCase):
         memory_file = memory["env"]["MEMORY_FILE_PATH"]
         self.assertTrue(memory_file.startswith(os.path.realpath(self.root) + os.sep))
         self.assertTrue(memory_file.endswith(os.path.join(".newal", "mcp-memory.jsonl")))
+
+    def test_phase2_browser_bundle_commands_are_pinned_and_explicit(self):
+        playwright = mcp_bundles._spec(mcp_bundles._item("playwright"), self.root)
+        browser_use = mcp_bundles._spec(mcp_bundles._item("browser-use"), self.root)
+        obu = mcp_bundles._spec(mcp_bundles._item("open-browser-use"), self.root)
+        self.assertEqual(playwright["command"], "npx")
+        self.assertIn("@playwright/mcp@0.0.83", playwright["args"])
+        self.assertIn("--isolated", playwright["args"])
+        self.assertEqual(browser_use, {
+            "command": "uvx",
+            "args": ["browser-use==0.13.5", "--cli-mcp"],
+            "env": {},
+        })
+        self.assertEqual(obu, {
+            "command": "obu",
+            "args": ["mcp", "stdio"],
+            "env": {},
+        })
 
     def test_github_token_is_only_in_child_process_environment(self):
         item = mcp_bundles._item("github")
