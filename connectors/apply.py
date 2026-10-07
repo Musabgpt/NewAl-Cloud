@@ -159,6 +159,9 @@ def apply(root):
 ''')
     replace(package / "permissions.py", 'COMMAND_TOOLS = ("bash", "powershell")', 'COMMAND_TOOLS = ("bash", "powershell", "termux_exec", "runtime_exec", "runtime_process_start", "runtime_process_stop")')
     replace(package / "server.py", '        given = self._given_key()\n', '        if path == "/api/mcp-oauth/callback" and self.command == "GET":\n            return True\n        given = self._given_key()\n')
+    replace(package / "server.py",
+            '        rel = path.lstrip("/") or "index.html"\n        full = os.path.normpath(os.path.join(UI, rel))\n        if not full.startswith(UI) or not os.path.isfile(full):\n            full = os.path.join(UI, "index.html")\n',
+            '        rel = path.lstrip("/") or "index.html"\n        from . import evolution\n        dynamic = evolution.dynamic_file("ui/" + rel)\n        if dynamic is not None:\n            full = str(dynamic)\n        else:\n            full = os.path.normpath(os.path.join(UI, rel))\n            if not full.startswith(UI) or not os.path.isfile(full):\n                full = os.path.join(UI, "index.html")\n')
     replace(package / "server.py", '        q = self._query()\n        svc = self.service\n', '''        q = self._query()
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
