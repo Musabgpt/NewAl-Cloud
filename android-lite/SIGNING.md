@@ -10,25 +10,27 @@ The private signing key cannot be recovered from an APK certificate.
 
 ## Persistent release identity
 
-The publishable workflow expects all of these GitHub Actions Secrets together:
+The publishable workflow expects exactly one GitHub Actions Secret:
 
-- `MUSABAI_RELEASE_KEYSTORE_B64`
-- `MUSABAI_RELEASE_STORE_PASSWORD`
-- `MUSABAI_RELEASE_KEY_ALIAS`
-- `MUSABAI_RELEASE_KEY_PASSWORD`
-- `MUSABAI_RELEASE_CERT_SHA256`
+- `MUSABAI_RELEASE_SIGNING_BUNDLE`
 
-The keystore must be generated and backed up outside the repository. Store only its base64 representation in the GitHub Secret. Store passwords and alias values only as Secrets. The certificate SHA256 fingerprint is public information, but it is kept in the same protected configuration set so the workflow can reject accidental identity changes.
+That Secret is a base64-encoded JSON bundle containing the release keystore (itself base64-encoded), store password, key alias, and key password. The bundle must be generated and backed up outside the repository.
 
-The workflow materializes the keystore only under `RUNNER_TEMP`, uses a restrictive umask, never enables shell tracing, passes passwords through environment variables rather than command-line arguments, verifies the APK with `apksigner`, compares the extracted certificate SHA256 fingerprint with the approved value, and deletes the temporary keystore before the build step exits.
+The approved certificate SHA256 fingerprint is intentionally not secret. It is pinned in:
+
+- `android-lite/signing-cert-sha256.txt`
+
+Keeping the public fingerprint in version-controlled code makes an identity change visible in repository history and prevents replacing both the private key and its expected fingerprint only through GitHub Secret administration.
+
+The workflow materializes signing data only under `RUNNER_TEMP`, uses restrictive file permissions, never enables shell tracing, masks derived password values before invoking Gradle, passes signing values through environment variables rather than command-line arguments, verifies the APK with `apksigner`, compares the extracted certificate SHA256 fingerprint with the pinned value, and deletes temporary signing files before the build step exits.
 
 ## CI policy
 
-A publishable `MusabAI-Connectors` artifact is uploaded only when all persistent release-signing values are present and the certificate fingerprint matches the approved fingerprint.
+A publishable `MusabAI-Connectors` artifact is uploaded only when `MUSABAI_RELEASE_SIGNING_BUNDLE` is present, the bundle is valid, the APK passes `apksigner verify`, and its certificate fingerprint exactly matches the pinned fingerprint.
 
-If no release-signing Secrets are configured, CI may still build `MusabAI-Connectors-Development` using an explicitly opted-in debug identity. That artifact is development-only and is not an update-signing baseline.
+If the release-signing Secret is absent, CI may still build `MusabAI-Connectors-Development` using an explicitly opted-in debug identity. That artifact is development-only and is not an update-signing baseline.
 
-If only some signing Secrets are configured, or if the APK certificate fingerprint differs from the approved value, CI fails.
+If the signing bundle is malformed, incomplete, or signs the APK with a certificate different from the pinned fingerprint, CI fails and no publishable release artifact is uploaded.
 
 Tracked `.jks`, `.keystore`, `.p12`, `.pfx`, `keystore.properties`, `signing.properties`, and PEM private-key material are rejected by CI.
 
