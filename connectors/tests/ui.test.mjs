@@ -4,14 +4,25 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 const code = readFileSync(new URL('../ui.js', import.meta.url), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function panel(t, item) {
+async function panel(t, item, bundle = null) {
   const dom = new JSDOM('<html lang="ar"><div class="side-top"></div><button id="open-github"></button></html>', {runScripts: 'outside-only', url: 'http://localhost/'});
   t.after(() => dom.window.close());
   const w = dom.window;
-  const state = {item, calls: []};
-  w.fetch = async (url, options) => {
+  const state = {item, bundle, calls: [], posts: []};
+  w.NewAlWorkspaceSession = () => 'project';
+  w.fetch = async (url, options = {}) => {
     state.calls.push(url);
-    if (options.method === 'POST') return {ok: true, json: async () => ({ok: true})};
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (options.method === 'POST') {
+      state.posts.push({url, body});
+      return {ok: true, json: async () => ({ok: true, tools: 3, running: String(url).endsWith('/start') || String(url).endsWith('/reconnect')})};
+    }
+    if (String(url).startsWith('/api/mcp-bundles')) {
+      return {ok: true, json: async () => ({bundles: state.bundle ? [state.bundle] : []})};
+    }
+    if (String(url).startsWith('/api/extensions')) {
+      return {ok: true, json: async () => ({extensions: []})};
+    }
     return {ok: true, json: async () => ({connectors: [state.item]})};
   };
   w.eval(code);
@@ -20,6 +31,7 @@ async function panel(t, item) {
   await tick();
   state.dom = w.document;
   state.refresh = async () => { w.dispatchEvent(new w.Event('focus')); await tick(); };
+  state.setBundle = async value => { state.bundle = value; await state.refresh(); };
   return state;
 }
 test('unchanged refresh preserves focused button and scrolled content', async t => {
@@ -55,4 +67,46 @@ test('unconfigured provider has an Arabic explanation and disabled connect', asy
 test('Termux retains its callback test without OAuth credentials', async t => {
   const state = await panel(t, {id: 'termux', name: 'Termux', configured: true, status: 'connected'});
   assert(state.dom.querySelector('[data-action="test:termux"]'));
+});
+
+
+test('Musab Hub renders stopped MCP separately from installed state and exposes real lifecycle controls', async t => {
+  const state = await panel(t,
+    {id: 'github', name: 'GitHub', configured: true, status: 'disconnected'},
+    {id:'playwright', name:'Playwright MCP', description:'Browser tools', installed:true, running:false,
+      can_start:true, status:'server_stopped', tools:5, runtime_reason:'Termux bridge verified', missing:[]}
+  );
+  const row = state.dom.querySelector('.mcp-bundle');
+  assert(row);
+  assert(row.textContent.includes('الخادم متوقف'));
+  assert(row.textContent.includes('5'));
+  assert(row.querySelector('[data-action="mcp:start:playwright"]'));
+  assert(row.querySelector('[data-action="mcp:reconnect:playwright"]'));
+  assert(!row.querySelector('[data-action="mcp:stop:playwright"]'));
+});
+
+test('MCP Start posts to the lifecycle endpoint with the current project session', async t => {
+  const state = await panel(t,
+    {id: 'github', name: 'GitHub', configured: true, status: 'disconnected'},
+    {id:'playwright', name:'Playwright MCP', installed:true, running:false, can_start:true,
+      status:'server_stopped', tools:5, missing:[]}
+  );
+  state.dom.querySelector('[data-action="mcp:start:playwright"]').click();
+  await tick(); await tick();
+  const post = state.posts.find(x => x.url === '/api/mcp-bundles/start');
+  assert(post);
+  assert.deepEqual(post.body, {session:'project', id:'playwright'});
+});
+
+test('live refresh changes MCP controls from Start to Stop without reopening Musab Hub', async t => {
+  const state = await panel(t,
+    {id: 'github', name: 'GitHub', configured: true, status: 'disconnected'},
+    {id:'memory', name:'Memory MCP', installed:true, running:false, can_start:true,
+      status:'server_stopped', tools:2, missing:[]}
+  );
+  assert(state.dom.querySelector('[data-action="mcp:start:memory"]'));
+  await state.setBundle({id:'memory', name:'Memory MCP', installed:true, running:true, can_start:false,
+    status:'server_running', tools:2, missing:[]});
+  assert(state.dom.querySelector('[data-action="mcp:stop:memory"]'));
+  assert(state.dom.querySelector('.mcp-bundle').textContent.includes('الخادم يعمل'));
 });
