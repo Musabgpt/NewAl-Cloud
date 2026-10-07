@@ -15,6 +15,8 @@ class McpBundlesTest(unittest.TestCase):
         self.env = mock.patch.object(settings, "HOME", os.path.join(self.root, "private"))
         self.env.start()
         self.addCleanup(self.env.stop)
+        mcp_bundles._RUNNING.clear()
+        mcp_bundles._LAST_ERRORS.clear()
 
     def test_exact_requested_bundle_catalog_is_real_and_honest(self):
         ids = [item["id"] for item in mcp_bundles.BUNDLES]
@@ -33,14 +35,14 @@ class McpBundlesTest(unittest.TestCase):
         with mock.patch.object(runtime_manager, "requirements", side_effect=no_runtime), \
              mock.patch.dict(os.environ, {}, clear=True):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
-        self.assertEqual(catalog["playwright"]["status"], "runtime_missing")
-        self.assertEqual(catalog["browser-use"]["status"], "runtime_missing")
-        self.assertEqual(catalog["open-browser-use"]["status"], "runtime_missing")
-        self.assertEqual(catalog["docling"]["status"], "runtime_missing")
-        self.assertEqual(catalog["filesystem"]["status"], "runtime_missing")
-        self.assertEqual(catalog["memory"]["status"], "runtime_missing")
-        self.assertEqual(catalog["android"]["status"], "runtime_missing")
-        self.assertEqual(catalog["github"]["status"], "credentials_missing")
+        self.assertEqual(catalog["playwright"]["status"], "tool_missing")
+        self.assertEqual(catalog["browser-use"]["status"], "tool_missing")
+        self.assertEqual(catalog["open-browser-use"]["status"], "tool_missing")
+        self.assertEqual(catalog["docling"]["status"], "tool_missing")
+        self.assertEqual(catalog["filesystem"]["status"], "tool_missing")
+        self.assertEqual(catalog["memory"]["status"], "tool_missing")
+        self.assertEqual(catalog["android"]["status"], "tool_missing")
+        self.assertEqual(catalog["github"]["status"], "permission_required")
         self.assertFalse(any(item["enabled"] for item in catalog.values()))
 
     def test_termux_npx_ready_is_not_reported_as_npx_missing(self):
@@ -53,7 +55,7 @@ class McpBundlesTest(unittest.TestCase):
         }
         with mock.patch.object(runtime_manager, "requirements", return_value=ready):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
-        self.assertEqual(catalog["playwright"]["status"], "available")
+        self.assertEqual(catalog["playwright"]["status"], "ready")
         self.assertEqual(catalog["playwright"]["missing"], [])
         self.assertEqual(catalog["playwright"]["runtime"], runtime_manager.TERMUX)
         self.assertTrue(catalog["playwright"]["available"])
@@ -95,7 +97,7 @@ class McpBundlesTest(unittest.TestCase):
         }
         with mock.patch.object(runtime_manager, "requirements", return_value=ready):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
-        self.assertEqual(catalog["filesystem"]["status"], "needs_shared_path")
+        self.assertEqual(catalog["filesystem"]["status"], "needs_setup")
         self.assertFalse(catalog["filesystem"]["available"])
 
     def test_phase2_browser_bundle_commands_are_pinned_and_explicit(self):
@@ -143,19 +145,111 @@ class McpBundlesTest(unittest.TestCase):
                 handler, "POST", "/api/mcp-bundles/enable",
                 {"session": "session1", "id": "playwright"},
             ))
-        self.assertEqual(self.response, ({"ok": True, "tools": 17, "enabled": True}, 200))
+        self.assertEqual(self.response, ({"ok": True, "tools": 17, "enabled": True, "running": False}, 200))
         saved = mcp_config.read(self.root)
         self.assertEqual(saved["playwright"]["bundle"], "playwright")
         self.assertEqual(saved["playwright"]["tools"], 17)
         catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
-        self.assertEqual(catalog["playwright"]["status"], "verified")
+        self.assertEqual(catalog["playwright"]["status"], "server_stopped")
         self.assertTrue(catalog["playwright"]["installed"])
         self.assertFalse(catalog["playwright"]["connected"])
 
         mcp_bundles.route(handler, "POST", "/api/mcp-bundles/disable",
                           {"session": "session1", "id": "playwright"})
-        self.assertEqual(self.response, ({"ok": True}, 200))
+        self.assertEqual(self.response, ({"ok": True, "enabled": False, "running": False}, 200))
         self.assertNotIn("playwright", mcp_config.read(self.root))
+
+    def test_start_stop_and_reconnect_control_the_real_managed_process(self):
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "Termux bridge verified",
+            "stdio": True,
+        }
+
+        class FakeServer:
+            starts = 0
+
+            def __init__(self, name, spec, cwd):
+                self.name = name
+                self.spec = spec
+                self.cwd = cwd
+                self._termux = True
+                self._termux_process_id = ""
+                self.tools = []
+
+            def start(self, timeout=45):
+                type(self).starts += 1
+                self._termux_process_id = "mcp-%d" % type(self).starts
+                self.tools = [{"name": "tool", "inputSchema": {"type": "object"}}]
+                return self
+
+            def alive(self):
+                return bool(self._termux_process_id)
+
+            def _list_tools(self):
+                return list(self.tools) or [{"name": "tool", "inputSchema": {"type": "object"}}]
+
+            def stop(self):
+                self._termux_process_id = ""
+
+        item = mcp_bundles._item("playwright")
+        with mock.patch.object(mcp_bundles, "_test", return_value=1):
+            mcp_bundles._save_enabled(item, self.root, 1)
+
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(mcp_config, "StdioServer", FakeServer), \
+             mock.patch.object(runtime_manager, "process_stop", return_value={"ok": True}) as process_stop:
+            started = mcp_bundles.perform(self.root, "playwright", "start")
+            self.assertTrue(started["running"])
+            catalog = {row["id"]: row for row in mcp_bundles.catalog(self.root)}
+            self.assertEqual(catalog["playwright"]["status"], "server_running")
+            self.assertTrue(catalog["playwright"]["connected"])
+            self.assertTrue(catalog["playwright"]["running"])
+            self.assertTrue(catalog["playwright"]["process_id"].startswith("mcp-"))
+
+            stopped = mcp_bundles.perform(self.root, "playwright", "stop")
+            self.assertFalse(stopped["running"])
+            process_stop.assert_called_once()
+            catalog = {row["id"]: row for row in mcp_bundles.catalog(self.root)}
+            self.assertEqual(catalog["playwright"]["status"], "server_stopped")
+            self.assertFalse(catalog["playwright"]["connected"])
+
+            reconnected = mcp_bundles.perform(self.root, "playwright", "reconnect")
+            self.assertTrue(reconnected["running"])
+            catalog = {row["id"]: row for row in mcp_bundles.catalog(self.root)}
+            self.assertEqual(catalog["playwright"]["status"], "server_running")
+
+    def test_running_process_can_be_reattached_from_persisted_runtime_state(self):
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "Termux bridge verified",
+            "stdio": True,
+        }
+
+        class AttachedServer:
+            def __init__(self, name, spec, cwd):
+                self._termux = False
+                self._termux_process_id = ""
+                self.tools = []
+
+            def alive(self):
+                return self._termux and self._termux_process_id == "persisted-1"
+
+        item = mcp_bundles._item("playwright")
+        mcp_bundles._save_enabled(item, self.root, 2)
+        mcp_bundles._save_runtime_state(self.root, {
+            "playwright": {"process_id": "persisted-1", "started_at": 1}
+        })
+        mcp_bundles._RUNNING.clear()
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(mcp_config, "StdioServer", AttachedServer):
+            catalog = {row["id"]: row for row in mcp_bundles.catalog(self.root)}
+        self.assertEqual(catalog["playwright"]["status"], "server_running")
+        self.assertEqual(catalog["playwright"]["process_id"], "persisted-1")
 
     def test_failed_handshake_never_claims_enabled(self):
         handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
