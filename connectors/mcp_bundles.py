@@ -437,7 +437,11 @@ def _stop(item, root, require_running=False):
             _forget_process(root, item)
             return
         try:
-            server.stop()
+            if getattr(server, "_termux", False) and getattr(server, "_termux_process_id", ""):
+                runtime_manager.process_stop(server._termux_process_id)
+                server._termux_process_id = ""
+            else:
+                server.stop()
         except Exception as exc:
             raise RuntimeError("MCP process could not be stopped") from exc
         finally:
