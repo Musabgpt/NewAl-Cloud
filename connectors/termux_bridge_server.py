@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import select
 import shlex
 import shutil
 import signal
@@ -23,7 +24,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = 1
+VERSION = 2
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8799
 BASE_COMMANDS = ("node", "npm", "npx", "python", "git", "bash")
@@ -68,6 +69,7 @@ class BridgeState:
         self.started_at = int(time.time() * 1000)
         self._lock = threading.RLock()
         self._procs = {}
+        self._stdio_locks = {}
 
     def _paths(self, process_id):
         if not isinstance(process_id, str) or len(process_id) != 36:
@@ -164,9 +166,10 @@ class BridgeState:
                 "duration_ms": int((time.time() - started) * 1000),
             }
 
-    def start(self, command):
+    def start(self, command, stdio=False):
         if not isinstance(command, str) or not command.strip() or len(command) > MAX_COMMAND:
             raise ValueError("Provide a non-empty command up to 131072 characters")
+        stdio = bool(stdio)
         process_id = str(uuid.uuid4())
         paths = self._paths(process_id)
         for path in (paths["exit"], paths["stop"]):
@@ -180,14 +183,26 @@ class BridgeState:
         env["MUSABAI_PROCESS_ID"] = process_id
         log = open(paths["log"], "ab", buffering=0)
         try:
-            proc = subprocess.Popen(
-                ["bash", "-lc", wrapper],
-                cwd=os.path.expanduser("~"),
-                env=env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            if stdio:
+                proc = subprocess.Popen(
+                    ["bash", "-lc", wrapper],
+                    cwd=os.path.expanduser("~"),
+                    env=env,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=log,
+                    start_new_session=True,
+                    bufsize=0,
+                )
+            else:
+                proc = subprocess.Popen(
+                    ["bash", "-lc", wrapper],
+                    cwd=os.path.expanduser("~"),
+                    env=env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
         finally:
             log.close()
         meta = {
@@ -195,6 +210,7 @@ class BridgeState:
             "pid": proc.pid,
             "proc_start": _proc_start(proc.pid),
             "started_at": int(time.time() * 1000),
+            "mode": "stdio" if stdio else "process",
         }
         tmp = paths["meta"].with_suffix(".json.tmp")
         tmp.write_text(json.dumps(meta, separators=(",", ":")), encoding="utf-8")
@@ -206,7 +222,65 @@ class BridgeState:
             pass
         with self._lock:
             self._procs[process_id] = proc
+            if stdio:
+                self._stdio_locks[process_id] = threading.Lock()
         return self.status(process_id)
+
+    def request(self, process_id, message, timeout=120):
+        meta, _ = self._read_meta(process_id)
+        if meta.get("mode") != "stdio":
+            raise ValueError("Process was not started in stdio mode")
+        if not isinstance(message, dict):
+            raise ValueError("message must be a JSON object")
+        try:
+            timeout = max(1, min(int(timeout), 300))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("timeout must be an integer") from exc
+        raw = (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        if len(raw) > MAX_BODY:
+            raise ValueError("stdio message is too large")
+        with self._lock:
+            proc = self._procs.get(process_id)
+            request_lock = self._stdio_locks.get(process_id)
+        if proc is None or request_lock is None or proc.stdin is None or proc.stdout is None:
+            if self._identity_alive(meta):
+                raise ValueError("stdio process survived but cannot be reattached after bridge restart; restart the MCP server")
+            raise ValueError("stdio process is not running")
+        with request_lock:
+            if proc.poll() is not None:
+                raise ValueError("stdio process is not running")
+            try:
+                proc.stdin.write(raw)
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError) as exc:
+                raise ValueError("stdio process closed its input") from exc
+            request_id = message.get("id")
+            if request_id is None:
+                return {"ok": True, "id": process_id, "notification": True}
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    raise ValueError("stdio process stopped before replying")
+                remaining = max(0.0, deadline - time.monotonic())
+                ready, _, _ = select.select([proc.stdout], [], [], min(0.25, remaining))
+                if not ready:
+                    continue
+                line = proc.stdout.readline(MAX_BODY + 1)
+                if len(line) > MAX_BODY:
+                    raise ValueError("stdio response is too large")
+                if not line:
+                    if proc.poll() is not None:
+                        raise ValueError("stdio process stopped before replying")
+                    continue
+                try:
+                    response = json.loads(line.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                if not isinstance(response, dict):
+                    continue
+                if response.get("id") == request_id and ("result" in response or "error" in response):
+                    return {"ok": True, "id": process_id, "response": response}
+            raise ValueError("stdio request timed out")
 
     def _identity_alive(self, meta):
         pid = int(meta.get("pid") or 0)
@@ -246,6 +320,8 @@ class BridgeState:
                 logs = fh.read(MAX_OUTPUT).decode("utf-8", "replace")
         except OSError:
             logs = ""
+        with self._lock:
+            attached = bool(meta.get("mode") == "stdio" and self._procs.get(process_id) is not None)
         return {
             "ok": True,
             "id": process_id,
@@ -254,6 +330,8 @@ class BridgeState:
             "exit_code": exit_code,
             "logs": logs,
             "started_at": int(meta.get("started_at") or 0),
+            "mode": str(meta.get("mode") or "process"),
+            "attached": attached,
         }
 
     def stop(self, process_id):
@@ -354,7 +432,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 out = state.exec(body.get("command"), body.get("timeout", 75))
             elif self.command == "POST" and parsed.path == "/process/start":
                 body = self._body()
-                out = state.start(body.get("command"))
+                out = state.start(body.get("command"), body.get("stdio", False))
+            elif self.command == "POST" and parsed.path == "/process/request":
+                body = self._body()
+                out = state.request(body.get("id"), body.get("message"), body.get("timeout", 120))
             elif self.command == "GET" and parsed.path == "/process/status":
                 process_id = (parse_qs(parsed.query).get("id") or [""])[0]
                 out = state.status(process_id)
