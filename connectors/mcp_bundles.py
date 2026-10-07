@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import tempfile
 import threading
@@ -32,10 +33,16 @@ BUNDLES = [
         "id": "playwright",
         "name": "Microsoft Playwright MCP",
         "repository": "https://github.com/microsoft/playwright-mcp",
-        "runtimes": ["npx"],
+        "runtimes": ["node", "npm"],
         "command": "npx",
         "args": [
             "-y", "@playwright/mcp@0.0.83",
+            "--isolated", "--headless", "--no-sandbox",
+            "--executable-path", "/data/data/com.termux/files/usr/bin/chromium-browser",
+        ],
+        "termux_npm_package": "@playwright/mcp@0.0.83",
+        "termux_npm_entry": "node_modules/@playwright/mcp/cli.js",
+        "termux_args": [
             "--isolated", "--headless", "--no-sandbox",
             "--executable-path", "/data/data/com.termux/files/usr/bin/chromium-browser",
         ],
@@ -102,18 +109,24 @@ BUNDLES = [
         "id": "filesystem",
         "name": "MCP Reference Filesystem",
         "repository": "https://github.com/modelcontextprotocol/servers",
-        "runtimes": ["npx"],
+        "runtimes": ["node", "npm"],
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "{root}"],
+        "args": ["-y", "@modelcontextprotocol/server-filesystem@0.6.3", "{root}"],
+        "termux_npm_package": "@modelcontextprotocol/server-filesystem@0.6.3",
+        "termux_npm_entry": "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+        "termux_args": ["{root}"],
         "description": "Sandboxed file tools restricted to the current project root.",
     },
     {
         "id": "android",
         "name": "Android MCP (external ADB, optional)",
         "repository": "https://github.com/us-all/android-mcp-server",
-        "runtimes": ["npx", "adb"],
+        "runtimes": ["node", "npm", "adb"],
         "command": "npx",
-        "args": ["-y", "@us-all/android-mcp"],
+        "args": ["-y", "@us-all/android-mcp@1.14.4"],
+        "termux_npm_package": "@us-all/android-mcp@1.14.4",
+        "termux_npm_entry": "node_modules/@us-all/android-mcp/dist/index.js",
+        "termux_args": [],
         "env": {"ANDROID_MCP_ALLOW_WRITE": "true"},
         "description": "Optional third-party ADB MCP for external-device diagnostics. This is not MusabAI's native on-phone bridge and it requires npx plus adb.",
         "native_fallback": "MusabAI Android Native Bridge is separate and works locally without adb, Wireless ADB, Wi-Fi pairing or USB ADB.",
@@ -122,9 +135,12 @@ BUNDLES = [
         "id": "memory",
         "name": "MCP Reference Memory",
         "repository": "https://github.com/modelcontextprotocol/servers",
-        "runtimes": ["npx"],
+        "runtimes": ["node", "npm"],
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-memory"],
+        "args": ["-y", "@modelcontextprotocol/server-memory@0.6.3"],
+        "termux_npm_package": "@modelcontextprotocol/server-memory@0.6.3",
+        "termux_npm_entry": "node_modules/@modelcontextprotocol/server-memory/dist/index.js",
+        "termux_args": [],
         "env": {"MEMORY_FILE_PATH": "{memory_file}"},
         "description": "Persistent project-scoped knowledge-graph memory.",
     },
@@ -148,6 +164,22 @@ def _credential(item):
 
 def _runtime_requirements(item):
     return runtime_manager.requirements(item.get("runtimes") or [])
+
+
+def _termux_npm_root(item):
+    package = str(item.get("termux_npm_package") or "")
+    if not package:
+        return ""
+    digest = hashlib.sha256(package.encode("utf-8")).hexdigest()[:12]
+    return os.path.join(runtime_manager.termux_home(), ".musabai", "mcp", item["id"], digest)
+
+
+def _termux_npm_entry(item):
+    root = _termux_npm_root(item)
+    entry = str(item.get("termux_npm_entry") or "")
+    if not root or not entry or entry.startswith("/") or ".." in entry.split("/"):
+        raise RuntimeError("Invalid managed Termux MCP entry")
+    return os.path.join(root, entry)
 
 
 def _missing(item):
@@ -186,11 +218,20 @@ def _spec(item, root):
     env_name, env_value = _credential(item)
     if env_value:
         env[item.get("env_alias") or env_name] = env_value
-    return {
-        "command": item["command"],
-        "args": [expand(x) for x in item.get("args") or []],
-        "env": env,
-    }
+
+    command = item["command"]
+    args = [expand(x) for x in item.get("args") or []]
+    spec = {"command": command, "args": args, "env": env}
+    if runtime["runtime"] == runtime_manager.TERMUX and item.get("termux_npm_package"):
+        root_dir = _termux_npm_root(item)
+        entry = os.path.join(root_dir, expand(item["termux_npm_entry"]))
+        spec = {
+            "command": "node",
+            "args": [entry] + [expand(x) for x in item.get("termux_args") or []],
+            "env": env,
+            "termux_cwd": root_dir,
+        }
+    return spec
 
 
 _RUNNING_LOCK = threading.RLock()
@@ -332,7 +373,7 @@ def catalog(root=None):
         status = _lifecycle_status(item, runtime, installed, running, last_error)
         public = {
             k: v for k, v in item.items()
-            if k not in {"command", "args", "env", "credential_env_any", "env_alias"}
+            if k not in {"command", "args", "env", "credential_env_any", "env_alias", "termux_npm_package", "termux_npm_entry", "termux_args"}
         }
         process_id = str(getattr(server, "_termux_process_id", "") or "") if server else ""
         public.update({
@@ -342,7 +383,7 @@ def catalog(root=None):
             "runtime": runtime["runtime"],
             "runtime_reason": runtime["reason"],
             "dependencies": list(item.get("runtimes") or []),
-            "install_method": "on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled",
+            "install_method": "managed_npm" if item.get("termux_npm_package") else ("on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled"),
             "start_method": "runtime_process_start(stdio=true)",
             "stop_method": "runtime_process_stop",
             "health_check": "live process status + MCP tools/list",
@@ -389,10 +430,37 @@ def _wait_termux_process(process_id, timeout=420):
     raise RuntimeError("Termux setup timed out")
 
 
+def _ensure_termux_npm(item):
+    package = str(item.get("termux_npm_package") or "")
+    if not package:
+        return
+    root = _termux_npm_root(item)
+    entry = _termux_npm_entry(item)
+    probe = runtime_manager.execute("test -f %s" % shlex.quote(entry), runtime_manager.TERMUX)
+    if int(probe.get("exit_code") or 0) == 0:
+        return
+    command = "mkdir -p {root} && npm install --prefix {root} --no-audit --no-fund --omit=dev {package}".format(
+        root=shlex.quote(root),
+        package=shlex.quote(package),
+    )
+    env = {
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1",
+        "PLAYWRIGHT_BROWSERS_PATH": "0",
+        "npm_config_update_notifier": "false",
+    }
+    started = runtime_manager.process_start(command, stdio=False, env=env)
+    _wait_termux_process(started["id"], timeout=600)
+    runtime_manager._clear_cache()
+    verify = runtime_manager.execute("test -f %s" % shlex.quote(entry), runtime_manager.TERMUX)
+    if int(verify.get("exit_code") or 0) != 0:
+        raise RuntimeError("Managed MCP package installed but its entry point is missing")
+
+
 def _ensure_termux_setup(item):
     runtime = _runtime_requirements(item)
     if runtime.get("runtime") != runtime_manager.TERMUX:
         return
+    _ensure_termux_npm(item)
     if item.get("termux_setup") != "chromium":
         return
     browser = runtime_manager.requirements(["chromium-browser"])
