@@ -246,6 +246,9 @@ def probe_termux(commands=None, max_age=5.0):
     record = _termux_record()
     state = str(record.get("status") or "unavailable")
     if state != "connected":
+        # A disconnect is an environment boundary. Drop the previous command
+        # snapshot so reconnect always performs a fresh /environment probe.
+        _clear_cache()
         return {
             "runtime": TERMUX,
             "status": state,
