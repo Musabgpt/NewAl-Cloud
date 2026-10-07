@@ -31,6 +31,7 @@ import java.util.zip.ZipInputStream;
  */
 final class Setup {
     static final int PORT = 8795;
+    static final String UPDATE_COMPAT = "action125-python314-v1";
 
     final Context ctx;
     final File files, home, python, app, bin, log;
@@ -131,10 +132,14 @@ final class Setup {
         env.put("PYTHONHOME", python.getPath());
         String enginePath = app.getPath();
         String packagedBuild = String.valueOf(BuildConfig.VERSION_CODE);
-        File candidate = CandidateSelection.select(home, packagedBuild);
-        if (candidate != null) enginePath = candidate.getPath() + File.pathSeparator + enginePath;
+        File candidate = CandidateSelection.select(home, packagedBuild, UPDATE_COMPAT);
+        if (candidate != null) {
+            enginePath = candidate.getPath() + File.pathSeparator + enginePath;
+            env.put("NEWAL_ACTIVE_REVISION", candidate.getName());
+        }
         env.put("PYTHONPATH", enginePath);
         env.put("NEWAL_PACKAGED_BUILD", packagedBuild);
+        env.put("NEWAL_UPDATE_COMPAT", UPDATE_COMPAT);
         env.put("NEWAL_PACKAGED_ENGINE", app.getPath());
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
