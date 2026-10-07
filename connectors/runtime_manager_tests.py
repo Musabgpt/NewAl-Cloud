@@ -45,7 +45,10 @@ class RuntimeManagerTest(unittest.TestCase):
         self.assertIn("/environment?", bridge.call_args.args[1])
         native.assert_not_called()
 
-    def test_disconnected_termux_is_unknown_not_false_missing(self):
+    def test_disconnected_termux_is_unknown_not_false_missing_and_clears_cache(self):
+        runtime_manager._CACHE_AT = 999999999.0
+        runtime_manager._CACHE_STATE = "connected:old"
+        runtime_manager._CACHE_VALUES = {"npx": True}
         with mock.patch.object(runtime_manager, "_phone_available", return_value=True), \
              mock.patch.object(runtime_manager, "_termux_record",
                                return_value={"status": "disconnected", "error": "Test Termux connection first"}):
@@ -54,6 +57,8 @@ class RuntimeManagerTest(unittest.TestCase):
         self.assertEqual(state["runtime"], runtime_manager.TERMUX)
         self.assertFalse(state["bridge"])
         self.assertIn("Termux", state["reason"])
+        self.assertEqual(runtime_manager._CACHE_VALUES, {})
+        self.assertEqual(runtime_manager._CACHE_STATE, "")
 
     def test_runtime_exec_routes_android_shell_over_bridge(self):
         result = {
