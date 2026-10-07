@@ -212,8 +212,8 @@
       try {
         const data = await api('/api/evolution'); if (!current()) return;
         list.replaceChildren();
-        const update = data.automatic?.state ? data.automatic : data.update;
-        const state = update?.state || 'up_to_date';
+        const update = data.automatic?.state || data.automatic?.error ? data.automatic : data.update;
+        const state = update?.state || (update?.error ? 'check_failed' : 'up_to_date');
         const currentVersion = data.current?.version_code ?? '';
         const revision = data.current?.revision || 'packaged';
         status(message, tr('Update state: ', 'حالة التحديث: ') + state + ' · v' + currentVersion + ' · ' + revision + (update?.error ? ' · ' + update.error : ''), Boolean(update?.error));

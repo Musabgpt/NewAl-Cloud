@@ -288,3 +288,14 @@ test('Improve exposes automatic update failure and requests verified automatic a
   assert.match(state.doc.querySelector('#input').value, /self_evolve_activate/);
   assert.doesNotMatch(state.doc.querySelector('#input').value, /do not activate/);
 });
+
+test('Improve does not hide a failed channel check before the first update is staged', async t => {
+  const state = await app(t, {handler: call => call.url === '/api/evolution' ? {
+    current: {version_code: 333, revision: 'packaged'}, update: {state: 'up_to_date'}, candidates: [],
+    automatic: {enabled: true, error: 'Update channel network unavailable'}
+  } : undefined});
+  await state.tab('Improve');
+  const panel = state.doc.querySelector('[role="tabpanel"]');
+  assert.match(panel.textContent, /Update channel network unavailable/);
+  assert.doesNotMatch(panel.textContent, /up_to_date/);
+});
