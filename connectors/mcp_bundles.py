@@ -92,14 +92,14 @@ BUNDLES = [
     },
     {
         "id": "android",
-        "name": "Android MCP",
+        "name": "Android MCP (external ADB, optional)",
         "repository": "https://github.com/us-all/android-mcp-server",
         "runtimes": ["npx", "adb"],
         "command": "npx",
         "args": ["-y", "@us-all/android-mcp"],
         "env": {"ANDROID_MCP_ALLOW_WRITE": "true"},
-        "description": "ADB diagnostics and Android automation. Requires npx and adb.",
-        "native_fallback": "On the phone itself MusabAI's native Android bridge works over localhost without Wi-Fi or ADB.",
+        "description": "Optional third-party ADB MCP for external-device diagnostics. This is not MusabAI's native on-phone bridge and it requires npx plus adb.",
+        "native_fallback": "MusabAI Android Native Bridge is separate and works locally without adb, Wireless ADB, Wi-Fi pairing or USB ADB.",
     },
     {
         "id": "memory",
