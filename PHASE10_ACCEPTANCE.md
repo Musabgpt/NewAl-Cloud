@@ -15,6 +15,8 @@ The follow-up fixes route environment-only bash version probes to Termux, add
 checks), and bootstrap uv before Browser Use/Docling MCP verification. Installing
 uv alone never marks either MCP installed. Native Python dependencies may still
 reject Android and must return their actual errors.
+Persisted conversations also refresh their built-in tool schemas after upgrade;
+previously they could retain only the pre-upgrade tools despite the new prompt.
 
 The provider router previously rejected every alternative model sharing Kilo's
 base URL. It now discovers zero-price, tools-capable routes from Kilo's real

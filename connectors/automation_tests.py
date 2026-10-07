@@ -84,6 +84,16 @@ class AutomationTests(unittest.TestCase):
         automation.create_skill(ctx, 'verified-loop', 'Use a verified loop', 'Inspect, repair, test.', 'Passing project test')
         self.assertIn('skill', {d['function']['name'] for d in a.schemas()})
 
+    def test_saved_conversation_receives_new_dependency_tools_after_upgrade(self):
+        from . import agent, session
+        s = session.Session(self.root)
+        s.tool_names = ['read', 'bash']  # a persisted pre-upgrade schema
+        a = agent.Agent(s, client=SimpleNamespace(spec={}, local=False, on_device=False))
+        self.addCleanup(a.memory.close)
+        names = {d['function']['name'] for d in a.schemas()}
+        self.assertIn('dependency_install', names)
+        self.assertIn('capability_ensure', names)
+
     def test_bundled_plugin_is_installed_into_project_without_git_or_shell(self):
         self.invoke('plugin_install', name='data')
         self.assertTrue(any(p['name'] == 'data' for p in plugins.listing(self.root)))
