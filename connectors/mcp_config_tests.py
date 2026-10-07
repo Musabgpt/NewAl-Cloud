@@ -135,7 +135,11 @@ class McpConfigTests(unittest.TestCase):
                 'jsonrpc': '2.0', 'id': message['id'], 'result': result
             }}
 
-        spec = {'command': 'npx', 'args': ['-y', '@modelcontextprotocol/server-memory'], 'env': {}}
+        spec = {
+            'command': 'npx',
+            'args': ['-y', '@modelcontextprotocol/server-memory'],
+            'env': {'MCP_TEST_TOKEN': 'private-termux-secret'},
+        }
         with patch.object(runtime_manager, 'requirements', return_value={
             'runtime': runtime_manager.TERMUX,
             'missing': [],
@@ -159,6 +163,8 @@ class McpConfigTests(unittest.TestCase):
         start.assert_called_once()
         self.assertTrue(start.call_args.kwargs['stdio'])
         self.assertIn('npx', start.call_args.args[0])
+        self.assertNotIn('private-termux-secret', start.call_args.args[0])
+        self.assertEqual(start.call_args.kwargs['env']['MCP_TEST_TOKEN'], 'private-termux-secret')
         self.assertTrue(any(msg.get('method') == 'initialize' for _, msg, _ in calls))
         self.assertTrue(any(msg.get('method') == 'tools/list' for _, msg, _ in calls))
         stop.assert_called_once_with('mcp-1')
