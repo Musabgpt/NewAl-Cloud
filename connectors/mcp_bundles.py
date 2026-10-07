@@ -10,7 +10,7 @@ import re
 import shutil
 import time
 
-from . import mcp_config
+from . import mcp_config, runtime_manager
 
 PATHS = {
     "/api/mcp-bundles",

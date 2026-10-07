@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from . import mcp_bundles, mcp_config, settings
+from . import mcp_bundles, mcp_config, runtime_manager, settings
 
 
 class McpBundlesTest(unittest.TestCase):
