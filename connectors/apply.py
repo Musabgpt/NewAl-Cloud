@@ -30,9 +30,25 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
+    for name in ("auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
+    import hashlib
+    source_native = here.parent / "android-lite/app/src/main"
+    hasher = hashlib.sha256()
+    for file in sorted(source_native.rglob("*")):
+        if file.is_file() and file.suffix in {".java", ".xml"}:
+            hasher.update(file.relative_to(source_native).as_posix().encode())
+            hasher.update(file.read_bytes())
+    for relative in ("build.gradle.kts", "settings.gradle.kts", "gradle.properties",
+                     "android-lite/app/build.gradle.kts", "android-lite/build.gradle.kts",
+                     "android-lite/settings.gradle.kts", "android-lite/gradle.properties",
+                     "android-lite/signing-cert-sha256.txt"):
+        file = here.parent / relative
+        if file.is_file():
+            hasher.update(relative.encode())
+            hasher.update(file.read_bytes())
+    (package / "native-compat.json").write_text(json.dumps({"sha256": hasher.hexdigest()}) + "\n")
     replace(package / "phone.py", '           "intent", "wait")', '           "intent", "wait", "screenshot", "install_apk", "notifications_read", "automation_start", "automation_stop", "automation_list", "automation_replay", "crash_reports")')
     replace(package / "phone.py", 'DOC = ("Use the Android phone this runs on: open apps and links, alarms, settings, and what is on the screen (screen "', 'DOC = ("Use the Android phone this runs on locally: read UI, screenshot, tap, type, swipe, launch apps, install an APK with Android confirmation, read optional notifications, record/replay workflows, and read MusabTestBridge crash/ANR reports. No Wi-Fi or MCP is needed. Use the Android phone this runs on: open apps and links, alarms, settings, and what is on the screen (screen "')
     replace(package / "phone.py", '        "(title, text); share (text); sms, call (number, text: the user sends); settings (page: wifi, bluetooth, "', '        "(title, text); share (text); sms, call (number, text: the user sends); screenshot; install_apk (path); notifications_read; "\n        "automation_start/stop/list/replay; crash_reports; settings (page: wifi, bluetooth, "')
@@ -89,6 +105,15 @@ def apply(root):
             text += "\\n\\nTask supervisor stopped this operation after no progress. Do not repeat it unchanged; use another tool/route or a smaller bounded step."
         failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))
 ''')
+    replace(package / "agent.py", '                    answer = answer or "Stopped after %d steps without finishing." % max_steps\n',
+            '                    error = "budget_exhausted"\n                    answer = answer or "Stopped after %d steps without finishing." % max_steps\n')
+    replace(package / "agent.py", '                    if self.breaker.open:\n', '                    if self.breaker.open:\n                        error = "repair_blocked"\n')
+    replace(package / "agent.py", '                if verify and ctx.changed and verify_rounds < MAX_VERIFY and self.depth == 0:\n',
+            '                if verify and ctx.changed and self.depth == 0:\n')
+    replace(package / "agent.py", '                    if ok is False:\n                        verify_rounds += 1\n',
+            '                    if ok is False:\n                        if verify_rounds >= MAX_VERIFY:\n                            error = "verification_failed"\n                            answer = "Project verification still fails; progress was saved for continuation. " + out[-2500:]\n                            break\n                        verify_rounds += 1\n')
+    replace(package / "agent.py", '                break\n        except providers.Cancelled:\n',
+            '                if s.goal and self.depth == 0:\n                    error = "goal_unmet"\n                    answer = "Goal remains unfinished; verified progress was saved for continuation. " + answer\n                break\n        except providers.Cancelled:\n')
     replace(package / "agent.py", '        except providers.Cancelled:\n            error = "interrupted"\n            answer = answer or "(interrupted)"\n            self._close_dangling_calls()\n', '''        except providers.Cancelled:
             supervisor = getattr(self, "supervisor", None)
             reason = supervisor.cancel_token.reason() if supervisor is not None else "user"
@@ -100,13 +125,38 @@ def apply(root):
                 answer = answer or "(interrupted)"
             self._close_dangling_calls()
 ''')
-    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\n                tools.stop_jobs(s)\n', '            if self.depth == 0 and error in ("interrupted", "timeout"):\n                tools.stop_jobs(s)\n')
+    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\n                tools.stop_jobs(s)\n', '            if self.depth == 0 and error in ("interrupted", "timeout", "budget_exhausted", "repair_blocked", "goal_unmet", "verification_failed"):\n                tools.stop_jobs(s)\n')
     replace(package / "agent.py", '        seconds = time.time() - started\n', '''        supervisor = getattr(self, "supervisor", None)
         if self.depth == 0 and supervisor is not None:
             supervisor.finish(error=error, answer=answer)
             self.operation_cancel = self.cancel
         seconds = time.time() - started
 ''')
+    replace(package / "service.py", '    def send(self, sid, text, images=None, lang=""):\n', """    def send(self, sid, text, images=None, lang=""):
+        with self.lock:
+            if getattr(self, "updating", ""):
+                return {"started": False, "reply": "جارٍ تطبيق تحديث موثق؛ ستعود المحادثة بعد إعادة تشغيل المحرك."}
+            return self._send(sid, text, images=images, lang=lang)
+
+    def _send(self, sid, text, images=None, lang=""):
+""")
+    replace(package / "service.py", '    def start(self, sid, target, out=None):\n', """    def start(self, sid, target, out=None):
+        with self.lock:
+            if getattr(self, "updating", ""):
+                return {"started": False, "reply": "A verified engine update is being applied."}
+            return self._start(sid, target, out)
+
+    def _start(self, sid, target, out=None):
+""")
+    replace(package / "server.py", '    httpd.key = Handler.key\n', '    from . import auto_update\n    httpd.automatic_stop = auto_update.start(Handler.service)\n    httpd.key = Handler.key\n')
+    replace(package / "server.py", 'class Server(ThreadingHTTPServer):\n', """class Server(ThreadingHTTPServer):
+    def server_close(self):
+        stop = getattr(self, "automatic_stop", None)
+        if stop is not None:
+            stop.set()
+        super().server_close()
+
+""")
     replace(package / "service.py", '    def interrupt(self, sid):\n        a = self.agents.get(sid)\n        if a:\n            a.cancel.set()\n', '''    def interrupt(self, sid):
         a = self.agents.get(sid)
         if a:
@@ -125,22 +175,37 @@ def apply(root):
     await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});
   }
 ''')
+    shutil.copyfile(here / "automatic_updates.js", package / "ui/automatic_updates.js")
     shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
     shutil.copyfile(here / "mcp_ui.js", package / "ui/mcp_ui.js")
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
     replace(package / "mcp.py", '            cls = HttpServer if spec.get("url") else StdioServer\n', '            from . import mcp_config\n            cls = mcp_config.HttpServer if spec.get("_musab_managed") and spec.get("url") else mcp_config.StdioServer if spec.get("_musab_managed") else HttpServer if spec.get("url") else StdioServer\n')
     replace(package / "agent.py", '        if self._schemas is None:\n', '        from . import mcp_config\n        mcp_config.refresh_agent(self)\n        if self._schemas is None:\n')
     maybe_replace(package / "models.py", 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\n', 'from . import settings, catalog, gguf, hardware, onetap, runtime, providers\nfrom . import provider_pool\n')
-    maybe_replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat(self, messages, tools=tools, extra=extra, **kw)\n')
+    maybe_replace(package / "models.py", '        return self.provider.chat(self.model_name, messages, tools=tools, extra=extra, **kw)\n', '        return provider_pool.chat_recovering(self, messages, tools=tools, owner=owner, extra=extra, **kw)\n')
     models_text = (package / "models.py").read_text()
     if "from . import provider_pool" not in models_text:
         (package / "models.py").write_text("from . import provider_pool\n" + models_text)
+    replace(package / "agent.py", '        except providers.ProviderError as e:\n', '        except providers.ProviderError as e:\n            from . import provider_pool\n')
+    replace(package / "agent.py", '            answer = "Model error: %s" % e\n', '            answer = provider_pool.public_error(e)\n')
+    replace(package / "agent.py", '                           reasoning=reasoning, on_event=on_event, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n',
+            '                           reasoning=reasoning, on_event=on_event, on_status=self._provider_wait, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n')
+    replace(package / "agent.py", '    def _run_tools(self, ctx, calls):\n', """    def _provider_wait(self, text):
+        supervisor = getattr(self, "supervisor", None)
+        if supervisor is not None:
+            supervisor._checkpoint(progress="Completed tool results remain in the session history.",
+                                   next_step="Retry model request at step %d; do not replay completed tool calls." % self.step,
+                                   blocker=text)
+        self.emit({"type": "status", "text": text})
+
+    def _run_tools(self, ctx, calls):
+""")
     shutil.copyfile(here / "ui.js", package / "ui/connectors.js")
     shutil.copyfile(here / "ui.css", package / "ui/connectors.css")
     # Preview coexists with #125, including its optional legacy Termux engine.
     replace(package / "termux.py", 'PHONE_PORT = 8793', 'PHONE_PORT = int(os.environ.get("NEWAL_PHONE_PORT") or 8793)')
     replace(package / "termux.py", '    return SCRIPT.replace("@KEY@", _sh(key))', '    script = SCRIPT\n    if os.environ.get("NEWAL_TERMUX_PROFILE") == "preview":\n        script = script.replace(".newal-code", ".newal-code-preview").replace("newal-termux", "newal-termux-preview").replace(\'$PREFIX/bin/newal"\', \'$PREFIX/bin/newal-preview"\')\n        script = script.replace("export PYTHONPATH=", "export NEWAL_TERMUX_PROFILE=preview NEWAL_TERMUX_PORT=8798 NEWAL_PHONE_PORT=8796 PYTHONPATH=")\n    return script.replace("@KEY@", _sh(key))')
-    replace(package / "tools.py", "# ------------------------------------------------------------------ tool sets\n", "# MUSAB_CONNECTORS_V1: register after Tool/registry definitions\nfrom . import connectors as _connectors\nfrom . import documents as _documents, evolution as _evolution\nfrom . import addons as _addons\nfrom . import browser_router as _browser_router\nfrom . import search_router as _search_router\nfrom . import document_engine as _document_engine\nfrom . import project_rag as _project_rag\nfrom . import orchestrator as _orchestrator\nfrom . import execution as _execution\nfrom . import runtime_manager as _runtime_manager\nfrom . import git_workspace as _git_workspace\nfrom . import observability as _observability\nfrom . import task_state as _task_state\n_browser_router.install()\n_search_router.install()\n_document_engine.install()\n_project_rag.install()\n_orchestrator.install()\n_execution.install()\n_runtime_manager.install()\n_git_workspace.install()\n_observability.install()\n_task_state.install()\n\n# ------------------------------------------------------------------ tool sets\n")
+    replace(package / "tools.py", "# ------------------------------------------------------------------ tool sets\n", "# MUSAB_CONNECTORS_V1: register after Tool/registry definitions\nfrom . import connectors as _connectors\nfrom . import documents as _documents, evolution as _evolution\nfrom . import addons as _addons\nfrom . import automation as _automation\nfrom . import browser_router as _browser_router\nfrom . import search_router as _search_router\nfrom . import document_engine as _document_engine\nfrom . import project_rag as _project_rag\nfrom . import orchestrator as _orchestrator\nfrom . import execution as _execution\nfrom . import runtime_manager as _runtime_manager\nfrom . import git_workspace as _git_workspace\nfrom . import observability as _observability\nfrom . import task_state as _task_state\n_browser_router.install()\n_search_router.install()\n_document_engine.install()\n_project_rag.install()\n_orchestrator.install()\n_execution.install()\n_runtime_manager.install()\n_git_workspace.install()\n_observability.install()\n_task_state.install()\n\n# ------------------------------------------------------------------ tool sets\n")
     replace(package / "tools.py", 'from . import addons as _addons\n', 'from . import addons as _addons\nfrom . import workbench as _workbench\n_workbench.install()\n')
     replace(package / "agent.py", "        return self._schemas\n", """        from . import connectors
         available = connectors.names()
@@ -210,9 +275,9 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "ui/index.html", '<link rel="stylesheet" href="style.css">', '<link rel="stylesheet" href="style.css">\n<link rel="stylesheet" href="connectors.css">')
-    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>\n<script src="mcp_ui.js"></script>')
+    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>\n<script src="mcp_ui.js"></script>\n<script src="automatic_updates.js"></script>')
     replace(package / "server.py", 'if x != "env"', 'if x not in ("env", "headers")')
-    replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES + _browser_router.NAMES + _search_router.NAMES + _document_engine.NAMES + _project_rag.NAMES + _orchestrator.NAMES + _execution.NAMES + _runtime_manager.NAMES + _git_workspace.NAMES + _observability.NAMES + _task_state.NAMES\n')
+    replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES + _automation.NAMES + _browser_router.NAMES + _search_router.NAMES + _document_engine.NAMES + _project_rag.NAMES + _orchestrator.NAMES + _execution.NAMES + _runtime_manager.NAMES + _git_workspace.NAMES + _observability.NAMES + _task_state.NAMES\n')
     replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')
     replace(package / "agent.py", '        parts.append(text)\n', '        parts.append("For document tasks use document_create/read/download and archive_pack/extract. Save a real file and report its path; do not claim a file exists without checking. For self-improvement use self_evolve, edit the isolated candidate, then self_evolve_verify. Never claim an untested candidate improved intelligence. Remember supported preferences with memory_learn. For existing project code, use project_rag_search to retrieve relevant file/line evidence before broad edits. For cross-tool multi-step work, use orchestrator_plan when routing is not obvious; it is advisory and never bypasses permissions. For execution routing use execution_plan. On Android, run bounded shell commands through runtime_exec so node/npm/npx/python/git/bash are discovered and executed in Termux over the authenticated localhost bridge rather than the Android app sandbox; ANDROID_NATIVE never needs adb. For long-running Termux commands use runtime_process_start, then runtime_process_status or runtime_process_stop using the returned process id; never repeat a pending command. sandbox_exec is scratch-only and is not an OS security boundary. Use bounded git_status/git_diff/git_log/git_commit for local repository work; git_commit never pushes. Observability is local metadata by default; use observability_status/tail for inspection and observability_export only when the user explicitly wants export to a configured backend. For long work that should survive a restart, use task_checkpoint after meaningful verified progress; when the user asks to continue or resume, use task_resume before guessing; mark the checkpoint complete only after verification with task_complete.")\n        parts.append(text)\n')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
@@ -243,4 +308,3 @@ def apply(root):
 
 if __name__ == "__main__":
     apply(Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve())
-

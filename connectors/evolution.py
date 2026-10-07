@@ -25,6 +25,8 @@ from . import settings, tools
 NAMES = [
     "self_evolve",
     "self_evolve_verify",
+    "self_evolve_activate",
+    "self_update_status",
     "self_update_stage",
     "self_update_verify",
     "memory_learn",
@@ -40,6 +42,7 @@ _ALLOWED_DOWNLOAD_HOSTS = {
     "api.github.com",
     "objects.githubusercontent.com",
     "raw.githubusercontent.com",
+    "release-assets.githubusercontent.com",
 }
 HOT_FILES = {
     "agent_prompt.md",
@@ -63,6 +66,7 @@ TRUSTED_TESTS = (
     "runtime_manager_tests", "termux_bridge_tests", "git_workspace_tests",
     "observability_tests", "task_state_tests", "task_supervisor_tests",
     "provider_pool_tests", "free_provider_adapters_tests", "provider_keys_tests",
+    "automation_tests", "auto_update_tests",
 )
 
 
@@ -259,6 +263,7 @@ def _run_verification(p, record):
     env = dict(os.environ)
     env["PYTHONPATH"] = str(p) + os.pathsep + str(Path(__file__).resolve().parent.parent)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["NEWAL_DISABLE_AUTOMATION"] = "1"
     env["NEWAL_CODE_HOME"] = str(p / "test-home")
     env["NEWAL_MEMORY_HOME"] = str(p / "test-home" / "memory")
     results = []
@@ -317,7 +322,7 @@ def prepare(ctx, goal, checks=None):
     return (
         json.dumps(dict(
             record, path=str(p),
-            instruction="Edit newal_code in this candidate, then run self_evolve_verify. The user can activate a verified candidate from the app.",
+            instruction="Edit newal_code in this candidate, then run self_evolve_verify. Call self_evolve_activate after verification to schedule activation when idle.",
         ), ensure_ascii=False),
         {"candidate": cid, "path": str(p)},
     )
@@ -771,6 +776,22 @@ def activate(cid):
     }
 
 
+@tools.tool("self_evolve_activate", "Schedule automatic activation of an unchanged verified improvement after active tasks finish. Native startup health confirms it or rolls back. Never mark untested code verified.",
+            {"candidate": tools._s("verified candidate revision ID")}, ["candidate"], "exec")
+def activate_verified(ctx, candidate):
+    from . import auto_update
+    if getattr(getattr(ctx, "session", None), "mode", "") == "read-only":
+        raise tools.ToolError("Read-only mode cannot activate an improvement")
+    result = auto_update.request_activation(candidate)
+    return json.dumps(result), result
+
+
+@tools.tool("self_update_status", "Read automatic GitHub update state, verification failures, active revision and rollback status.", {}, [], "read")
+def update_status(ctx):
+    from . import auto_update
+    return json.dumps(dict(status(), automatic=auto_update.status()), ensure_ascii=False), {"ok": True}
+
+
 def rollback():
     marker = _active_marker()
     active_id = marker.get("id")
@@ -798,6 +819,8 @@ def rollback():
         "rolled_back", failed_revision=active_id or "", restored_revision=restored,
         restart_required=restart_required,
     )
+    from . import auto_update
+    auto_update.cancel_revision(active_id)
     return {
         "ok": True,
         "state": "rolled_back",
@@ -889,7 +912,9 @@ def status():
         "revision": running or "packaged",
         "version_code": _current_version_code(),
     }
+    from . import auto_update
     return {
+        "automatic": auto_update.status(),
         "candidates": records,
         "active": active,
         "update": state,
@@ -910,6 +935,9 @@ def route(handler, method, path, body=None):
     try:
         if method == "GET" and path == "/api/evolution":
             handler._json(status())
+        elif method == "GET" and path == "/api/evolution/automatic":
+            from . import auto_update
+            handler._json(auto_update.status())
         elif method == "POST" and path == "/api/evolution/activate":
             handler._json(activate((body or {}).get("candidate", "")))
         elif method == "POST" and path == "/api/evolution/rollback":

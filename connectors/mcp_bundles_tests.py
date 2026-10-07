@@ -8,6 +8,12 @@ from . import mcp_bundles, mcp_config, runtime_manager, settings, tools
 
 
 class McpBundlesTest(unittest.TestCase):
+    def test_first_install_failure_is_not_reported_ready(self):
+        runtime = {"runtime": runtime_manager.TERMUX, "unknown": [], "missing": [], "stdio": True}
+        self.assertEqual(mcp_bundles._lifecycle_status(
+            mcp_bundles._item("android"), runtime, False, False, "sharp android-arm64 unsupported"
+        ), "health_failed")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

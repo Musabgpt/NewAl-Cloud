@@ -7,6 +7,7 @@ the server into the project's private MCP configuration. Phase 8 keeps verified
 installation separate from the live start/stop/reconnect process state.
 """
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -353,7 +354,7 @@ def _lifecycle_status(item, runtime, installed, running, last_error):
         return "termux_disconnected"
     if runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
         return "needs_setup"
-    if installed and last_error:
+    if last_error:
         return "health_failed"
     if installed:
         return "server_stopped"
@@ -410,10 +411,33 @@ def _session_root(handler, data):
     return handler.service.get(sid).root
 
 
+_CANCEL = threading.local()
+
+
+@contextmanager
+def cancel_scope(cancel):
+    previous = getattr(_CANCEL, "token", None)
+    _CANCEL.token = cancel
+    try:
+        yield
+    finally:
+        _CANCEL.token = previous
+
+
+def _cancel_setup(process_id=None):
+    token = getattr(_CANCEL, "token", None)
+    if token is not None and token.is_set():
+        if process_id:
+            runtime_manager.process_stop(process_id)
+        from . import providers
+        raise providers.Cancelled()
+
+
 def _wait_termux_process(process_id, timeout=420):
     deadline = time.monotonic() + timeout
     last = {}
     while time.monotonic() < deadline:
+        _cancel_setup(process_id)
         last = runtime_manager.process_status(process_id)
         if last.get("status") == "completed":
             if last.get("exit_code") != 0:
@@ -462,6 +486,7 @@ def _ensure_termux_npm(item):
 
 
 def _ensure_termux_setup(item):
+    _cancel_setup()
     runtime = _runtime_requirements(item)
     if runtime.get("runtime") != runtime_manager.TERMUX:
         return

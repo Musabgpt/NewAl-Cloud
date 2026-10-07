@@ -6,11 +6,12 @@ HTTP bridge, shell processes and MCP stdio. Only Android discovery and HOME are
 substituted for the Linux test host. Does not launch a browser or install Chromium.
 """
 import json, tempfile, threading
+from types import SimpleNamespace
 from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 from newal_code import tools  # Register tools before importing runtime consumers.
-from newal_code import runtime_manager as rm, termux_bridge_server as bridge, mcp_bundles as bundles, mcp_config
+from newal_code import runtime_manager as rm, termux_bridge_server as bridge, mcp_bundles as bundles, mcp_config, automation, settings
 
 with tempfile.TemporaryDirectory(prefix='phase10-real-mcp-') as home, ExitStack() as stack:
     server=bridge.make_server('127.0.0.1',0,'integration-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',home+'/bridge')
@@ -26,7 +27,16 @@ with tempfile.TemporaryDirectory(prefix='phase10-real-mcp-') as home, ExitStack(
         entry=bundles._termux_npm_entry(item)
         assert not Path(entry).exists()
         print(json.dumps({'bundle':name,'stage':'real_npm_install','platform':'Linux host, NOT Samsung'}),flush=True)
-        bundles._ensure_termux_npm(item)
+        if name == 'memory':
+            ctx = SimpleNamespace(root=home+'/project', cancel=threading.Event(),
+                                  session=SimpleNamespace(mode='full-auto'), emit=lambda event: None)
+            with mock.patch.object(settings, 'HOME', home+'/private'):
+                _, outcome = automation.ensure(ctx, 'memory')
+                assert outcome['ok'] and outcome['tools'] > 0
+                bundles.perform(ctx.root, 'memory', 'stop')
+                print(json.dumps({'bundle':name,'stage':'agent_capability_ensure_real_npm','tools':outcome['tools']}),flush=True)
+        else:
+            bundles._ensure_termux_npm(item)
         assert Path(entry).is_file()
         spec=bundles._spec(item,home+'/project')
         assert spec['command']=='node'

@@ -10,6 +10,75 @@ class ProviderPoolTests(unittest.TestCase):
     def setUp(self):
         provider_pool.reset_health()
 
+    def test_rate_limit_recovers_after_cooldown_without_replaying_tools(self):
+        self.assertTrue(hasattr(provider_pool, 'chat_recovering'), 'bounded automatic recovery missing')
+        class RateThenGood:
+            calls = 0
+            def chat(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise providers.ProviderError('rate limited', 429)
+                return 'completed safely'
+        class Clock:
+            now = 0.0
+            def wait(self, seconds):
+                self.now += seconds
+                return False
+            def is_set(self): return False
+        clock = Clock()
+        api = RateThenGood()
+        c = SimpleNamespace(spec={'id':'current', 'capabilities':['text','tools','streaming']}, model_name='current', provider=api)
+        events=[]
+        with patch.object(provider_pool, '_now', side_effect=lambda: clock.now), \
+             patch.object(provider_pool, 'candidates', return_value=[]):
+            result = provider_pool.chat_recovering(c, [], tools=[{'function':{'name':'write'}}],
+                cancel=clock, on_status=events.append, recovery_budget=45)
+        self.assertEqual(result, 'completed safely')
+        self.assertEqual(api.calls, 2)
+        self.assertTrue(events)
+        self.assertGreaterEqual(clock.now, 30)
+
+    def test_stop_cancels_provider_wait_before_any_retry(self):
+        self.assertTrue(hasattr(provider_pool, 'chat_recovering'), 'bounded automatic recovery missing')
+        token = SimpleNamespace(is_set=lambda: False, wait=lambda seconds: True)
+        api = SimpleNamespace(chat=lambda *a, **k: (_ for _ in ()).throw(providers.ProviderError('rate limited', 429)))
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=api)
+        with patch.object(provider_pool, 'candidates', return_value=[]):
+            with self.assertRaises(providers.Cancelled):
+                provider_pool.chat_recovering(c, [], cancel=token, recovery_budget=45)
+
+    def test_recovery_never_retries_partial_stream_output(self):
+        self.assertTrue(hasattr(provider_pool, 'chat_recovering'), 'bounded automatic recovery missing')
+        calls=[]
+        def partial(*args, **kwargs):
+            calls.append('attempt')
+            kwargs['on_event']('text', 'partial')
+            raise providers.ProviderError('rate limited', 429)
+        c=SimpleNamespace(spec={'id':'current'},model_name='current',provider=SimpleNamespace(chat=partial))
+        with self.assertRaises(providers.ProviderError):
+            provider_pool.chat_recovering(c, [], on_event=lambda *a: None, recovery_budget=45)
+        self.assertEqual(calls, ['attempt'])
+
+    def test_downloaded_capable_local_model_is_a_last_resort_without_credentials(self):
+        import tempfile
+        from pathlib import Path
+        from . import models
+        api=SimpleNamespace(chat=lambda *a, **k: (_ for _ in ()).throw(providers.ProviderError('rate limited',429)))
+        current=SimpleNamespace(spec={'id':'current'},model_name='current',provider=api,server=None)
+        backup=SimpleNamespace(spec={'id':'local-backup'},provider=object(),model_name='local',server=object(),chat=lambda *a, **k:'local result')
+        with tempfile.TemporaryDirectory() as temp:
+            file=Path(temp)/'already-downloaded.gguf';file.write_bytes(b'fixture')
+            cfg={'models':{'local-backup':{'provider':'local','file':str(file),'capabilities':['text','tools','streaming']}}}
+            with patch.object(provider_pool.settings,'user',return_value=cfg), \
+                 patch.object(provider_pool,'candidates',return_value=[]), patch.object(models,'connect',return_value=backup):
+                try:
+                    result=provider_pool.chat_recovering(current, [], tools=[{'function':{'name':'read'}}],recovery_budget=0)
+                except providers.ProviderError as exc:
+                    result=str(exc)
+                self.assertEqual(result,'local result')
+        self.assertEqual(current.spec['id'],'local-backup')
+        self.assertIs(current.server,backup.server)
+
     def test_free_pool_order_and_current_provider_is_not_repeated(self):
         c = SimpleNamespace(
             spec={"id": "current", "base_url": "https://current.example/v1"},

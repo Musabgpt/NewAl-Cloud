@@ -14,6 +14,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      signing_mode: ${{ steps.signing.outputs.mode }}
     timeout-minutes: 120
     env:
       NEWAL_BUILD: ${{ github.run_number }}
@@ -56,7 +58,7 @@ jobs:
             fi
           done < <(git rev-list --all)
       - name: Verify signing policy tests
-        run: python3 -m unittest connectors.test_signing_policy -v
+        run: python3 -m unittest connectors.test_signing_policy connectors.test_update_publication -v
       - name: Detect persistent release signing identity
         id: signing
         shell: bash
@@ -145,7 +147,7 @@ jobs:
           NEWAL_TEST_WATCHDOG: "180"
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
-          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Phase 10 real npm MCP install and stdio validation (Linux host)
         env:
@@ -312,3 +314,22 @@ jobs:
             MusabAI-Hot-Update.zip.sha256
           compression-level: 0
           retention-days: 14
+
+  publish-phase10-update:
+    needs: build
+    if: github.ref == 'refs/heads/phase10/final-validation' && needs.build.outputs.signing_mode == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MusabAI-Connectors
+          path: verified-artifact
+      - name: Publish verified Phase 10 engine and automatic update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MUSABAI_ARTIFACT_DIR: verified-artifact
+        run: python3 connectors/publish_update_channel.py

@@ -273,3 +273,18 @@ test('Improve shows truthful Phase 9 state and exposes a verified staged update'
   assert(button(panel, 'Activate'), 'ready_to_activate is actionable only after verification');
   assert.doesNotMatch(panel.textContent, /\bupdated\b/i);
 });
+
+test('Improve exposes automatic update failure and requests verified automatic activation', async t => {
+  const state = await app(t, {handler: call => call.url === '/api/evolution' ? {
+    current: {version_code: 332, revision: 'packaged'}, update: {state: 'up_to_date'}, candidates: [],
+    automatic: {state: 'failed_verification', error: 'Downloaded engine hash mismatch'}
+  } : undefined});
+  await state.tab('Improve');
+  const panel = state.doc.querySelector('[role="tabpanel"]');
+  assert.match(panel.textContent, /failed_verification/);
+  assert.match(panel.textContent, /Downloaded engine hash mismatch/);
+  panel.querySelector('textarea').value = 'Repair runtime';
+  button(panel, 'Prepare improvement').click();
+  assert.match(state.doc.querySelector('#input').value, /self_evolve_activate/);
+  assert.doesNotMatch(state.doc.querySelector('#input').value, /do not activate/);
+});

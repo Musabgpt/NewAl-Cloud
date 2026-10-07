@@ -446,7 +446,7 @@ def _safe_error(error):
     return "request failed"
 
 
-def candidates(current, required_capabilities=None):
+def candidates(current, required_capabilities=None, include_cooling=False):
     """Return configured, credentialed, free fallbacks in canonical order."""
     current_spec = getattr(current, "spec", {}) or {}
     seen_ids = {_provider_id(current_spec)}
@@ -472,7 +472,7 @@ def candidates(current, required_capabilities=None):
         key = _key(spec)
         if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
             continue
-        if not _explicitly_free(spec) or not _available(spec):
+        if not _explicitly_free(spec) or (not include_cooling and not _available(spec)):
             continue
         if required_capabilities is not None and not _supports(spec, required_capabilities):
             continue
@@ -572,6 +572,105 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
     raise last
 
 
+class ProviderUnavailable(providers.ProviderError):
+    """Retry metadata for a failed, uncommitted model request; no tools executed."""
+    def __init__(self, message, retry_after=None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _next_retry(client, required):
+    specs = [getattr(client, "spec", {}) or {}] + candidates(client, required, include_cooling=True)
+    waits = []
+    for spec in specs:
+        if not _supports(spec, required, legacy_current=spec is specs[0]):
+            continue
+        state = HEALTH.state(_provider_id(spec))
+        if state.get("state") in {"auth_error", "capability_mismatch"} or state.get("status") == 400:
+            continue
+        left = float(state.get("cooldown_until") or 0) - _now()
+        if left > 0:
+            waits.append(left)
+    return min(waits) if waits else None
+
+
+def _local_last_resort(client, messages, tools, required, owner, on_status, kwargs):
+    if (getattr(client, "spec", {}) or {}).get("provider") == "local":
+        return False, None
+    configured = settings.user().get("models") or {}
+    if not isinstance(configured, dict):
+        return False, None
+    for mid, raw in configured.items():
+        if not isinstance(raw, dict) or raw.get("provider") != "local":
+            continue
+        spec = dict(raw, id=mid)
+        if not os.path.isfile(str(spec.get("file") or "")) or not _supports(spec, required) or not _available(spec):
+            continue
+        from . import models
+        try:
+            if on_status:
+                on_status("محاولة الاستكمال بنموذج محلي مثبت يدعم متطلبات المهمة: " + mid)
+            backup = models.connect(spec)  # retained runtime enforces the device RAM budget
+            result = backup.chat(messages, tools=tools, owner=owner, **kwargs)
+        except providers.Cancelled:
+            raise
+        except (providers.ProviderError, OSError, ValueError, RuntimeError) as error:
+            _mark_failure(spec, error)
+            if getattr(error, "_musab_emitted", False):
+                raise
+            continue
+        previous = _provider_id(getattr(client, "spec", {}) or {})
+        client.spec, client.provider, client.model_name, client.server = backup.spec, backup.provider, backup.model_name, backup.server
+        client._last_fallback = {"from":previous, "to":mid, "error":"online pool unavailable"}
+        return True, result
+    return False, None
+
+
+def chat_recovering(client, messages, tools=None, required_capabilities=None,
+                    on_status=None, recovery_budget=90, owner="main", **kwargs):
+    """Bounded automatic recovery at a model-request boundary, preserving tool results.
+
+    Never retry a stream that already emitted output. User Stop and supervisor
+    cancellation interrupt cooldown waits without issuing another request.
+    """
+    deadline = _now() + max(0, min(float(recovery_budget), 120))
+    token = kwargs.get("cancel")
+    required = request_capabilities(messages, tools, required_capabilities, **kwargs)
+    for attempt in range(3):
+        if token is not None and token.is_set():
+            raise providers.Cancelled()
+        try:
+            return chat(client, messages, tools=tools, required_capabilities=required_capabilities, **kwargs)
+        except ProviderUnavailable as error:
+            local, result = _local_last_resort(client, messages, tools, required, owner, on_status, kwargs)
+            if local:
+                return result
+            wait = error.retry_after
+            if wait is None or getattr(error, "_musab_emitted", False) or attempt == 2:
+                raise
+            if _now() + wait + 0.1 > deadline:
+                raise
+            if on_status:
+                on_status("المزود غير متاح مؤقتًا؛ حُفظت نتائج الخطوات السابقة. إعادة المحاولة خلال %d ثانية." % (wait + 1))
+            until = _now() + wait + 0.05
+            while _now() < until:
+                seconds = min(1, until - _now())
+                if token is not None:
+                    if token.wait(seconds):
+                        raise providers.Cancelled()
+                else:
+                    time.sleep(seconds)
+    raise AssertionError("bounded retry loop exhausted")
+
+
+def public_error(error):
+    if isinstance(error, ProviderUnavailable):
+        if error.retry_after is not None:
+            return "المزودون المناسبون للمهمة غير متاحين مؤقتًا. حُفظ التقدم؛ يمكن الاستكمال بعد نحو %d ثانية أو بعد إعداد مزود احتياطي يدعم الأدوات." % (error.retry_after + 1)
+        return "لم يتوفر مزود مناسب للمهمة. راجع حالة المزودين وإعداداتهم في Musab Hub؛ تفاصيل الخطأ محفوظة في التشخيص."
+    return str(error)
+
+
 def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
     current_spec = dict(getattr(client, "spec", {}) or {})
     current_spec.setdefault("id", getattr(client, "model_name", "current"))
@@ -624,4 +723,4 @@ def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
     message = "Free AI providers are temporarily unavailable"
     if errors:
         message += " (" + " | ".join(errors)[:900] + ")"
-    raise providers.ProviderError(message)
+    raise ProviderUnavailable(message, _next_retry(client, required))

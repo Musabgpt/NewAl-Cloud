@@ -193,12 +193,12 @@
       }
       status(message, result.text || result.state || '');
     };
-    panel.append(node('p', tr('Describe one improvement. The agent prepares a separate engine copy, edits it and tests it. Activate a verified version here; return to the original whenever needed.', 'حدد تحسينًا واحدًا. البرنامج بيجهّز نسخة منفصلة من محرّكه ويعدّلها ويختبرها. من هون بتفعّل نسخة نجحت بالاختبار وبتقدر ترجع للأصل.')));
+    panel.append(node('p', tr('Describe one improvement. The agent prepares a separate engine copy, edits it and tests it, then applies the verified version after active tasks finish. You can restore the original engine here.', 'حدد تحسينًا واحدًا. البرنامج بيجهّز نسخة منفصلة ويعدّلها ويختبرها، ثم يفعّل النسخة الناجحة تلقائيًا بعد انتهاء المهام. تقدر ترجع للمحرّك الأصلي من هون.')));
     const goal = node('textarea'), goalLabel = node('label', tr('What should improve?', 'شو بدك يتحسّن؟'));
     goal.id = 'improvement-goal-' + ++nextId; goalLabel.htmlFor = goal.id; goal.placeholder = goalLabel.textContent; goal.className = 'workspace-goal'; panel.append(goalLabel, goal);
     const ask = button('Prepare improvement', 'جهّز التحسين', () => {
       if (!goal.value.trim()) { goal.focus(); return; }
-      close(); prompt(tr('Improve your Python engine for this goal. Use self_evolve, edit the isolated candidate, then self_evolve_verify. Report test evidence and do not activate it yourself. Goal: ', 'طوّر محرّكك لتحقيق هالهدف. استخدم self_evolve، عدّل النسخة المنفصلة، ثم self_evolve_verify. اعرض نتيجة الاختبارات وخلي التفعيل إلي. الهدف: ') + goal.value);
+      close(); prompt(tr('Improve your Python engine for this goal. Use self_evolve, edit the isolated candidate, then self_evolve_verify. Only after successful verification use self_evolve_activate to apply it automatically after active tasks finish. Report the real test evidence and activation state. Goal: ', 'طوّر محرّكك لتحقيق هالهدف. استخدم self_evolve، عدّل النسخة المنفصلة، ثم self_evolve_verify. بعد نجاح الاختبارات فقط استخدم self_evolve_activate لتطبيقها تلقائيًا بعد انتهاء المهام. اعرض دليل الاختبار وحالة التفعيل الحقيقية. الهدف: ') + goal.value);
     }, true);
     const rollback = button('Restore original engine', 'رجوع للمحرّك الأصلي', async () => {
       rollback.disabled = true;
@@ -212,10 +212,11 @@
       try {
         const data = await api('/api/evolution'); if (!current()) return;
         list.replaceChildren();
-        const state = data.update?.state || 'up_to_date';
+        const update = data.automatic?.state ? data.automatic : data.update;
+        const state = update?.state || 'up_to_date';
         const currentVersion = data.current?.version_code ?? '';
         const revision = data.current?.revision || 'packaged';
-        status(message, tr('Update state: ', 'حالة التحديث: ') + state + ' · v' + currentVersion + ' · ' + revision);
+        status(message, tr('Update state: ', 'حالة التحديث: ') + state + ' · v' + currentVersion + ' · ' + revision + (update?.error ? ' · ' + update.error : ''), Boolean(update?.error));
         if (!data.candidates.length) list.append(node('p', tr('No improvement candidates yet.', 'لا توجد نسخ محسّنة بعد.')));
         for (const item of data.candidates) {
           const row = node('section', '', 'connector-card'); row.append(node('span', item.goal + ' · ' + item.status));

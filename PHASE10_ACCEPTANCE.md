@@ -11,6 +11,18 @@ Linux/CI checks cannot replace the remaining phone tests.
 - Termux connection, RUN_COMMAND bootstrap, authenticated localhost bridge,
   command probing, and the Termux test button succeeded.
 - MCP stdio reached Termux; stderr exposed the previous npx binary-resolution error.
+- Owner screenshots from the session show packaged v332, connected Termux,
+  Playwright with 25 verified tools, and Memory with 9 verified tools. Both MCPs
+  are shown stopped, which is the expected state after enable-time verification.
+  This supports successful managed installation and discovery on Samsung; it
+  does not establish browser launch, Memory write/read, or reconnect acceptance.
+- The browser conversation shows a `playwright.browser_tabs` invocation followed
+  by provider rate limiting/cooldown. Its collapsed result does not prove a
+  completed browser task.
+- Optional external Android MCP fails loading `sharp` on android-arm64. Other
+  screenshots show missing uvx/obu/server binaries and owner-side Google service
+  setup. These are explicit dependency/configuration blockers, not evidence of
+  a broken Termux connection.
 
 ## Current correction
 
@@ -59,9 +71,10 @@ Use only the successful persistent-signed build identified in the handoff. Insta
 over the existing app. All operations below use the app; no manual Termux commands
 are required. Record the build number and exact UI result/error for each operation.
 
-1. In a project conversation, enable Memory and Playwright in Musab Hub. Confirm
-   verified tools after managed installation, then start each and test it. Installed
-   alone does not mean running; enabling intentionally verifies then stops its test process.
+1. On the new build, ask the agent for a Memory and browser task. Confirm it uses
+   `capability_ensure` where needed, starts the MCP and verifies live discovery.
+   Initial v332 discovery is evidenced above; new automatic preparation and
+   actual task completion still require phone results.
 2. Run a real Memory write/read task and a Playwright browser task. Check results,
    then stop/start/reconnect each MCP and repeat. Playwright must actually launch
    Termux Chromium; discovery alone is insufficient browser acceptance.
@@ -76,4 +89,25 @@ are required. Record the build number and exact UI result/error for each operati
 7. Exercise crash/recovery; collect the app's crash report and verify restored task
    and MCP state. Final acceptance remains open until these results are recorded.
 
-No Samsung managed-install or MCP acceptance has been claimed for this fix yet.
+Samsung managed-install/discovery evidence is recorded above. Phase 10 remains
+open for the remaining real task, restart, recovery and update acceptance.
+
+## Automatic preparation, recovery and update changes
+
+The agent now has tools for compatible bundled MCP preparation, packaged plugin
+installation, evidence-backed project skill creation, and restricted HTTPS MCP
+Registry discovery/installation. MCP configuration still requires successful
+initialize/initialized/tools/list; first-install errors show `health_failed`.
+
+Provider recovery retries only an uncommitted model request, respecting cooldown,
+capabilities, Stop and a bounded budget. Downloaded, explicitly capable configured
+local models can be tried as a last resort. Tests of this local fallback mock the
+model runtime; no real GGUF inference is claimed. Unmet goals, exhausted step
+budgets, breaker stops and failed verification remain resumable, not complete.
+
+Successful persistent-signed Phase 10 CI builds publish immutable versioned engine
+assets before updating the GitHub channel pointer. A packaged background worker
+stages and verifies compatible updates, waits for idle and requests the existing
+Android engine restart through the WebView. Native startup health/rollback remains
+the final acceptance gate. Native APK changes still require Android confirmation.
+See `MUSABAI_RUNTIME_AND_AI_ROUTER_FIX.md` for the plan comparison and limitations.

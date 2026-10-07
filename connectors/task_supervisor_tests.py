@@ -124,6 +124,53 @@ class TaskSupervisorTests(unittest.TestCase):
         self.assertIn("checklist", context)
         self.assertEqual(sup.planning_context("What is 2+2?"), "")
 
+    def test_agent_budget_exhaustion_preserves_unfinished_task(self):
+        from . import agent, session, settings, circuit
+        with patch.object(settings, 'HOME', self.tmp.name):
+            s=session.Session(str(self.root))
+            client=SimpleNamespace(id='test',spec={},on_device=False,local=False)
+            a=agent.Agent(s,client=client)
+            self.addCleanup(a.memory.close)
+            with patch.object(circuit,'step_budget',return_value=0), \
+                 patch.object(a,'_user_content',return_value=('Build project', [])):
+                a.run('Build project')
+            row=task_state.resume(self.root,a.supervisor.task_id)
+        self.assertEqual(row['status'],'active', 'unfinished budget stop must not be called verified completion')
+        self.assertIn('budget',row['checkpoint']['blocker'])
+
+    def test_unmet_goal_after_repair_budget_does_not_complete_task(self):
+        from . import agent, session, settings, providers
+        with patch.object(settings,'HOME',self.tmp.name):
+            s=session.Session(str(self.root));s.goal='Verified release'
+            a=agent.Agent(s,client=SimpleNamespace(id='test',spec={},on_device=False,local=False))
+            self.addCleanup(a.memory.close)
+            comp=providers.Completion();comp.content='Progress is incomplete.'
+            with patch.object(a,'_user_content',return_value=('Explain progress', [])), \
+                 patch.object(a,'_maybe_compact'), patch.object(a,'_call',return_value=comp), \
+                 patch.object(a,'_goal_check',return_value=(False,'Tests still fail')):
+                a.run('Explain progress')
+            self.assertEqual(task_state.resume(self.root,a.supervisor.task_id)['status'],'active')
+
+    def test_failed_verification_after_repair_budget_preserves_unfinished_task(self):
+        from . import agent, session, settings, providers
+        with patch.object(settings, 'HOME', self.tmp.name):
+            s = session.Session(str(self.root))
+            a = agent.Agent(s, client=SimpleNamespace(id='test', spec={}, on_device=False, local=False))
+            self.addCleanup(a.memory.close)
+            a.cfg['verify'] = True
+            comp = providers.Completion(); comp.content = 'Progress is incomplete.'
+            original_init = agent.ToolContext.__init__
+            def changed_context(ctx, owner, *args, **kwargs):
+                original_init(ctx, owner, *args, **kwargs)
+                ctx.changed.add('changed.py')
+            with patch.object(a, '_user_content', return_value=('Explain progress', [])), \
+                 patch.object(a, '_maybe_compact'), patch.object(a, '_call', return_value=comp), \
+                 patch.object(agent.ToolContext, '__init__', autospec=True) as context_init, \
+                 patch.object(a, '_verify', return_value=(False, 'Tests still fail', 'pytest')):
+                context_init.side_effect = changed_context
+                a.run('Explain progress')
+            self.assertEqual(task_state.resume(self.root, a.supervisor.task_id)['status'], 'active')
+
 
 if __name__ == "__main__":
     unittest.main()
