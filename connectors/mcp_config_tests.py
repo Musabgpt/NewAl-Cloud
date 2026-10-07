@@ -7,7 +7,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
-from . import mcp_config, mcp, settings, connectors
+from . import mcp_config, mcp, settings, connectors, runtime_manager
 from .agent import Agent
 from .session import Session
 
@@ -113,6 +113,55 @@ class McpConfigTests(unittest.TestCase):
             self.assertTrue(any(d['function']['name']=='mcp__fixture__first' for d in a.schemas()))
             mcp_config.route(self.handler, 'POST', '/api/mcp-servers/remove', {'session':'s','name':'fixture'})
             self.assertFalse(any(d['function']['name'].startswith('mcp__fixture__') for d in a.schemas()))
+
+    def test_managed_stdio_uses_termux_runtime_lifecycle(self):
+        calls = []
+        def request(process_id, message, timeout=120):
+            calls.append((process_id, message, timeout))
+            if message.get('id') is None:
+                return {'ok': True, 'id': process_id, 'notification': True}
+            method = message.get('method')
+            if method == 'initialize':
+                result = {
+                    'protocolVersion': mcp.PROTOCOL,
+                    'capabilities': {'tools': {}},
+                    'serverInfo': {'name': 'fixture', 'version': '1'},
+                }
+            elif method == 'tools/list':
+                result = {'tools': [{'name': 'echo', 'inputSchema': {'type': 'object', 'properties': {}}}]}
+            else:
+                result = {'content': [{'type': 'text', 'text': 'termux reply'}]}
+            return {'ok': True, 'id': process_id, 'response': {
+                'jsonrpc': '2.0', 'id': message['id'], 'result': result
+            }}
+
+        spec = {'command': 'npx', 'args': ['-y', '@modelcontextprotocol/server-memory'], 'env': {}}
+        with patch.object(runtime_manager, 'requirements', return_value={
+            'runtime': runtime_manager.TERMUX,
+            'missing': [],
+            'unknown': [],
+            'reason': 'verified in Termux',
+            'bridge': True,
+            'stdio': True,
+        }), patch.object(runtime_manager, 'process_start', return_value={
+            'ok': True, 'id': 'mcp-1', 'pid': 101, 'status': 'running', 'mode': 'stdio', 'attached': True
+        }) as start, patch.object(runtime_manager, 'process_request', side_effect=request), \
+             patch.object(runtime_manager, 'process_status', return_value={
+                 'ok': True, 'id': 'mcp-1', 'pid': 101, 'status': 'running', 'mode': 'stdio', 'attached': True
+             }), patch.object(runtime_manager, 'process_stop') as stop:
+            server = mcp_config.StdioServer('memory', spec, self.root).start()
+            self.assertTrue(server.alive())
+            self.assertEqual(server.tools[0]['name'], 'echo')
+            result = server.request('tools/call', {'name': 'echo', 'arguments': {}})
+            self.assertEqual(result['content'][0]['text'], 'termux reply')
+            server.stop()
+
+        start.assert_called_once()
+        self.assertTrue(start.call_args.kwargs['stdio'])
+        self.assertIn('npx', start.call_args.args[0])
+        self.assertTrue(any(msg.get('method') == 'initialize' for _, msg, _ in calls))
+        self.assertTrue(any(msg.get('method') == 'tools/list' for _, msg, _ in calls))
+        stop.assert_called_once_with('mcp-1')
 
     def test_input_rejects_unsafe_urls_and_missing_session(self):
         for url in ['http://example.com/mcp','https://user:secret@example.com/mcp','https://example.com/mcp?token=secret']:
