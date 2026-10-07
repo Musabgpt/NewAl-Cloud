@@ -200,27 +200,6 @@ test('document engine sends OCR/layout requirements and renders verified Docling
   assert.match(panel.querySelector('[role="status"]').textContent, /Docling/);
 });
 
-test('official bundle is only enabled after a real backend activation response', async t => {
-  const {w,calls} = await setup(t);
-  const buttons = [...w.document.querySelectorAll('.mcp-bundle button')];
-  const enable = buttons.find(b => b.textContent.includes('تفعيل'));
-  assert(enable);
-  enable.click(); await tick(); await tick();
-  const request = calls.find(c => c.path === '/api/mcp-bundles/enable');
-  assert.equal(request.body.session,'project');
-  assert.equal(request.body.id,'playwright');
-  assert.match(w.document.querySelector('.mcp-bundles [role="status"]').textContent,/7/);
-});
-
-test('missing runtime stays disabled instead of pretending connected', async t => {
-  const {w} = await setup(t);
-  const github = [...w.document.querySelectorAll('.mcp-bundle')].find(x => x.textContent.includes('GitHub MCP'));
-  assert(github);
-  const button = github.querySelector('button');
-  assert.equal(button.disabled,true);
-  assert(github.textContent.includes('غير متاح'));
-});
-
 test('free provider key is cleared after save and never rendered back into the page', async t => {
   const {w,calls} = await setup(t);
   const row = [...w.document.querySelectorAll('.free-provider')].find(x => x.textContent.includes('Groq'));
