@@ -50,6 +50,12 @@ class SigningPolicyTests(unittest.TestCase):
         self.assertIn("MusabAI-Connectors-Development", WORKFLOW)
         self.assertIn("Development APK only", WORKFLOW)
 
+    def test_repository_history_is_scanned_for_signing_material(self):
+        self.assertIn("fetch-depth: 0", WORKFLOW)
+        self.assertIn("git log --all --name-only", WORKFLOW)
+        self.assertIn("git rev-list --all", WORKFLOW)
+        self.assertIn("Private-key text exists in reachable Git history", WORKFLOW)
+
     def test_signing_material_patterns_are_ignored(self):
         for pattern in (
             "*.jks",
