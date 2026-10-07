@@ -49,14 +49,17 @@ class McpBundlesTest(unittest.TestCase):
             "missing": [],
             "unknown": [],
             "reason": "npx verified inside Termux",
-            "stdio": False,
+            "stdio": True,
         }
         with mock.patch.object(runtime_manager, "requirements", return_value=ready):
             catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
-        self.assertEqual(catalog["playwright"]["status"], "bridge_required")
+        self.assertEqual(catalog["playwright"]["status"], "available")
         self.assertEqual(catalog["playwright"]["missing"], [])
         self.assertEqual(catalog["playwright"]["runtime"], runtime_manager.TERMUX)
-        self.assertFalse(catalog["playwright"]["available"])
+        self.assertTrue(catalog["playwright"]["available"])
+        self.assertEqual(catalog["playwright"]["start_method"], "runtime_process_start(stdio=true)")
+        self.assertEqual(catalog["playwright"]["stop_method"], "runtime_process_stop")
+        self.assertEqual(catalog["playwright"]["health_check"], "MCP initialize + tools/list")
 
     def test_filesystem_and_memory_are_scoped_to_current_project(self):
         fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
@@ -65,6 +68,35 @@ class McpBundlesTest(unittest.TestCase):
         memory_file = memory["env"]["MEMORY_FILE_PATH"]
         self.assertTrue(memory_file.startswith(os.path.realpath(self.root) + os.sep))
         self.assertTrue(memory_file.endswith(os.path.join(".newal", "mcp-memory.jsonl")))
+
+    def test_memory_uses_project_scoped_file_inside_termux_home(self):
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "npx verified inside Termux",
+            "stdio": True,
+        }
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "termux_home", return_value="/data/data/com.termux/files/home"):
+            memory = mcp_bundles._spec(mcp_bundles._item("memory"), self.root)
+        memory_file = memory["env"]["MEMORY_FILE_PATH"]
+        self.assertTrue(memory_file.startswith("/data/data/com.termux/files/home/"))
+        self.assertNotIn(os.path.realpath(self.root), memory_file)
+        self.assertIn("musabai-mcp-memory-", memory_file)
+
+    def test_filesystem_is_not_falsely_available_for_app_private_root_in_termux(self):
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "npx verified inside Termux",
+            "stdio": True,
+        }
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready):
+            catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
+        self.assertEqual(catalog["filesystem"]["status"], "needs_shared_path")
+        self.assertFalse(catalog["filesystem"]["available"])
 
     def test_phase2_browser_bundle_commands_are_pinned_and_explicit(self):
         playwright = mcp_bundles._spec(mcp_bundles._item("playwright"), self.root)
@@ -115,6 +147,10 @@ class McpBundlesTest(unittest.TestCase):
         saved = mcp_config.read(self.root)
         self.assertEqual(saved["playwright"]["bundle"], "playwright")
         self.assertEqual(saved["playwright"]["tools"], 17)
+        catalog = {item["id"]: item for item in mcp_bundles.catalog(self.root)}
+        self.assertEqual(catalog["playwright"]["status"], "verified")
+        self.assertTrue(catalog["playwright"]["installed"])
+        self.assertFalse(catalog["playwright"]["connected"])
 
         mcp_bundles.route(handler, "POST", "/api/mcp-bundles/disable",
                           {"session": "session1", "id": "playwright"})
