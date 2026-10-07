@@ -112,6 +112,38 @@ class RuntimeManagerTest(unittest.TestCase):
         self.assertEqual([c.args[1].split("?")[0] for c in bridge.call_args_list],
                          ["/process/start", "/process/status", "/process/stop"])
 
+    def test_mcp_stdio_lifecycle_uses_authenticated_process_request(self):
+        responses = [
+            {"ok": True, "id": "mcp-1", "pid": 321, "status": "running", "mode": "stdio", "attached": True},
+            {"ok": True, "id": "mcp-1", "response": {"jsonrpc": "2.0", "id": 7, "result": {"tools": []}}},
+            {"ok": True, "id": "mcp-1", "pid": 321, "status": "stopped", "mode": "stdio", "attached": False},
+        ]
+        with mock.patch.object(runtime_manager, "_ensure_bridge", return_value={"started_at": 1}), \
+             mock.patch.object(runtime_manager, "_bridge_request", side_effect=responses) as bridge:
+            started = runtime_manager.process_start("npx -y @modelcontextprotocol/server-memory", stdio=True)
+            reply = runtime_manager.process_request(
+                "mcp-1", {"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}}, 30
+            )
+            stopped = runtime_manager.process_stop("mcp-1")
+        self.assertEqual(started["mode"], "stdio")
+        self.assertEqual(reply["response"]["id"], 7)
+        self.assertEqual(stopped["status"], "stopped")
+        self.assertTrue(bridge.call_args_list[0].args[2]["stdio"])
+        self.assertEqual(bridge.call_args_list[1].args[1], "/process/request")
+        self.assertEqual(bridge.call_args_list[1].args[2]["message"]["method"], "tools/list")
+
+    def test_termux_requirements_advertise_stdio_only_with_live_bridge(self):
+        with mock.patch.object(runtime_manager, "_phone_available", return_value=True), \
+             mock.patch.object(runtime_manager, "probe_termux", return_value={
+                 "commands": {"npx": True},
+                 "reason": "verified",
+                 "bridge": True,
+             }):
+            state = runtime_manager.requirements(["npx"])
+        self.assertEqual(state["runtime"], runtime_manager.TERMUX)
+        self.assertTrue(state["stdio"])
+        self.assertEqual(state["missing"], [])
+
     def test_android_native_refuses_shell_instead_of_using_adb(self):
         with self.assertRaisesRegex(Exception, "does not run shell commands or adb"):
             runtime_manager.execute("adb devices", runtime_manager.ANDROID_NATIVE)
