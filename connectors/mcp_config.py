@@ -220,8 +220,8 @@ class StdioServer(mcp.StdioServer):
         if termux_cwd:
             if not termux_cwd.startswith('/') or '\x00' in termux_cwd:
                 raise RuntimeError('Invalid Termux MCP working directory')
-            return 'cd %s && exec %s%s' % (shlex.quote(termux_cwd), prefix, argv)
-        return 'exec %s%s' % (prefix, argv)
+            return 'cd %s && %s%s' % (shlex.quote(termux_cwd), prefix, argv)
+        return '%s%s' % (prefix, argv)
 
     def _termux_message(self, message, timeout):
         from . import runtime_manager
