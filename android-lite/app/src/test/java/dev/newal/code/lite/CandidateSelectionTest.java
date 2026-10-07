@@ -179,6 +179,83 @@ public class CandidateSelectionTest {
         assertNull(CandidateSelection.select(fixture.home, BUILD));
     }
 
+
+    @Test public void compatibleUpdateSurvivesRestartAndNeedsNativeHealthConfirmation() throws Exception {
+        Fixture fixture = updateFixture("43", "activating", false);
+        assertEquals(fixture.candidate.getCanonicalFile(),
+                CandidateSelection.select(fixture.home, "42", Setup.UPDATE_COMPAT));
+        assertTrue(CandidateSelection.markHealthy(fixture.home, "42", Setup.UPDATE_COMPAT));
+        JSONObject active = json(new File(fixture.evolution, "active.json"));
+        assertEquals("active", active.getString("state"));
+        assertTrue(active.getBoolean("health_confirmed"));
+        // A second selection models a later process/app restart: the same verified
+        // revision remains selected only because its digest/evidence still validates.
+        assertEquals(fixture.candidate.getCanonicalFile(),
+                CandidateSelection.select(fixture.home, "42", Setup.UPDATE_COMPAT));
+    }
+
+    @Test public void failedActivationRollsBackToPackagedEngineAndRecordsFailure() throws Exception {
+        Fixture fixture = updateFixture("43", "activating", false);
+        assertTrue(CandidateSelection.rollbackPending(
+                fixture.home, "42", Setup.UPDATE_COMPAT, "startup probe failed"));
+        assertFalse(new File(fixture.evolution, "active.json").exists());
+        assertNull(CandidateSelection.select(fixture.home, "42", Setup.UPDATE_COMPAT));
+        JSONObject failure = json(new File(fixture.evolution, "last-failure.json"));
+        assertEquals("rolled_back", failure.getString("state"));
+        assertEquals("failed_activation", failure.getString("cause"));
+        assertEquals(ID, failure.getString("failed_revision"));
+        assertEquals("startup probe failed", failure.getString("error"));
+    }
+
+    @Test public void healthyActiveRevisionIsNeverRolledBackByLaterTransientFailure() throws Exception {
+        Fixture fixture = updateFixture("43", "active", true);
+        assertFalse(CandidateSelection.rollbackPending(
+                fixture.home, "42", Setup.UPDATE_COMPAT, "later transient failure"));
+        assertEquals(fixture.candidate.getCanonicalFile(),
+                CandidateSelection.select(fixture.home, "42", Setup.UPDATE_COMPAT));
+    }
+
+    @Test public void olderUpdateNeedsExplicitDowngradeEvidenceInRecordAndPointer() throws Exception {
+        Fixture denied = updateFixture("41", "activating", false);
+        assertNull(CandidateSelection.select(denied.home, "42", Setup.UPDATE_COMPAT));
+
+        Fixture allowed = updateFixture("41", "activating", false);
+        allowed.active.put("downgrade_allowed", true);
+        allowed.record.put("downgrade_allowed", true);
+        allowed.save();
+        assertEquals(allowed.candidate.getCanonicalFile(),
+                CandidateSelection.select(allowed.home, "42", Setup.UPDATE_COMPAT));
+    }
+
+    @Test public void updateWithWrongNativeCompatibilityFallsBackToPackagedEngine() throws Exception {
+        Fixture fixture = updateFixture("43", "activating", false);
+        assertNull(CandidateSelection.select(fixture.home, "42", "different-native-abi"));
+        fixture.record.put("compatibility_id", "different-native-abi");
+        fixture.save();
+        assertNull(CandidateSelection.select(fixture.home, "42", Setup.UPDATE_COMPAT));
+    }
+
+    private Fixture updateFixture(String version, String state, boolean healthy) throws Exception {
+        Fixture fixture = fixture();
+        int versionCode = Integer.parseInt(version);
+        fixture.active.put("kind", "update")
+                .put("state", state)
+                .put("health_confirmed", healthy)
+                .put("compatibility_id", Setup.UPDATE_COMPAT)
+                .put("version_code", versionCode)
+                .put("verified_digest", DIGEST);
+        fixture.record.put("kind", "update")
+                .put("status", "ready_to_activate")
+                .put("compatibility_id", Setup.UPDATE_COMPAT)
+                .put("version_code", versionCode);
+        fixture.save();
+        return fixture;
+    }
+
+    private static JSONObject json(File file) throws Exception {
+        return new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+    }
+
     private Fixture fixture() throws Exception {
         File home = temporary.newFolder();
         File evolution = new File(home, ".newal-code/evolution");
