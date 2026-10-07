@@ -256,3 +256,20 @@ for (const [label, path] of [['Activate', '/api/evolution/activate'], ['Restore 
     assert.equal(restarts, 0);
   });
 }
+
+
+test('Improve shows truthful Phase 9 state and exposes a verified staged update', async t => {
+  const state = await app(t, {handler: call => call.url === '/api/evolution' ? {
+    current: {version_code: 304, revision: 'packaged'},
+    update: {state: 'failed_verification', error: 'hash mismatch'},
+    candidates: [
+      {id: '999999999999999999999999', goal: 'Candidate 305', status: 'ready_to_activate'}
+    ]
+  } : undefined});
+  await state.tab('Improve');
+  const panel = state.doc.querySelector('[role="tabpanel"]');
+  assert.match(panel.textContent, /failed_verification/);
+  assert.match(panel.textContent, /v304/);
+  assert(button(panel, 'Activate'), 'ready_to_activate is actionable only after verification');
+  assert.doesNotMatch(panel.textContent, /\bupdated\b/i);
+});
