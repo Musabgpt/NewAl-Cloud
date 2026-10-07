@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import tempfile
 import threading
 import time
@@ -167,14 +168,21 @@ class HttpServer(mcp.HttpServer):
 
 
 class StdioServer(mcp.StdioServer):
-    """Managed stdio server with model-safe aliases for long/qualified tool names."""
-    def request(self, method, params, timeout=120):
-        if method == 'tools/call':
-            params = dict(params, name=getattr(self, 'aliases', {}).get(params.get('name'), params.get('name')))
-        return super().request(method, params, timeout)
+    """Managed stdio server that runs inside Termux on Android.
 
-    def start(self, timeout=60):
-        super().start(timeout)
+    Local desktop/test hosts keep using the upstream subprocess transport. On
+    Android, the command is started once through runtime_manager's durable
+    localhost process lifecycle and JSON-RPC is exchanged through the
+    authenticated /process/request bridge endpoint.
+    """
+
+    def __init__(self, name, spec, cwd):
+        super().__init__(name, spec, cwd)
+        self._termux_process_id = ""
+        self._termux = False
+        self.aliases = {}
+
+    def _prepare_tools(self):
         self.aliases = {}
         prepared, names = [], set()
         budget = 64 - len('mcp__' + self.name + '__')
@@ -194,7 +202,134 @@ class StdioServer(mcp.StdioServer):
         if not prepared or len(prepared) > 512:
             raise RuntimeError('MCP server has an invalid tool catalog')
         self.tools = prepared
-        return self
+
+    def _termux_command(self):
+        command = str(self.spec.get('command') or '')
+        args = [str(x) for x in self.spec.get('args') or []]
+        if not command:
+            raise RuntimeError('MCP stdio command is missing')
+        env = self.spec.get('env') or {}
+        assignments = []
+        for key, value in env.items():
+            if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+                raise RuntimeError('MCP environment contains an invalid variable name')
+            assignments.append('%s=%s' % (key, shlex.quote(str(value))))
+        argv = ' '.join(shlex.quote(x) for x in [command] + args)
+        prefix = 'env ' + ' '.join(assignments) + ' ' if assignments else ''
+        termux_cwd = str(self.spec.get('termux_cwd') or '').strip()
+        if termux_cwd:
+            if not termux_cwd.startswith('/') or '\x00' in termux_cwd:
+                raise RuntimeError('Invalid Termux MCP working directory')
+            return 'cd %s && exec %s%s' % (shlex.quote(termux_cwd), prefix, argv)
+        return 'exec %s%s' % (prefix, argv)
+
+    def _termux_message(self, message, timeout):
+        from . import runtime_manager
+        if not self._termux_process_id:
+            raise RuntimeError('MCP stdio process is not started')
+        data = runtime_manager.process_request(self._termux_process_id, message, timeout)
+        response = data.get('response')
+        if message.get('id') is None:
+            return {}
+        if not isinstance(response, dict) or response.get('id') != message.get('id'):
+            raise RuntimeError('MCP returned an invalid response ID')
+        if 'error' in response:
+            error = response.get('error')
+            if isinstance(error, dict):
+                error = error.get('message') or error
+            raise RuntimeError(str(error))
+        result = response.get('result')
+        return result if isinstance(result, dict) else {}
+
+    def request(self, method, params, timeout=120):
+        if method == 'tools/call':
+            params = dict(params, name=self.aliases.get(params.get('name'), params.get('name')))
+        if not self._termux:
+            return super().request(method, params, timeout)
+        self._id += 1
+        return self._termux_message({
+            'jsonrpc': '2.0',
+            'id': self._id,
+            'method': method,
+            'params': params,
+        }, timeout)
+
+    def _notify(self, method, params=None, timeout=30):
+        if not self._termux:
+            self._send({'jsonrpc': '2.0', 'method': method, 'params': params or {}})
+            return
+        self._termux_message({
+            'jsonrpc': '2.0',
+            'method': method,
+            'params': params or {},
+        }, timeout)
+
+    def start(self, timeout=60):
+        from . import runtime_manager
+        state = runtime_manager.requirements([self.spec.get('command')])
+        if state['unknown']:
+            raise RuntimeError(state['reason'])
+        if state['missing']:
+            raise RuntimeError('Missing requirements: ' + ', '.join(state['missing']))
+        if state['runtime'] != runtime_manager.TERMUX:
+            super().start(timeout)
+            self._prepare_tools()
+            return self
+        if not state.get('stdio'):
+            raise RuntimeError('Termux localhost bridge does not support MCP stdio')
+        self._termux = True
+        started = runtime_manager.process_start(self._termux_command(), stdio=True)
+        if started.get('status') != 'running' or not started.get('id'):
+            raise RuntimeError('MCP stdio process did not start')
+        self._termux_process_id = started['id']
+        try:
+            result = self.request('initialize', {
+                'protocolVersion': mcp.PROTOCOL,
+                'capabilities': {},
+                'clientInfo': {'name': 'MusabAI', 'version': '1'},
+            }, timeout)
+            protocol = result.get('protocolVersion')
+            if protocol not in {'2024-11-05', '2025-03-26', mcp.PROTOCOL}:
+                raise RuntimeError('MCP server selected an unsupported protocol version')
+            self._notify('notifications/initialized', timeout=timeout)
+            self.tools = self._list_tools()
+            self._prepare_tools()
+            return self
+        except Exception:
+            self.stop()
+            raise
+
+    def alive(self):
+        if not self._termux:
+            return super().alive()
+        if not self._termux_process_id:
+            return False
+        from . import runtime_manager
+        try:
+            state = runtime_manager.process_status(self._termux_process_id)
+        except Exception:
+            return False
+        if state.get('status') == 'running' and state.get('attached', True):
+            return True
+        if state.get('status') == 'running' and not state.get('attached', True):
+            try:
+                runtime_manager.process_stop(self._termux_process_id)
+            except Exception:
+                pass
+        return False
+
+    def stop(self):
+        if not self._termux:
+            return super().stop()
+        process_id, self._termux_process_id = self._termux_process_id, ''
+        if not process_id:
+            return
+        from . import runtime_manager
+        try:
+            runtime_manager.process_stop(process_id)
+        except Exception:
+            pass
+
 
 def refresh_agent(agent):
     path = path_for(agent.session.root)
