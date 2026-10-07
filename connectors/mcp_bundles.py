@@ -6,9 +6,12 @@ Enabling performs an actual initialize + tools/list handshake before persisting
 the server into the project's private MCP configuration.
 """
 import hashlib
+import json
 import os
 import re
 import shutil
+import tempfile
+import threading
 import time
 
 from . import mcp_config, runtime_manager
@@ -18,6 +21,9 @@ PATHS = {
     "/api/mcp-bundles/enable",
     "/api/mcp-bundles/test",
     "/api/mcp-bundles/disable",
+    "/api/mcp-bundles/start",
+    "/api/mcp-bundles/stop",
+    "/api/mcp-bundles/reconnect",
 }
 
 BUNDLES = [
@@ -176,56 +182,170 @@ def _spec(item, root):
     }
 
 
+_RUNNING_LOCK = threading.RLock()
+_RUNNING = {}
+_LAST_ERRORS = {}
+
+
+def _runtime_state_path(root):
+    path = mcp_config.path_for(root)
+    return path.with_name(path.stem + ".runtime.json")
+
+
+def _read_runtime_state(root):
+    try:
+        data = json.loads(_runtime_state_path(root).read_text())
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, ValueError, OSError):
+        return {}
+
+
+def _save_runtime_state(root, data):
+    path = _runtime_state_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".mcp-runtime-")
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(data, stream, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _key(root, bundle_id):
+    return (os.path.realpath(root), bundle_id)
+
+
+def _remember_process(root, item, server):
+    process_id = str(getattr(server, "_termux_process_id", "") or "")
+    if not process_id:
+        return
+    state = _read_runtime_state(root)
+    state[item["id"]] = {
+        "process_id": process_id,
+        "started_at": int(time.time()),
+    }
+    _save_runtime_state(root, state)
+
+
+def _forget_process(root, item):
+    state = _read_runtime_state(root)
+    if item["id"] in state:
+        del state[item["id"]]
+        _save_runtime_state(root, state)
+
+
+def _attached_server(item, root, process_id):
+    server = mcp_config.StdioServer(item["id"], _spec(item, root), root)
+    server._termux = True
+    server._termux_process_id = process_id
+    return server
+
+
+def _running_server(item, root):
+    if not root:
+        return None
+    key = _key(root, item["id"])
+    with _RUNNING_LOCK:
+        server = _RUNNING.get(key)
+        if server is not None:
+            if server.alive():
+                return server
+            try:
+                server.stop()
+            except Exception:
+                pass
+            _RUNNING.pop(key, None)
+            _forget_process(root, item)
+
+        saved = _read_runtime_state(root).get(item["id"]) or {}
+        process_id = str(saved.get("process_id") or "")
+        if not process_id:
+            return None
+        server = _attached_server(item, root, process_id)
+        if server.alive():
+            _RUNNING[key] = server
+            return server
+        _forget_process(root, item)
+        return None
+
+
+def _installed_record(item, root):
+    if not root:
+        return {}
+    try:
+        record = mcp_config.read(root).get(item["id"]) or {}
+    except OSError:
+        return {}
+    if record.get("bundle") != item["id"]:
+        return {}
+    if int(record.get("tested_at") or 0) <= 0 or int(record.get("tools") or 0) <= 0:
+        return {}
+    return record
+
+
+def _lifecycle_status(item, runtime, installed, running, last_error):
+    credential_missing = bool(item.get("credential_env_any") and not _credential(item)[1])
+    if running:
+        return "server_running"
+    if credential_missing:
+        return "permission_required"
+    if runtime["unknown"]:
+        return "termux_disconnected" if runtime["runtime"] == runtime_manager.TERMUX else "runtime_unavailable"
+    if runtime["missing"]:
+        return "tool_missing"
+    if runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
+        return "termux_disconnected"
+    if runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
+        return "needs_setup"
+    if installed and last_error:
+        return "health_failed"
+    if installed:
+        return "server_stopped"
+    return "ready"
+
+
 def catalog(root=None):
-    enabled = {}
-    if root:
-        try:
-            enabled = mcp_config.read(root)
-        except OSError:
-            enabled = {}
     result = []
     for item in BUNDLES:
         runtime = _runtime_requirements(item)
-        missing = list(runtime["missing"])
-        credential_missing = bool(item.get("credential_env_any") and not _credential(item)[1])
-        record = enabled.get(item["id"]) or {}
-        active = record.get("bundle") == item["id"]
-        verified = bool(active and int(record.get("tested_at") or 0) > 0 and int(record.get("tools") or 0) > 0)
-        if verified:
-            status = "verified"
-        elif credential_missing:
-            status = "credentials_missing"
-        elif runtime["unknown"]:
-            status = "runtime_unavailable"
-        elif missing:
-            status = "runtime_missing"
-        elif runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
-            status = "bridge_required"
-        elif runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
-            status = "needs_shared_path"
-        else:
-            status = "available"
+        record = _installed_record(item, root)
+        installed = bool(record)
+        server = _running_server(item, root) if installed else None
+        running = bool(server)
+        key = _key(root, item["id"]) if root else None
+        last_error = _LAST_ERRORS.get(key, "") if key else ""
+        status = _lifecycle_status(item, runtime, installed, running, last_error)
         public = {
             k: v for k, v in item.items()
             if k not in {"command", "args", "env", "credential_env_any", "env_alias"}
         }
+        process_id = str(getattr(server, "_termux_process_id", "") or "") if server else ""
         public.update({
-            "available": status == "available",
+            "available": status == "ready",
             "status": status,
-            "missing": missing,
+            "missing": list(runtime["missing"]),
             "runtime": runtime["runtime"],
             "runtime_reason": runtime["reason"],
             "dependencies": list(item.get("runtimes") or []),
             "install_method": "on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled",
             "start_method": "runtime_process_start(stdio=true)",
             "stop_method": "runtime_process_stop",
-            "health_check": "MCP initialize + tools/list",
-            "verified": verified,
-            "installed": verified,
-            "connected": False,
-            "enabled": verified,
-            "tools": int(record.get("tools") or 0) if verified else 0,
-            "tested_at": int(record.get("tested_at") or 0) if verified else 0,
+            "health_check": "live process status + MCP tools/list",
+            "verified": installed,
+            "installed": installed,
+            "connected": running,
+            "running": running,
+            "can_start": installed and status in {"server_stopped", "health_failed"},
+            "enabled": installed,
+            "tools": int(record.get("tools") or 0) if installed else 0,
+            "tested_at": int(record.get("tested_at") or 0) if installed else 0,
+            "process_id": process_id,
+            "health": "healthy" if running else ("failed" if status == "health_failed" else "stopped" if installed else "unverified"),
+            "last_error": last_error,
         })
         result.append(public)
     return result
@@ -252,7 +372,7 @@ def _test(item, root):
     if runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
         raise RuntimeError(
             "Termux runtime is verified, but persistent MCP stdio transport is not active yet; "
-            "use the Phase 6 localhost bridge before enabling this bundle."
+            "use the localhost bridge before enabling this bundle."
         )
     server = mcp_config.StdioServer(item["id"], _spec(item, root), root)
     try:
@@ -279,6 +399,113 @@ def _save_enabled(item, root, tools):
         mcp_config.save(root, servers)
 
 
+def _start(item, root):
+    if not _installed_record(item, root):
+        raise ValueError("Install and verify this MCP bundle first")
+    current = _running_server(item, root)
+    if current is not None:
+        return int(_installed_record(item, root).get("tools") or len(current.tools) or 0)
+
+    runtime = _runtime_requirements(item)
+    if runtime["unknown"]:
+        raise RuntimeError(runtime["reason"])
+    if runtime["missing"]:
+        raise RuntimeError("Missing requirements: " + ", ".join(runtime["missing"]))
+    if runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
+        raise RuntimeError("Filesystem MCP needs a shared project path before it can start")
+    if runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
+        raise RuntimeError("Termux localhost bridge is not available")
+
+    server = mcp_config.StdioServer(item["id"], _spec(item, root), root)
+    server.start(timeout=45)
+    with _RUNNING_LOCK:
+        _RUNNING[_key(root, item["id"])] = server
+        _remember_process(root, item, server)
+    return len(server.tools)
+
+
+def _stop(item, root, require_running=False):
+    key = _key(root, item["id"])
+    with _RUNNING_LOCK:
+        server = _RUNNING.get(key)
+        saved = _read_runtime_state(root).get(item["id"]) or {}
+        if server is None and saved.get("process_id"):
+            server = _attached_server(item, root, str(saved["process_id"]))
+        if server is None:
+            if require_running:
+                raise ValueError("MCP server is not running")
+            _forget_process(root, item)
+            return
+        try:
+            server.stop()
+        except Exception as exc:
+            raise RuntimeError("MCP process could not be stopped") from exc
+        finally:
+            _RUNNING.pop(key, None)
+        _forget_process(root, item)
+
+
+def _health(item, root):
+    server = _running_server(item, root)
+    if server is None:
+        return _test(item, root)
+    tools = server._list_tools()
+    if not isinstance(tools, list) or not tools:
+        raise RuntimeError("MCP health check returned no tools")
+    return len(tools)
+
+
+def perform(root, bundle_id, action):
+    item = _item(bundle_id)
+    key = _key(root, item["id"])
+    try:
+        if action == "disable":
+            _stop(item, root, require_running=False)
+            with mcp_config.LOCK:
+                servers = mcp_config.read(root)
+                record = servers.get(item["id"])
+                if not record or record.get("bundle") != item["id"]:
+                    raise ValueError("Bundle is not enabled")
+                del servers[item["id"]]
+                mcp_config.save(root, servers)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "enabled": False, "running": False}
+
+        if action == "enable":
+            count = _test(item, root)
+            _save_enabled(item, root, count)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "tools": count, "enabled": True, "running": False}
+
+        if action == "test":
+            count = _health(item, root)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "tools": count, "running": _running_server(item, root) is not None}
+
+        if action == "start":
+            count = _start(item, root)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "tools": count, "enabled": True, "running": True}
+
+        if action == "stop":
+            _stop(item, root, require_running=True)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "enabled": True, "running": False}
+
+        if action == "reconnect":
+            if not _installed_record(item, root):
+                raise ValueError("Install and verify this MCP bundle first")
+            _stop(item, root, require_running=False)
+            count = _start(item, root)
+            _LAST_ERRORS.pop(key, None)
+            return {"ok": True, "tools": count, "enabled": True, "running": True}
+
+        raise ValueError("Unknown MCP lifecycle action")
+    except (ValueError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        _LAST_ERRORS[key] = str(exc)[:300]
+        raise
+
+
 def route(handler, method, path, body=None):
     if path not in PATHS:
         return False
@@ -293,7 +520,7 @@ def route(handler, method, path, body=None):
             handler._json({
                 "bundles": catalog(root),
                 "automatic": True,
-                "note": "Installed means a real initialize + tools/list handshake succeeded. Connected is never claimed from saved state alone.",
+                "note": "Installed, process-running and health are separate live states. Running is claimed only while the managed process is alive.",
             })
             return True
 
@@ -302,26 +529,11 @@ def route(handler, method, path, body=None):
             return True
 
         root = _session_root(handler, data)
-        item = _item(data.get("id"))
-
-        if path.endswith("/disable"):
-            with mcp_config.LOCK:
-                servers = mcp_config.read(root)
-                record = servers.get(item["id"])
-                if not record or record.get("bundle") != item["id"]:
-                    raise ValueError("Bundle is not enabled")
-                del servers[item["id"]]
-                mcp_config.save(root, servers)
-            handler._json({"ok": True})
-            return True
-
-        count = _test(item, root)
-        if path.endswith("/enable"):
-            _save_enabled(item, root, count)
-        handler._json({"ok": True, "tools": count, "enabled": path.endswith("/enable")})
+        action = path.rsplit("/", 1)[-1]
+        handler._json(perform(root, data.get("id"), action))
     except (ValueError, KeyError, OSError, RuntimeError, TypeError) as error:
         message = str(error)
         if len(message) > 300:
             message = message[:300]
-        handler._json({"error": "MCP bundle could not be activated: " + message}, 400)
+        handler._json({"error": "MCP lifecycle operation failed: " + message}, 400)
     return True
