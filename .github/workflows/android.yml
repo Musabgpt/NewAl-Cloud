@@ -61,32 +61,12 @@ jobs:
         id: signing
         shell: bash
         env:
-          MUSABAI_RELEASE_KEYSTORE_B64: ${{ secrets.MUSABAI_RELEASE_KEYSTORE_B64 }}
-          MUSABAI_RELEASE_STORE_PASSWORD: ${{ secrets.MUSABAI_RELEASE_STORE_PASSWORD }}
-          MUSABAI_RELEASE_KEY_ALIAS: ${{ secrets.MUSABAI_RELEASE_KEY_ALIAS }}
-          MUSABAI_RELEASE_KEY_PASSWORD: ${{ secrets.MUSABAI_RELEASE_KEY_PASSWORD }}
-          MUSABAI_RELEASE_CERT_SHA256: ${{ secrets.MUSABAI_RELEASE_CERT_SHA256 }}
+          MUSABAI_RELEASE_SIGNING_BUNDLE: ${{ secrets.MUSABAI_RELEASE_SIGNING_BUNDLE }}
         run: |
           set -euo pipefail
-          names=(
-            MUSABAI_RELEASE_KEYSTORE_B64
-            MUSABAI_RELEASE_STORE_PASSWORD
-            MUSABAI_RELEASE_KEY_ALIAS
-            MUSABAI_RELEASE_KEY_PASSWORD
-            MUSABAI_RELEASE_CERT_SHA256
-          )
-          count=0
-          for name in "${names[@]}"; do
-            if [ -n "${!name:-}" ]; then
-              count=$((count + 1))
-            fi
-          done
-          if [ "$count" -eq 0 ]; then
+          if [ -z "${MUSABAI_RELEASE_SIGNING_BUNDLE:-}" ]; then
             echo "mode=development" >> "$GITHUB_OUTPUT"
-            echo "::notice::Persistent release signing secrets are not configured. CI will build a development-only APK; no publishable release APK will be produced."
-          elif [ "$count" -ne "${#names[@]}" ]; then
-            echo "::error::Persistent release signing configuration is incomplete. Configure all required secrets together."
-            exit 1
+            echo "::notice::Persistent release signing secret is not configured. CI will build a development-only APK; no publishable release APK will be produced."
           else
             echo "mode=release" >> "$GITHUB_OUTPUT"
             echo "::notice::Persistent release signing identity is configured."
@@ -188,23 +168,72 @@ jobs:
         if: steps.signing.outputs.mode == 'release'
         shell: bash
         env:
-          MUSABAI_RELEASE_KEYSTORE_B64: ${{ secrets.MUSABAI_RELEASE_KEYSTORE_B64 }}
-          MUSABAI_RELEASE_STORE_PASSWORD: ${{ secrets.MUSABAI_RELEASE_STORE_PASSWORD }}
-          MUSABAI_RELEASE_KEY_ALIAS: ${{ secrets.MUSABAI_RELEASE_KEY_ALIAS }}
-          MUSABAI_RELEASE_KEY_PASSWORD: ${{ secrets.MUSABAI_RELEASE_KEY_PASSWORD }}
-          MUSABAI_RELEASE_CERT_SHA256: ${{ secrets.MUSABAI_RELEASE_CERT_SHA256 }}
+          MUSABAI_RELEASE_SIGNING_BUNDLE: ${{ secrets.MUSABAI_RELEASE_SIGNING_BUNDLE }}
         run: |
           set -euo pipefail
-          KEYSTORE_FILE="$RUNNER_TEMP/musabai-release.jks"
+          SIGNING_DIR="$RUNNER_TEMP/musabai-signing"
+          BUNDLE_FILE="$SIGNING_DIR/bundle.json"
+          KEYSTORE_FILE="$SIGNING_DIR/release.jks"
+          STORE_PASSWORD_FILE="$SIGNING_DIR/store_password"
+          KEY_ALIAS_FILE="$SIGNING_DIR/key_alias"
+          KEY_PASSWORD_FILE="$SIGNING_DIR/key_password"
           cleanup() {
-            rm -f "$KEYSTORE_FILE"
+            rm -rf "$SIGNING_DIR"
           }
           trap cleanup EXIT HUP INT TERM
           umask 077
-          printf '%s' "$MUSABAI_RELEASE_KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"
-          test -s "$KEYSTORE_FILE"
-          chmod 600 "$KEYSTORE_FILE"
+          mkdir -p "$SIGNING_DIR"
+          chmod 700 "$SIGNING_DIR"
+
+          printf '%s' "$MUSABAI_RELEASE_SIGNING_BUNDLE" | base64 --decode > "$BUNDLE_FILE"
+          test -s "$BUNDLE_FILE"
+
+          python3 - "$BUNDLE_FILE" "$KEYSTORE_FILE" "$STORE_PASSWORD_FILE" "$KEY_ALIAS_FILE" "$KEY_PASSWORD_FILE" <<'PY'
+          import base64
+          import binascii
+          import json
+          import os
+          import pathlib
+          import sys
+
+          bundle_path, keystore_path, store_path, alias_path, key_path = map(pathlib.Path, sys.argv[1:])
+          try:
+              bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid signing bundle: {exc}")
+
+          required = ("keystore_b64", "store_password", "key_alias", "key_password")
+          missing = [name for name in required if not isinstance(bundle.get(name), str) or not bundle[name]]
+          if missing:
+              raise SystemExit("Signing bundle is missing required fields: " + ", ".join(missing))
+
+          for name in ("store_password", "key_alias", "key_password"):
+              value = bundle[name]
+              if "\n" in value or "\r" in value or "\x00" in value:
+                  raise SystemExit(f"Signing bundle field {name} contains forbidden control characters")
+
+          try:
+              keystore_bytes = base64.b64decode(bundle["keystore_b64"], validate=True)
+          except (ValueError, binascii.Error) as exc:
+              raise SystemExit(f"Signing bundle keystore is not valid base64: {exc}")
+          if not keystore_bytes:
+              raise SystemExit("Signing bundle keystore is empty")
+
+          keystore_path.write_bytes(keystore_bytes)
+          store_path.write_text(bundle["store_password"], encoding="utf-8")
+          alias_path.write_text(bundle["key_alias"], encoding="utf-8")
+          key_path.write_text(bundle["key_password"], encoding="utf-8")
+          for path in (keystore_path, store_path, alias_path, key_path):
+              os.chmod(path, 0o600)
+          PY
+
           export MUSABAI_RELEASE_STORE_FILE="$KEYSTORE_FILE"
+          export MUSABAI_RELEASE_STORE_PASSWORD="$(cat "$STORE_PASSWORD_FILE")"
+          export MUSABAI_RELEASE_KEY_ALIAS="$(cat "$KEY_ALIAS_FILE")"
+          export MUSABAI_RELEASE_KEY_PASSWORD="$(cat "$KEY_PASSWORD_FILE")"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_STORE_PASSWORD"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_KEY_ALIAS"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_KEY_PASSWORD"
 
           gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
@@ -217,13 +246,13 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs MusabAI-Connectors.apk | tee signing-report.txt
 
           actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-report.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
-          expected="$(printf '%s' "$MUSABAI_RELEASE_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          expected="$(tr '[:upper:]' '[:lower:]' < android-lite/signing-cert-sha256.txt | tr -d ':[:space:]')"
           if [[ ! "$actual" =~ ^[0-9a-f]{64}$ ]]; then
             echo "::error::Unable to extract a valid APK signing certificate SHA256 fingerprint."
             exit 1
           fi
           if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "::error::MUSABAI_RELEASE_CERT_SHA256 must contain exactly one SHA256 certificate fingerprint."
+            echo "::error::android-lite/signing-cert-sha256.txt must contain exactly one SHA256 certificate fingerprint."
             exit 1
           fi
           if [ "$actual" != "$expected" ]; then
