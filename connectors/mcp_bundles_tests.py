@@ -164,8 +164,7 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(start.call_args_list[0].args[0], "pkg install -y x11-repo")
         self.assertEqual(start.call_args_list[1].args[0], "pkg install -y chromium")
 
-    def test_termux_on_demand_bundle_gets_long_first_handshake_window(self):
-        item = mcp_bundles._item("playwright")
+    def test_all_termux_bundles_get_long_first_handshake_window(self):
         ready = {
             "runtime": runtime_manager.TERMUX,
             "missing": [],
@@ -173,20 +172,23 @@ class McpBundlesTest(unittest.TestCase):
             "reason": "Termux bridge verified",
             "stdio": True,
         }
-        seen = {}
-        class FakeServer:
-            def __init__(self, name, spec, cwd):
-                self.tools = [{"name":"tool","inputSchema":{"type":"object"}}]
-            def start(self, timeout=60):
-                seen["timeout"] = timeout
-                return self
-            def stop(self):
-                pass
-        with mock.patch.object(mcp_bundles, "_ensure_termux_setup"), \
-             mock.patch.object(mcp_bundles, "_runtime_requirements", return_value=ready), \
-             mock.patch.object(mcp_config, "StdioServer", FakeServer):
-            self.assertEqual(mcp_bundles._test(item, self.root), 1)
-        self.assertEqual(seen["timeout"], 240)
+        for bundle_id in ("playwright", "filesystem", "memory"):
+            seen = {}
+            item = mcp_bundles._item(bundle_id)
+            class FakeServer:
+                def __init__(self, name, spec, cwd):
+                    self.tools = [{"name":"tool","inputSchema":{"type":"object"}}]
+                def start(self, timeout=60):
+                    seen["timeout"] = timeout
+                    return self
+                def stop(self):
+                    pass
+            with self.subTest(bundle=bundle_id), \
+                 mock.patch.object(mcp_bundles, "_ensure_termux_setup"), \
+                 mock.patch.object(mcp_bundles, "_runtime_requirements", return_value=ready), \
+                 mock.patch.object(mcp_config, "StdioServer", FakeServer):
+                self.assertEqual(mcp_bundles._test(item, self.root), 1)
+                self.assertEqual(seen["timeout"], 240)
 
     def test_enable_persists_only_after_successful_real_handshake(self):
         handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
