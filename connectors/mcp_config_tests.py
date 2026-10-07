@@ -7,7 +7,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
-from . import mcp_config, mcp, settings, connectors, runtime_manager
+from . import mcp_config, mcp, settings, connectors, runtime_manager, tools
 from .agent import Agent
 from .session import Session
 
@@ -168,6 +168,26 @@ class McpConfigTests(unittest.TestCase):
         self.assertTrue(any(msg.get('method') == 'initialize' for _, msg, _ in calls))
         self.assertTrue(any(msg.get('method') == 'tools/list' for _, msg, _ in calls))
         stop.assert_called_once_with('mcp-1')
+
+    def test_termux_handshake_error_includes_process_stderr(self):
+        spec = {'command':'npx','args':['-y','fixture'],'env':{}}
+        with patch.object(runtime_manager, 'requirements', return_value={
+            'runtime': runtime_manager.TERMUX,
+            'missing': [],
+            'unknown': [],
+            'reason': 'verified in Termux',
+            'bridge': True,
+            'stdio': True,
+        }), patch.object(runtime_manager, 'process_start', return_value={
+            'ok': True, 'id': 'mcp-timeout', 'pid': 101, 'status': 'running', 'mode': 'stdio', 'attached': True
+        }), patch.object(runtime_manager, 'process_request', side_effect=tools.ToolError('stdio request timed out')), \
+             patch.object(runtime_manager, 'process_status', return_value={
+                 'ok': True, 'id': 'mcp-timeout', 'pid': 101, 'status': 'running', 'mode':'stdio',
+                 'attached': True, 'logs': 'npm ERR! diagnostic fixture'
+             }), patch.object(runtime_manager, 'process_stop'):
+            server = mcp_config.StdioServer('fixture', spec, self.root)
+            with self.assertRaisesRegex(RuntimeError, 'npm ERR! diagnostic fixture'):
+                server.start(timeout=1)
 
     def test_input_rejects_unsafe_urls_and_missing_session(self):
         for url in ['http://example.com/mcp','https://user:secret@example.com/mcp','https://example.com/mcp?token=secret']:
