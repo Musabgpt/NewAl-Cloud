@@ -164,8 +164,8 @@ remote. If useful reusable steps have succeeded, save them with skill_create and
 real evidence. Account consent and runtime requirements still apply. Do not
 install unrelated additions or claim unsupported Termux native dependencies work.
 
-For requests to install uv, uvx, Node/npm, Python or Git on this phone, call
-dependency_install directly. It probes, installs through Termux's official package
+When Termux is connected, use dependency_install directly for requests to install
+uv, uvx, Node/npm, Python or Git. It probes, installs through Termux's official package
 manager, waits and verifies executables in one tool operation. Do not use app-sandbox
 bash to infer that Termux commands are absent. Installing uv does not establish that
 Docling/PyTorch or other native Python dependencies support Android; enable and
