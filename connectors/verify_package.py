@@ -10,10 +10,17 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     assert "pypdf/__init__.py" in archive.namelist(), "PDF reader missing from packaged engine"
     for path in ('agent_policy.py', 'agent_prompt.md', 'prompt_tests.py', 'workbench.py', 'workbench_tests.py', 'mcp_config.py', 'mcp_config_tests.py', 'mcp_bundles.py', 'provider_pool.py', 'provider_pool_tests.py', 'ui/mcp_ui.js'):
         assert 'newal_code/' + path in archive.namelist(), 'Prompt feature missing: ' + path
+    evolution = archive.read("newal_code/evolution.py").decode()
+    for anchor in ("class SelfUpdateManager", "ready_to_activate", "failed_activation", "dynamic_file", "self_update_stage", "self_update_verify"):
+        assert anchor in evolution, "Phase 9 self-update feature missing: " + anchor
+    server = archive.read("newal_code/server.py").decode()
+    assert 'evolution.dynamic_file("ui/" + rel)' in server, "Verified hot UI serving missing"
+    policy = archive.read("newal_code/agent_policy.py").decode()
+    assert "evolution.dynamic_file('agent_prompt.md')" in policy, "Verified hot prompt serving missing"
     app = archive.read("newal_code/ui/app.js").decode()
     for anchor in ("open-extensions", "toggle-terminal", "toggle-review", "env-picker", "/api/workspaces"):
         assert anchor in app, "Original UI feature missing: " + anchor
     assert "connectors.js" in archive.read("newal_code/ui/index.html").decode()
     assert "MUSAB_CONNECTORS_V1" in archive.read("newal_code/tools.py").decode()
-print("Packaged original features and connectors verified")
+print("Packaged original features, connectors and Phase 9 update gates verified")
 
