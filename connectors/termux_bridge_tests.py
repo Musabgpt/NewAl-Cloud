@@ -1,3 +1,4 @@
+import io
 import json
 import tempfile
 import threading
@@ -5,6 +6,8 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import uuid
+from unittest import mock
 
 from . import termux_bridge_server
 
@@ -54,6 +57,44 @@ class TermuxBridgeServerTest(unittest.TestCase):
         self.assertEqual(out["exit_code"], 0)
         self.assertEqual(out["stdout"], "bridge-ok")
         self.assertTrue(out["command_success"])
+
+    def test_process_request_exchanges_json_rpc_over_stdio_channel(self):
+        process_id = str(uuid.uuid4())
+        state = self.server.bridge_state
+        paths = state._paths(process_id)
+        paths["meta"].write_text(json.dumps({
+            "id": process_id,
+            "pid": 4242,
+            "proc_start": "1",
+            "started_at": 1,
+            "mode": "stdio",
+        }), encoding="utf-8")
+
+        class FakeProc:
+            def __init__(self):
+                self.stdin = io.BytesIO()
+                self.stdout = io.BytesIO(
+                    b'{"jsonrpc":"2.0","id":9,"result":{"tools":[]}}\n'
+                )
+            def poll(self):
+                return None
+
+        proc = FakeProc()
+        state._procs[process_id] = proc
+        state._stdio_locks[process_id] = threading.Lock()
+        with mock.patch.object(
+            termux_bridge_server.select, "select",
+            return_value=([proc.stdout], [], [])
+        ):
+            out = self.request("/process/request", {
+                "id": process_id,
+                "message": {"jsonrpc": "2.0", "id": 9, "method": "tools/list", "params": {}},
+                "timeout": 3,
+            })
+        self.assertEqual(out["response"]["id"], 9)
+        self.assertEqual(out["response"]["result"]["tools"], [])
+        sent = proc.stdin.getvalue().decode("utf-8")
+        self.assertIn('"method":"tools/list"', sent)
 
     def test_process_survives_bridge_restart_and_can_be_stopped(self):
         started = self.request("/process/start", {"command": "echo started; sleep 30"})
