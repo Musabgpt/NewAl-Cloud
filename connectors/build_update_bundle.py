@@ -87,6 +87,7 @@ def build(source: Path, output: Path) -> dict:
             "memory_agent": True,
             "connector_runtime": True,
             "phase9": True,
+            "phase10_acceptance": True,
             "regression": True,
             "promptfoo": True,
             "testReleaseUnitTest": True,
