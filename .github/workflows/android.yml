@@ -21,6 +21,56 @@ jobs:
     steps:
       - name: Checkout NewAl-Cloud
         uses: actions/checkout@v4
+      - name: Verify repository contains no tracked signing material
+        shell: bash
+        run: |
+          set -euo pipefail
+          tracked="$(git ls-files | grep -E -i '(^|/)([^/]+\.(jks|keystore|p12|pfx)|keystore\.properties|signing\.properties)$' || true)"
+          if [ -n "$tracked" ]; then
+            echo "::error::Tracked signing material is forbidden."
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+          if git grep -I -n -E -- 'BEGIN[[:space:]]+((RSA|EC|DSA)[[:space:]]+)?PRIVATE[[:space:]]+KEY' -- .; then
+            echo "::error::Private-key text appears to be committed."
+            exit 1
+          fi
+      - name: Verify signing policy tests
+        run: python3 -m unittest connectors.test_signing_policy -v
+      - name: Detect persistent release signing identity
+        id: signing
+        shell: bash
+        env:
+          MUSABAI_RELEASE_KEYSTORE_B64: ${{ secrets.MUSABAI_RELEASE_KEYSTORE_B64 }}
+          MUSABAI_RELEASE_STORE_PASSWORD: ${{ secrets.MUSABAI_RELEASE_STORE_PASSWORD }}
+          MUSABAI_RELEASE_KEY_ALIAS: ${{ secrets.MUSABAI_RELEASE_KEY_ALIAS }}
+          MUSABAI_RELEASE_KEY_PASSWORD: ${{ secrets.MUSABAI_RELEASE_KEY_PASSWORD }}
+          MUSABAI_RELEASE_CERT_SHA256: ${{ secrets.MUSABAI_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          names=(
+            MUSABAI_RELEASE_KEYSTORE_B64
+            MUSABAI_RELEASE_STORE_PASSWORD
+            MUSABAI_RELEASE_KEY_ALIAS
+            MUSABAI_RELEASE_KEY_PASSWORD
+            MUSABAI_RELEASE_CERT_SHA256
+          )
+          count=0
+          for name in "${names[@]}"; do
+            if [ -n "${!name:-}" ]; then
+              count=$((count + 1))
+            fi
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "mode=development" >> "$GITHUB_OUTPUT"
+            echo "::notice::Persistent release signing secrets are not configured. CI will build a development-only APK; no publishable release APK will be produced."
+          elif [ "$count" -ne "${#names[@]}" ]; then
+            echo "::error::Persistent release signing configuration is incomplete. Configure all required secrets together."
+            exit 1
+          else
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "::notice::Persistent release signing identity is configured."
+          fi
       - name: Checkout exact Action #43 source
         uses: actions/checkout@v4
         with:
@@ -114,23 +164,78 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Build MusabAI APK
+      - name: Build MusabAI APK with persistent release signing
+        if: steps.signing.outputs.mode == 'release'
+        shell: bash
+        env:
+          MUSABAI_RELEASE_KEYSTORE_B64: ${{ secrets.MUSABAI_RELEASE_KEYSTORE_B64 }}
+          MUSABAI_RELEASE_STORE_PASSWORD: ${{ secrets.MUSABAI_RELEASE_STORE_PASSWORD }}
+          MUSABAI_RELEASE_KEY_ALIAS: ${{ secrets.MUSABAI_RELEASE_KEY_ALIAS }}
+          MUSABAI_RELEASE_KEY_PASSWORD: ${{ secrets.MUSABAI_RELEASE_KEY_PASSWORD }}
+          MUSABAI_RELEASE_CERT_SHA256: ${{ secrets.MUSABAI_RELEASE_CERT_SHA256 }}
         run: |
+          set -euo pipefail
+          KEYSTORE_FILE="$RUNNER_TEMP/musabai-release.jks"
+          cleanup() {
+            rm -f "$KEYSTORE_FILE"
+          }
+          trap cleanup EXIT HUP INT TERM
+          umask 077
+          printf '%s' "$MUSABAI_RELEASE_KEYSTORE_B64" | base64 --decode > "$KEYSTORE_FILE"
+          test -s "$KEYSTORE_FILE"
+          chmod 600 "$KEYSTORE_FILE"
+          export MUSABAI_RELEASE_STORE_FILE="$KEYSTORE_FILE"
+
           gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
           cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
           stat -c 'APK_BYTES=%s' MusabAI-Connectors.apk
           sha256sum MusabAI-Connectors.apk | tee MusabAI-Connectors.apk.sha256
+
           APKSIGNER="$(find "$ANDROID_HOME/build-tools/35.0.0" -type f -name apksigner | head -n 1)"
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs MusabAI-Connectors.apk | tee signing-report.txt
+          "$APKSIGNER" verify --verbose --print-certs MusabAI-Connectors.apk | tee signing-report.txt
+
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-report.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          expected="$(printf '%s' "$MUSABAI_RELEASE_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          if [[ ! "$actual" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Unable to extract a valid APK signing certificate SHA256 fingerprint."
+            exit 1
+          fi
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::MUSABAI_RELEASE_CERT_SHA256 must contain exactly one SHA256 certificate fingerprint."
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::APK signing identity does not match the approved persistent fingerprint."
+            exit 1
+          fi
+          printf 'SIGNING_CERT_SHA256=%s\n' "$actual"
           ls -lh MusabAI-Connectors.apk
+      - name: Build development-only APK when release identity is unavailable
+        if: steps.signing.outputs.mode == 'development'
+        shell: bash
+        env:
+          MUSABAI_ALLOW_DEBUG_SIGNING: "true"
+        run: |
+          set -euo pipefail
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors-DEV.apk
+          stat -c 'DEV_APK_BYTES=%s' MusabAI-Connectors-DEV.apk
+          sha256sum MusabAI-Connectors-DEV.apk | tee MusabAI-Connectors-DEV.apk.sha256
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools/35.0.0" -type f -name apksigner | head -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs MusabAI-Connectors-DEV.apk | tee signing-report-development.txt
+          echo "::warning::Development APK only. It is not a production/update signing baseline."
       - name: Build verified Phase 9 hot-update artifact
         run: |
           python3 connectors/build_update_bundle.py desktop/newal_code MusabAI-Hot-Update.zip
           cat MusabAI-Hot-Update.zip.sha256
           stat -c 'HOT_UPDATE_BYTES=%s' MusabAI-Hot-Update.zip
-      - uses: actions/upload-artifact@v4
+      - name: Upload persistent release artifact
+        if: steps.signing.outputs.mode == 'release'
+        uses: actions/upload-artifact@v4
         with:
           name: MusabAI-Connectors
           path: |
@@ -141,4 +246,16 @@ jobs:
             MusabAI-Hot-Update.zip.sha256
           compression-level: 0
           retention-days: 14
-
+      - name: Upload development-only artifact
+        if: steps.signing.outputs.mode == 'development'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusabAI-Connectors-Development
+          path: |
+            MusabAI-Connectors-DEV.apk
+            MusabAI-Connectors-DEV.apk.sha256
+            signing-report-development.txt
+            MusabAI-Hot-Update.zip
+            MusabAI-Hot-Update.zip.sha256
+          compression-level: 0
+          retention-days: 14
