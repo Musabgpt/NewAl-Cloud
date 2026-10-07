@@ -61,7 +61,7 @@ class McpBundlesTest(unittest.TestCase):
         self.assertTrue(catalog["playwright"]["available"])
         self.assertEqual(catalog["playwright"]["start_method"], "runtime_process_start(stdio=true)")
         self.assertEqual(catalog["playwright"]["stop_method"], "runtime_process_stop")
-        self.assertEqual(catalog["playwright"]["health_check"], "MCP initialize + tools/list")
+        self.assertEqual(catalog["playwright"]["health_check"], "live process status + MCP tools/list")
 
     def test_filesystem_and_memory_are_scoped_to_current_project(self):
         fs = mcp_bundles._spec(mcp_bundles._item("filesystem"), self.root)
