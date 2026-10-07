@@ -34,8 +34,17 @@ BUNDLES = [
         "repository": "https://github.com/microsoft/playwright-mcp",
         "runtimes": ["npx"],
         "command": "npx",
-        "args": ["-y", "@playwright/mcp@0.0.83", "--isolated"],
-        "description": "Structured browser automation using Playwright accessibility snapshots. The vetted bundle pins the reviewed MCP package version and uses isolated browser state.",
+        "args": [
+            "-y", "@playwright/mcp@0.0.83",
+            "--isolated", "--headless", "--no-sandbox",
+            "--executable-path", "/data/data/com.termux/files/usr/bin/chromium-browser",
+        ],
+        "env": {
+            "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1",
+            "PLAYWRIGHT_BROWSERS_PATH": "0",
+        },
+        "termux_setup": "chromium",
+        "description": "Structured browser automation using Playwright accessibility snapshots. On Android, MusabAI uses Termux Chromium instead of Playwright's unsupported downloaded browser binaries.",
         "browser_role": "structured",
     },
     {
@@ -359,7 +368,47 @@ def _session_root(handler, data):
     return handler.service.get(sid).root
 
 
+def _wait_termux_process(process_id, timeout=420):
+    deadline = time.monotonic() + timeout
+    last = {}
+    while time.monotonic() < deadline:
+        last = runtime_manager.process_status(process_id)
+        if last.get("status") == "completed":
+            if int(last.get("exit_code") or 0) != 0:
+                detail = str(last.get("logs") or "").strip()
+                raise RuntimeError("Termux setup failed" + (": " + detail[-1200:] if detail else ""))
+            return last
+        if last.get("status") not in {"running", "unknown"}:
+            raise RuntimeError("Termux setup stopped unexpectedly")
+        time.sleep(1.0)
+    try:
+        runtime_manager.process_stop(process_id)
+    except Exception:
+        pass
+    raise RuntimeError("Termux setup timed out")
+
+
+def _ensure_termux_setup(item):
+    runtime = _runtime_requirements(item)
+    if runtime.get("runtime") != runtime_manager.TERMUX:
+        return
+    if item.get("termux_setup") != "chromium":
+        return
+    browser = runtime_manager.requirements(["chromium-browser"])
+    if not browser.get("missing"):
+        return
+    first = runtime_manager.process_start("pkg install -y x11-repo", stdio=False)
+    _wait_termux_process(first["id"])
+    second = runtime_manager.process_start("pkg install -y chromium", stdio=False)
+    _wait_termux_process(second["id"])
+    runtime_manager._clear_cache()
+    browser = runtime_manager.requirements(["chromium-browser"])
+    if browser.get("missing") or browser.get("unknown"):
+        raise RuntimeError("Chromium installation finished, but chromium-browser is still unavailable in Termux")
+
+
 def _test(item, root):
+    _ensure_termux_setup(item)
     runtime = _runtime_requirements(item)
     if runtime["unknown"]:
         raise RuntimeError(runtime["reason"])
