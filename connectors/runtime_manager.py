@@ -158,6 +158,8 @@ def _bridge_request(method, path, payload=None, timeout=3.0):
         raise BridgeError("Termux bridge returned invalid JSON") from exc
     if not isinstance(result, dict):
         raise BridgeError("Termux bridge returned invalid JSON")
+    # ok describes the bridge operation; /exec reports shell outcomes separately
+    # in status, exit_code and command_success (including nonzero exits/timeouts).
     if result.get("ok") is False:
         raise BridgeError(str(result.get("error") or "Termux bridge operation failed"))
     return result
@@ -469,6 +471,7 @@ def _remote_exec(command):
 
 
 def execute(command, runtime=None):
+    """Return the command outcome; nonzero exits and timeouts are not bridge errors."""
     if not isinstance(command, str) or not command.strip() or len(command) > 131072:
         raise tools.ToolError("Provide a non-empty command up to 131072 characters")
     requested = str(runtime or "").strip().upper()

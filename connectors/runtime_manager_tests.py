@@ -163,6 +163,17 @@ class RuntimeManagerTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MUSABAI_TERMUX_BRIDGE_URL": "http://127.0.0.1:8799"}, clear=True):
             self.assertEqual(runtime_manager._bridge_origin(), "http://127.0.0.1:8799")
 
+    def test_old_bridge_protocol_is_automatically_replaced(self):
+        responses = [
+            {"ok": True, "bridge": "musabai-termux", "version": 2},
+            {"ok": True, "bridge": "musabai-termux", "version": runtime_manager.termux_bridge_server.VERSION},
+        ]
+        with mock.patch.object(runtime_manager, "_bridge_request", side_effect=responses), \
+             mock.patch.object(runtime_manager, "_bootstrap_bridge") as bootstrap:
+            health = runtime_manager._ensure_bridge()
+        bootstrap.assert_called_once()
+        self.assertEqual(health["version"], runtime_manager.termux_bridge_server.VERSION)
+
 
 if __name__ == "__main__":
     unittest.main()

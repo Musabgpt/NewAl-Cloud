@@ -185,9 +185,45 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(execute.call_count, 2)
         command = start.call_args.args[0]
         self.assertIn("npm install --prefix", command)
-        self.assertIn("@modelcontextprotocol/server-memory@0.6.3", command)
+        self.assertIn("@modelcontextprotocol/server-memory@0.6.2", command)
         self.assertFalse(start.call_args.kwargs["stdio"])
         wait.assert_called_once_with("npm-install", timeout=600)
+
+    def test_managed_install_rejects_incomplete_or_failed_entry_probes(self):
+        failures = [
+            {"status": "timeout", "exit_code": None, "stderr": "probe diagnostic"},
+            {"status": "completed", "exit_code": None, "stderr": "probe diagnostic"},
+            {"status": "completed", "exit_code": 2, "stderr": "probe diagnostic"},
+        ]
+        for failure in failures:
+            with self.subTest(failure=failure), \
+                 mock.patch.object(runtime_manager, "termux_home", return_value=self.root), \
+                 mock.patch.object(runtime_manager, "execute", return_value=failure), \
+                 mock.patch.object(runtime_manager, "process_start") as start:
+                with self.assertRaisesRegex(RuntimeError, "entry probe failed.*probe diagnostic"):
+                    mcp_bundles._ensure_termux_npm(mcp_bundles._item("memory"))
+                start.assert_not_called()
+
+    def test_managed_install_requires_completed_successful_post_install_probe(self):
+        for result in ({"status": "completed", "exit_code": 1},
+                       {"status": "timeout", "exit_code": None},
+                       {"status": "completed"}):
+            with self.subTest(result=result), \
+                 mock.patch.object(runtime_manager, "termux_home", return_value=self.root), \
+                 mock.patch.object(runtime_manager, "execute", side_effect=[
+                     {"status": "completed", "exit_code": 1}, result]), \
+                 mock.patch.object(runtime_manager, "process_start", return_value={"id": "install"}), \
+                 mock.patch.object(mcp_bundles, "_wait_termux_process"):
+                with self.assertRaisesRegex(RuntimeError, "entry verification failed"):
+                    mcp_bundles._ensure_termux_npm(mcp_bundles._item("memory"))
+
+    def test_setup_requires_explicit_zero_exit_and_preserves_install_diagnostics(self):
+        for code in (None, 1, 127):
+            with self.subTest(code=code), mock.patch.object(runtime_manager, "process_status", return_value={
+                "status": "completed", "exit_code": code, "logs": "npm failure diagnostic"
+            }):
+                with self.assertRaisesRegex(RuntimeError, "npm failure diagnostic"):
+                    mcp_bundles._wait_termux_process("install")
 
     def test_playwright_termux_setup_installs_system_chromium_before_handshake(self):
         item = mcp_bundles._item("playwright")

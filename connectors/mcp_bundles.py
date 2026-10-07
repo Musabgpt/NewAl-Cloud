@@ -111,8 +111,8 @@ BUNDLES = [
         "repository": "https://github.com/modelcontextprotocol/servers",
         "runtimes": ["node", "npm"],
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem@0.6.3", "{root}"],
-        "termux_npm_package": "@modelcontextprotocol/server-filesystem@0.6.3",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem@0.6.2", "{root}"],
+        "termux_npm_package": "@modelcontextprotocol/server-filesystem@0.6.2",
         "termux_npm_entry": "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
         "termux_args": ["{root}"],
         "description": "Sandboxed file tools restricted to the current project root.",
@@ -137,8 +137,8 @@ BUNDLES = [
         "repository": "https://github.com/modelcontextprotocol/servers",
         "runtimes": ["node", "npm"],
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-memory@0.6.3"],
-        "termux_npm_package": "@modelcontextprotocol/server-memory@0.6.3",
+        "args": ["-y", "@modelcontextprotocol/server-memory@0.6.2"],
+        "termux_npm_package": "@modelcontextprotocol/server-memory@0.6.2",
         "termux_npm_entry": "node_modules/@modelcontextprotocol/server-memory/dist/index.js",
         "termux_args": [],
         "env": {"MEMORY_FILE_PATH": "{memory_file}"},
@@ -416,9 +416,10 @@ def _wait_termux_process(process_id, timeout=420):
     while time.monotonic() < deadline:
         last = runtime_manager.process_status(process_id)
         if last.get("status") == "completed":
-            if int(last.get("exit_code") or 0) != 0:
+            if last.get("exit_code") != 0:
                 detail = str(last.get("logs") or "").strip()
-                raise RuntimeError("Termux setup failed" + (": " + detail[-1200:] if detail else ""))
+                raise RuntimeError("Termux setup failed (exit_code=%s)" % last.get("exit_code")
+                                   + (": " + detail[-1200:] if detail else ""))
             return last
         if last.get("status") not in {"running", "unknown"}:
             raise RuntimeError("Termux setup stopped unexpectedly")
@@ -437,7 +438,10 @@ def _ensure_termux_npm(item):
     root = _termux_npm_root(item)
     entry = _termux_npm_entry(item)
     probe = runtime_manager.execute("test -f %s" % shlex.quote(entry), runtime_manager.TERMUX)
-    if int(probe.get("exit_code") or 0) == 0:
+    if probe.get("status") != "completed" or probe.get("exit_code") not in (0, 1):
+        raise RuntimeError("Managed MCP entry probe failed: status=%s exit_code=%s stderr=%s" % (
+            probe.get("status"), probe.get("exit_code"), str(probe.get("stderr") or "")[-1200:]))
+    if probe["exit_code"] == 0:
         return
     command = "mkdir -p {root} && npm install --prefix {root} --no-audit --no-fund --omit=dev {package}".format(
         root=shlex.quote(root),
@@ -452,8 +456,9 @@ def _ensure_termux_npm(item):
     _wait_termux_process(started["id"], timeout=600)
     runtime_manager._clear_cache()
     verify = runtime_manager.execute("test -f %s" % shlex.quote(entry), runtime_manager.TERMUX)
-    if int(verify.get("exit_code") or 0) != 0:
-        raise RuntimeError("Managed MCP package installed but its entry point is missing")
+    if verify.get("status") != "completed" or verify.get("exit_code") != 0:
+        raise RuntimeError("Managed MCP entry verification failed: status=%s exit_code=%s stderr=%s" % (
+            verify.get("status"), verify.get("exit_code"), str(verify.get("stderr") or "")[-1200:]))
 
 
 def _ensure_termux_setup(item):

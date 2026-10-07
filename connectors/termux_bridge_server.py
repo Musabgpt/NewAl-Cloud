@@ -24,7 +24,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-VERSION = 2
+# v3 separates bridge operation success from shell command success.
+VERSION = 3
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8799
 BASE_COMMANDS = ("node", "npm", "npx", "python", "git", "bash")
@@ -145,7 +146,8 @@ class BridgeState:
                 timeout=timeout,
             )
             return {
-                "ok": proc.returncode == 0,
+                # A completed command is a successful bridge operation, even on exit 1.
+                "ok": True,
                 "status": "completed",
                 "exit_code": proc.returncode,
                 "stdout": _clip(proc.stdout),
@@ -157,7 +159,7 @@ class BridgeState:
             stdout = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
             stderr = exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
             return {
-                "ok": False,
+                "ok": True,
                 "status": "timeout",
                 "exit_code": None,
                 "stdout": _clip(stdout),

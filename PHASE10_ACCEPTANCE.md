@@ -1,0 +1,79 @@
+# Phase 10 — validation in progress
+
+Scope: Phase 10 only. Phase 11 has not started. This is an evidence ledger,
+not final acceptance. Samsung results below were supplied by the project owner;
+Linux/CI checks cannot replace the remaining phone tests.
+
+## Established Samsung evidence (owner report)
+
+- Action #314: persistent-signing baseline, installed and launched.
+- Action #318: installed over #314 without uninstall; launched successfully.
+- Termux connection, RUN_COMMAND bootstrap, authenticated localhost bridge,
+  command probing, and the Termux test button succeeded.
+- MCP stdio reached Termux; stderr exposed the previous npx binary-resolution error.
+
+## Current correction
+
+The managed install's initial `test -f` legitimately exits 1 for a missing entry.
+Bridge protocol v2 incorrectly returned `ok=false`, and the runtime raised
+`BridgeError` before npm could run. Protocol v3 returns `ok=true` for handled
+command outcomes, including nonzero exits and timeouts. Callers inspect `status`,
+`exit_code`, `command_success`, `stdout`, and `stderr`. Authentication, invalid
+requests, transport errors, and bridge-operation errors still raise. The existing
+health/version check automatically replaces a running v2 bridge through RUN_COMMAND.
+
+The installer accepts only completed exit 0 as an existing/verified entry,
+completed exit 1 as a missing entry, and explicit exit 0 from npm setup. Missing
+exit codes or timeouts cannot become success. No timeout values were increased.
+
+A real npm installation exposed another pre-existing blocker: Memory and Filesystem
+`0.6.3` do not exist in the npm registry. They now pin the nearest published version,
+`0.6.2`; Playwright remains `0.0.83` and Android MCP remains `1.14.4`. Termux starts
+npm bundles with `node` and their managed entry path, without runtime npx.
+Filesystem remains intentionally unavailable for app-private projects.
+
+Enabling still persists configuration only after real initialize,
+notifications/initialized, and tools/list complete successfully.
+
+## Host evidence and reproducible CI checks
+
+- 49 focused runtime/bridge/MCP regression tests passed locally, including actual
+  authenticated HTTP + shell nonzero-exit handling, initial missing-entry flow,
+  retained auth/bridge failures, timeout results, and v2 replacement.
+- `connectors/phase10_mcp_validation.py` installed the real pinned Memory and
+  Playwright npm packages into fresh temporary directories and ran them through
+  the actual HTTP bridge and direct-node stdio path on Linux.
+- Memory: initialize + initialized + tools/list returned 9 tools; create_entities
+  succeeded and read_graph retained its entity after stop/start.
+- Playwright: initialize + initialized + tools/list returned 25 tools; stop/start
+  rediscovered the tools. Browser launch was NOT tested by this host check.
+- The Android workflow runs this integration script after its regression suite.
+  Android discovery and HOME are substituted for this Linux harness; npm, HTTP,
+  shell, JSON-RPC and MCP servers are real. This is NOT Samsung evidence.
+- CI success, release signing verification, and artifact identity must be checked
+  on the workflow run for the exact new commit before recommending its APK.
+
+## Required Samsung evidence before closing Phase 10
+
+Use only the successful persistent-signed build identified in the handoff. Install
+over the existing app. All operations below use the app; no manual Termux commands
+are required. Record the build number and exact UI result/error for each operation.
+
+1. In a project conversation, enable Memory and Playwright in Musab Hub. Confirm
+   verified tools after managed installation, then start each and test it. Installed
+   alone does not mean running; enabling intentionally verifies then stops its test process.
+2. Run a real Memory write/read task and a Playwright browser task. Check results,
+   then stop/start/reconnect each MCP and repeat. Playwright must actually launch
+   Termux Chromium; discovery alone is insufficient browser acceptance.
+3. Disconnect/reconnect during a real task. Confirm honest failure/pause state and
+   successful recovery without duplicate or fabricated results.
+4. Restart the app and then the phone. Check persisted configuration, correct live
+   process state, Memory data, and successful MCP restart/reconnect.
+5. Exercise a verified hot update and rollback on Samsung; record active revision
+   before update, after update, and after rollback.
+6. Run a long task; stop, resume from checkpoint, and exercise watchdog recovery.
+   Verify durable checkpoint/state and absence of duplicate side effects.
+7. Exercise crash/recovery; collect the app's crash report and verify restored task
+   and MCP state. Final acceptance remains open until these results are recorded.
+
+No Samsung managed-install or MCP acceptance has been claimed for this fix yet.
