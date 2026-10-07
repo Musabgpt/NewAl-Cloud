@@ -174,6 +174,33 @@ class RuntimeManagerTest(unittest.TestCase):
         bootstrap.assert_called_once()
         self.assertEqual(health["version"], runtime_manager.termux_bridge_server.VERSION)
 
+    def test_health_timeout_never_restarts_working_bridge(self):
+        failure = runtime_manager.BridgeError('Termux localhost bridge is not answering')
+        failure.__cause__ = TimeoutError('device busy')
+        with mock.patch.object(runtime_manager, '_bridge_health', side_effect=failure), \
+             mock.patch.object(runtime_manager, '_bootstrap_bridge') as bootstrap:
+            with self.assertRaises(runtime_manager.BridgeError):
+                runtime_manager._ensure_bridge()
+        bootstrap.assert_not_called()
+
+    def test_command_cache_keeps_other_recent_bundle_probes(self):
+        health={'started_at':1}
+        def environment(commands, **kwargs):
+            return {'commands':{name:{'available':True} for name in commands}}, health
+        with mock.patch.object(runtime_manager,'_termux_record',return_value={'status':'connected'}), \
+             mock.patch.object(runtime_manager,'_ensure_bridge',return_value=health), \
+             mock.patch.object(runtime_manager,'_bridge_environment',side_effect=environment) as probe:
+            runtime_manager.probe_termux(['uvx'])
+            runtime_manager.probe_termux(['obu'])
+            runtime_manager.probe_termux(['uvx'])
+        self.assertEqual(probe.call_count,2)
+
+    def test_termux_status_does_not_fetch_all_cloud_accounts(self):
+        with mock.patch.object(runtime_manager,'_phone_available',return_value=True), \
+             mock.patch.object(runtime_manager,'_native',return_value={'ok':True,'status':'connected'}) as native:
+            self.assertEqual(runtime_manager._termux_record()['status'],'connected')
+        native.assert_called_once_with('termux_status')
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -182,3 +182,24 @@ registration/API activation and user consent, service subscriptions and provider
 keys cannot be fabricated. The Hub now explains these requirements and available
 built-in alternatives rather than silently presenting broken installation buttons.
 Phase 10 remains open for real-device acceptance; this is not an all-connected claim.
+
+## Performance regression repair after the owner rejected #339
+
+Source inspection and failing regression tests found redundant runtime discovery:
+Hub catalog rendering resolved eight bundle runtimes independently; probes for a
+new command replaced the cache for previous commands; Termux status queried the
+entire account/OAuth catalog. A transient bridge health timeout also entered the
+bridge restart path, risking live MCP stdio sessions under CPU load.
+
+The repair batches catalog requirements into one request, retains command-specific
+cache expiry, uses a native Termux-only status operation, and permits bootstrap
+only for connection-refused or protocol-version mismatch. Timeouts and auth errors
+are surfaced without restarting the bridge. Hidden UI polling stops. Expensive
+update verification waits for active conversations/installations to finish;
+Linux and uv preparation share the package-install lock and source-build parallelism
+is bounded. Host behavioral tests reproduce the original failures and verify the
+repair. Samsung responsiveness is not claimed without new device evidence.
+
+This revision changes the Android host: install its persistent-signed APK. The
+native-fingerprint check correctly prevents an older APK from applying this engine
+alone. Existing account grants and project data are not cleared by these changes.

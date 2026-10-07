@@ -5,7 +5,7 @@ import { JSDOM } from 'jsdom';
 const code = readFileSync(new URL('../ui.js', import.meta.url), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function panel(t, item, bundle = null, session = 'project') {
-  const dom = new JSDOM('<html lang="ar"><div class="side-top"></div><button id="open-github"></button></html>', {runScripts: 'outside-only', url: 'http://localhost/'});
+  const dom = new JSDOM('<html lang="ar"><div class="side-top"></div><button id="open-github"></button></html>', {pretendToBeVisual: true, runScripts: 'outside-only', url: 'http://localhost/'});
   t.after(() => dom.window.close());
   const w = dom.window;
   const state = {item, bundle, calls: [], posts: []};
@@ -156,4 +156,15 @@ test('unconfigured Google explains OAuth setup without pretending account access
   assert(state.dom.querySelector('#connector-list').textContent.includes('مفتاح API وحده'));
   assert.equal(state.dom.querySelector('a[href="https://console.cloud.google.com/apis/credentials"]').target, '_blank');
   assert.equal(state.dom.querySelector('[data-action="connect:gmail"]').disabled, true);
+});
+
+test('hidden Hub stops polling and refreshes once visible', async t => {
+  const state = await panel(t, {id:'termux',name:'Termux',configured:true,status:'connected'});
+  const before = state.calls.length;
+  Object.defineProperty(state.dom, 'hidden', {configurable:true,value:true});
+  await state.refresh();
+  assert.equal(state.calls.length, before);
+  Object.defineProperty(state.dom, 'hidden', {configurable:true,value:false});
+  await state.refresh();
+  assert.equal(state.calls.length, before + 3);
 });

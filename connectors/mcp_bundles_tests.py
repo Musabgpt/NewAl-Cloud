@@ -8,6 +8,12 @@ from . import mcp_bundles, mcp_config, runtime_manager, settings, tools
 
 
 class McpBundlesTest(unittest.TestCase):
+    def test_catalog_batches_all_runtime_requirements_once(self):
+        ready={'runtime':runtime_manager.TERMUX,'missing':[],'unknown':[],'stdio':True,'reason':'verified'}
+        with mock.patch.object(runtime_manager,'requirements',return_value=ready) as requirements:
+            mcp_bundles.catalog(None)
+        requirements.assert_called_once()
+
     def test_first_install_failure_is_not_reported_ready(self):
         runtime = {"runtime": runtime_manager.TERMUX, "unknown": [], "missing": [], "stdio": True}
         self.assertEqual(mcp_bundles._lifecycle_status(

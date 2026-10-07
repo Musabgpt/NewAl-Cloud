@@ -137,6 +137,12 @@ def check(service):
         pending = status()
         if pending.get('state') in {'waiting_idle','activating'}:
             return apply_pending(service)
+        # Verification runs Python suites and starts subprocesses; leave active
+        # conversations their CPU/memory and check again after the task finishes.
+        from . import managed_linux
+        with service.lock:
+            if managed_linux.LOCK.locked() or getattr(service, "dependency_setup_busy", False) or any(t.is_alive() or t.ident is None for t in service.threads.values()):
+                return pending
         if not enabled():
             return pending
         feed = read_feed()

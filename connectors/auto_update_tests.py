@@ -124,3 +124,10 @@ class AutomaticUpdateTests(unittest.TestCase):
         with managed_linux.LOCK, patch.object(auto, 'status', return_value=record), patch.object(e, 'activate') as activate:
             self.assertEqual(auto.apply_pending(self.service()), record)
         activate.assert_not_called()
+
+    def test_active_chat_defers_download_and_expensive_verification(self):
+        auto = self.auto()
+        with patch.object(auto, 'read_feed') as feed, patch.object(e._MANAGER, 'verify') as verify:
+            auto.check(self.service(True))
+        feed.assert_not_called()
+        verify.assert_not_called()

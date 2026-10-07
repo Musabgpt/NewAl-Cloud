@@ -41,7 +41,7 @@
     return node;
   }
   async function refresh() {
-    if (!active || requesting || pending) return;
+    if (!active || document.hidden || requesting || pending) return;
     requesting = true;
     const list = document.querySelector("#connector-list"), message = document.querySelector("#connector-message");
     try {
@@ -248,7 +248,7 @@
     active = true;
     document.querySelector("#connector-dialog").hidden = false;
     document.querySelector("#connector-close").focus();
-    refresh(); clearInterval(timer); timer = setInterval(refresh, 2500);
+    refresh(); clearInterval(timer); timer = setInterval(refresh, 10000);
   };
   document.addEventListener("DOMContentLoaded", () => {
     const button = element("button", tr("Connections", "الاتصالات"), "side-item");

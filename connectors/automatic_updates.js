@@ -3,7 +3,7 @@
   if (!window.NewAlPhone?.restartEngine) return;
   let pending = false, restarting = '', timer;
   async function check() {
-    if (pending || restarting) return;
+    if (document.hidden || pending || restarting) return;
     pending = true;
     try {
       const response = await fetch('/api/evolution/automatic', {credentials: 'same-origin'});

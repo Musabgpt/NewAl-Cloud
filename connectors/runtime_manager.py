@@ -41,9 +41,19 @@ _CACHE_LOCK = threading.RLock()
 _CACHE_AT = 0.0
 _CACHE_VALUES = {}
 _CACHE_STATE = ""
+_CACHE_TIMES = {}
+_BOOTSTRAP_LOCK = threading.Lock()
 
 
 class BridgeError(RuntimeError):
+    pass
+
+
+class BridgeUnavailable(BridgeError):
+    pass
+
+
+class BridgeVersionMismatch(BridgeError):
     pass
 
 
@@ -73,13 +83,9 @@ def _termux_record():
     if not _phone_available():
         return {"status": "unavailable", "error": "Android phone bridge unavailable"}
     try:
-        data = _connectors().status()
-    except Exception:
-        return {"status": "unavailable", "error": "Android connector host unavailable"}
-    for item in data.get("connectors") or []:
-        if item.get("id") == "termux":
-            return dict(item)
-    return {"status": "unavailable", "error": "Termux connector state unavailable"}
+        return _native('termux_status')
+    except Exception as exc:
+        return {"status": "unavailable", "error": str(exc)}
 
 
 def _native(op, **kwargs):
@@ -98,11 +104,12 @@ def _validated_commands(commands):
 
 
 def _clear_cache():
-    global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE
+    global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE, _CACHE_TIMES
     with _CACHE_LOCK:
         _CACHE_AT = 0.0
         _CACHE_VALUES = {}
         _CACHE_STATE = ""
+        _CACHE_TIMES = {}
 
 
 def _bridge_origin():
@@ -149,7 +156,9 @@ def _bridge_request(method, path, payload=None, timeout=3.0):
             message = ""
         raise BridgeError(message or "Termux bridge returned HTTP %d" % exc.code) from exc
     except OSError as exc:
-        raise BridgeError("Termux localhost bridge is not answering") from exc
+        cause = getattr(exc, 'reason', exc)
+        error = BridgeUnavailable if isinstance(cause, ConnectionRefusedError) else BridgeError
+        raise error("Termux localhost bridge is not answering") from exc
     if len(raw) > 1_000_000:
         raise BridgeError("Termux bridge response exceeded 1 MB")
     try:
@@ -168,7 +177,7 @@ def _bridge_request(method, path, payload=None, timeout=3.0):
 def _bridge_health(timeout=0.6):
     data = _bridge_request("GET", "/health", timeout=timeout)
     if data.get("bridge") != "musabai-termux" or int(data.get("version") or 0) != termux_bridge_server.VERSION:
-        raise BridgeError("Unexpected Termux bridge version")
+        raise BridgeVersionMismatch("Unexpected Termux bridge version")
     return data
 
 
@@ -219,23 +228,26 @@ def _bootstrap_bridge():
 
 
 def _ensure_bridge():
-    try:
-        return _bridge_health()
-    except BridgeError:
-        _bootstrap_bridge()
-    last = None
-    for _ in range(50):
+    # A slow/auth-failing bridge is not a dead process. Restarting it would detach
+    # live MCP stdio sessions, especially while dependency installs load the CPU.
+    with _BOOTSTRAP_LOCK:
         try:
             return _bridge_health()
-        except BridgeError as exc:
-            last = exc
-            time.sleep(0.1)
-    raise BridgeError("Termux bridge did not become ready") from last
+        except (BridgeUnavailable, BridgeVersionMismatch):
+            _bootstrap_bridge()
+        last = None
+        for _ in range(50):
+            try:
+                return _bridge_health()
+            except BridgeUnavailable as exc:
+                last = exc
+                time.sleep(0.1)
+        raise BridgeError("Termux bridge did not become ready") from last
 
 
-def _bridge_environment(commands):
+def _bridge_environment(commands, health=None):
     requested = _validated_commands(commands)
-    health = _ensure_bridge()
+    health = health if health is not None else _ensure_bridge()
     query = urllib.parse.urlencode({"commands": ",".join(requested)})
     data = _bridge_request("GET", "/environment?" + query, timeout=3)
     return data, health
@@ -255,7 +267,7 @@ def termux_home():
 
 def probe_termux(commands=None, max_age=5.0):
     """Verify command availability inside Termux through the localhost bridge."""
-    global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE
+    global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE, _CACHE_TIMES
     requested = _validated_commands(commands or TERMUX_BASE_COMMANDS)
     record = _termux_record()
     state = str(record.get("status") or "unavailable")
@@ -285,7 +297,7 @@ def probe_termux(commands=None, max_age=5.0):
     cache_state = "connected:%s" % health.get("started_at", "")
     now = time.monotonic()
     with _CACHE_LOCK:
-        if _CACHE_STATE == cache_state and now - _CACHE_AT <= max_age and all(name in _CACHE_VALUES for name in requested):
+        if _CACHE_STATE == cache_state and all(name in _CACHE_VALUES and now - _CACHE_TIMES.get(name, _CACHE_AT) <= max_age for name in requested):
             return {
                 "runtime": TERMUX,
                 "status": "connected",
@@ -295,7 +307,7 @@ def probe_termux(commands=None, max_age=5.0):
             }
 
     try:
-        env, health = _bridge_environment(list(dict.fromkeys(list(TERMUX_BASE_COMMANDS) + requested)))
+        env, health = _bridge_environment(list(dict.fromkeys(list(TERMUX_BASE_COMMANDS) + requested)), health=health)
     except BridgeError as exc:
         return {
             "runtime": TERMUX,
@@ -313,8 +325,12 @@ def probe_termux(commands=None, max_age=5.0):
 
     with _CACHE_LOCK:
         _CACHE_AT = time.monotonic()
-        _CACHE_VALUES = dict(values)
-        _CACHE_STATE = "connected:%s" % health.get("started_at", "")
+        new_state = "connected:%s" % health.get("started_at", "")
+        if _CACHE_STATE != new_state:
+            _CACHE_VALUES, _CACHE_TIMES = {}, {}
+        _CACHE_VALUES.update(values)
+        _CACHE_TIMES.update({name: _CACHE_AT for name in values})
+        _CACHE_STATE = new_state
 
     return {
         "runtime": TERMUX,

@@ -370,9 +370,16 @@ def _lifecycle_status(item, runtime, installed, running, last_error):
 
 
 def catalog(root=None):
+    from . import managed_linux
+    android = runtime_manager._phone_available()
+    needed = {item['id']: (['proot-distro'] if android and item['id'] in managed_linux.RECIPES
+                           else list(item.get('runtimes') or [])) for item in BUNDLES}
+    combined = runtime_manager.requirements(list(dict.fromkeys(command for names in needed.values() for command in names)))
     result = []
     for item in BUNDLES:
-        runtime = _runtime_requirements(item)
+        names = needed[item['id']]
+        runtime = dict(combined, missing=[name for name in combined['missing'] if name in names],
+                       unknown=[name for name in combined['unknown'] if name in names])
         record = _installed_record(item, root)
         installed = bool(record)
         server = _running_server(item, root) if installed else None

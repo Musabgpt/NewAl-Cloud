@@ -59,6 +59,7 @@ final class Connectors {
         Connectors self = get(c);
         String op = a.optString("op"), provider = a.optString("provider");
         if (op.equals("status")) return self.status();
+        if (op.equals("termux_status")) return self.termuxStatus();
         if (op.equals("termux_test")) return TermuxJobs.test(c);
         if (op.equals("termux_exec")) return TermuxJobs.run(c, a.optString("command"), false);
         if (op.equals("termux_result")) return TermuxJobs.result(c, a.getString("id"));
@@ -122,12 +123,17 @@ final class Connectors {
                     .put("generation", rec.optString("generation")).put("tool_count", rec.optInt("tool_count")));
         }
         list.put(activepieces.status());
+        list.put(termuxStatus());
+        return new JSONObject().put("ok", true).put("connectors", list).put("remote_worker", false);
+    }
+
+    // Runtime probes must never fetch the OAuth catalog or decrypt every account.
+    private JSONObject termuxStatus() throws Exception {
         JSONObject termux = vault.get("termux");
         boolean usable = Termux.installed(ctx) && Termux.allowed(ctx);
-        list.put(new JSONObject().put("id", "termux").put("name", "Termux").put("configured", true)
+        return new JSONObject().put("ok", true).put("id", "termux").put("name", "Termux").put("configured", true)
                 .put("status", usable ? termux.optString("status", "disconnected") : "permission_required")
-                .put("error", usable ? termux.optString("error") : "Install Termux, grant RUN_COMMAND and enable allow-external-apps in Termux"));
-        return new JSONObject().put("ok", true).put("connectors", list).put("remote_worker", false);
+                .put("error", usable ? termux.optString("error") : "Install Termux, grant RUN_COMMAND and enable allow-external-apps in Termux");
     }
 
     private synchronized JSONObject connect(String provider) throws Exception {

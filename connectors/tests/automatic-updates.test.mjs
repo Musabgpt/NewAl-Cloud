@@ -6,7 +6,7 @@ const source = new URL('../automatic_updates.js', import.meta.url);
 
 test('verified automatic activation requests Android restart once and ignores unready state', async t => {
   assert(existsSync(source), 'automatic application of verified updates is missing');
-  const dom=new JSDOM('<html lang="ar"><body></body></html>',{runScripts:'outside-only',url:'http://localhost/'});
+  const dom=new JSDOM('<html lang="ar"><body></body></html>',{pretendToBeVisual:true,runScripts:'outside-only',url:'http://localhost/'});
   t.after(()=>dom.window.close());
   let restarts=0, ready=false;
   dom.window.NewAlPhone={restartEngine(){restarts++;}};

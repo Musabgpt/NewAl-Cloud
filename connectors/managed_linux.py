@@ -50,7 +50,13 @@ def ensure(item, cancel=None):
     while not LOCK.acquire(timeout=.2):
         if cancel is not None and cancel.is_set():
             raise providers.Cancelled()
+    dependency_lock_held = False
     try:
+        from .automation import _INSTALL_LOCK
+        while not _INSTALL_LOCK.acquire(timeout=.2):
+            if cancel is not None and cancel.is_set():
+                raise providers.Cancelled()
+        dependency_lock_held = True
         from . import auto_update
         with auto_update._LOCK:
             if auto_update.status().get('state') == 'activating':
@@ -95,7 +101,7 @@ def ensure(item, cancel=None):
                 run(login('npm install --prefix /opt/musabai/node22 --no-audit --no-fund node@22.22.0'))
                 install = 'export PATH=/opt/musabai/node22/node_modules/node/bin:$PATH; mkdir -p {r} && npm install --prefix {r} --no-audit --no-fund --omit=dev {p}'.format(r=shlex.quote(root), p=shlex.quote(package))
             else:
-                install = 'python3 -m venv {r} && {r}/bin/python -m pip install --upgrade pip && {r}/bin/python -m pip install {p}'.format(r=shlex.quote(root),p=shlex.quote(package))
+                install = 'export MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2 MAKEFLAGS=-j2; python3 -m venv {r} && {r}/bin/python -m pip install --upgrade pip && {r}/bin/python -m pip install {p}'.format(r=shlex.quote(root),p=shlex.quote(package))
             run(login(install))
             if item['id'] == 'browser-use':
                 # Supported server profile: headless Debian Chromium, no Android binaries.
@@ -106,4 +112,6 @@ def ensure(item, cancel=None):
                 raise tools.ToolError('Linux MCP dependency verification failed for ' + item['id'] + '; no MCP installation was saved')
             rm._clear_cache()
     finally:
+        if dependency_lock_held:
+            _INSTALL_LOCK.release()
         LOCK.release()
