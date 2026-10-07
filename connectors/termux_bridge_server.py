@@ -166,10 +166,28 @@ class BridgeState:
                 "duration_ms": int((time.time() - started) * 1000),
             }
 
-    def start(self, command, stdio=False):
+    def start(self, command, stdio=False, extra_env=None):
         if not isinstance(command, str) or not command.strip() or len(command) > MAX_COMMAND:
             raise ValueError("Provide a non-empty command up to 131072 characters")
         stdio = bool(stdio)
+        if extra_env is None:
+            extra_env = {}
+        if not isinstance(extra_env, dict) or len(extra_env) > 64:
+            raise ValueError("Process environment must be an object with at most 64 entries")
+        clean_env = {}
+        total_env = 0
+        for key, value in extra_env.items():
+            if not isinstance(key, str) or not key or len(key) > 128 or not (
+                key[0].isalpha() or key[0] == "_"
+            ) or not all(ch.isalnum() or ch == "_" for ch in key):
+                raise ValueError("Invalid process environment variable name")
+            value = str(value)
+            if "\x00" in value or len(value) > 16384:
+                raise ValueError("Invalid process environment variable value")
+            total_env += len(key) + len(value)
+            if total_env > 65536:
+                raise ValueError("Process environment is too large")
+            clean_env[key] = value
         process_id = str(uuid.uuid4())
         paths = self._paths(process_id)
         for path in (paths["exit"], paths["stop"]):
@@ -180,6 +198,7 @@ class BridgeState:
         exit_path = shlex.quote(str(paths["exit"]))
         wrapper = command + "\nrc=$?\nprintf '%s\\n' \"$rc\" > " + exit_path + "\nexit \"$rc\"\n"
         env = os.environ.copy()
+        env.update(clean_env)
         env["MUSABAI_PROCESS_ID"] = process_id
         log = open(paths["log"], "ab", buffering=0)
         try:
@@ -432,7 +451,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 out = state.exec(body.get("command"), body.get("timeout", 75))
             elif self.command == "POST" and parsed.path == "/process/start":
                 body = self._body()
-                out = state.start(body.get("command"), body.get("stdio", False))
+                out = state.start(body.get("command"), body.get("stdio", False), body.get("env"))
             elif self.command == "POST" and parsed.path == "/process/request":
                 body = self._body()
                 out = state.request(body.get("id"), body.get("message"), body.get("timeout", 120))
