@@ -35,7 +35,7 @@ def spec(item):
     root, entry, args = location(item['id'])
     env = dict(item.get('env') or {})
     if item['id'] == 'browser-use':
-        env.update(BROWSER_USE_HEADLESS='true', BROWSER_USE_CONFIG_DIR='/opt/musabai/browser-config', ANONYMIZED_TELEMETRY='false')
+        env.update(BROWSER_USE_HEADLESS='true', BROWSER_USE_DISABLE_EXTENSIONS='true', BROWSER_USE_CONFIG_DIR='/opt/musabai/browser-config', ANONYMIZED_TELEMETRY='false')
     command = ['/usr/bin/env'] + [k + '=' + str(v) for k, v in env.items()]
     if item['id'] == 'android':
         command.append(NODE)
@@ -98,7 +98,7 @@ def ensure(item, cancel=None):
             run(login('export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends ' + packages))
             package = RECIPES[item['id']][0]
             if item['id'] == 'android':
-                run(login('npm install --prefix /opt/musabai/node22 --no-audit --no-fund node@22.22.0'))
+                run(login('npm install --prefix /opt/musabai/node22 --ignore-scripts --no-audit --no-fund node@22.22.0 && node /opt/musabai/node22/node_modules/node/installArchSpecificPackage.js && ' + NODE + ' --version'))
                 install = 'export PATH=/opt/musabai/node22/node_modules/node/bin:$PATH; mkdir -p {r} && npm install --prefix {r} --no-audit --no-fund --omit=dev {p}'.format(r=shlex.quote(root), p=shlex.quote(package))
             else:
                 install = 'export MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2 MAKEFLAGS=-j2; python3 -m venv {r} && {r}/bin/python -m pip install --upgrade pip && {r}/bin/python -m pip install {p}'.format(r=shlex.quote(root),p=shlex.quote(package))
@@ -106,7 +106,7 @@ def ensure(item, cancel=None):
             if item['id'] == 'browser-use':
                 # Supported server profile: headless Debian Chromium, no Android binaries.
                 import json
-                config = {'browser_profile':{'musabai':{'id':'musabai','default':True,'headless':True,'executable_path':'/usr/bin/chromium','chromium_sandbox':False}}, 'llm':{}, 'agent':{}}
+                config = {'browser_profile':{'musabai':{'id':'musabai','default':True,'headless':True,'executable_path':'/usr/bin/chromium','chromium_sandbox':False,'enable_default_extensions':False,'keep_alive':False}}, 'llm':{}, 'agent':{}}
                 run(login('mkdir -p /opt/musabai/browser-config && printf %s ' + shlex.quote(json.dumps(config)) + ' > /opt/musabai/browser-config/config.json'))
             if not exists(login(probe)):
                 raise tools.ToolError('Linux MCP dependency verification failed for ' + item['id'] + '; no MCP installation was saved')

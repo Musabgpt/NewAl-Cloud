@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import tempfile
 import threading
 import time
@@ -32,20 +33,21 @@ with tempfile.TemporaryDirectory(prefix='musabai-linux-proof-') as temp:
     if not chrome:
         raise RuntimeError('A real Chromium executable is required for browser acceptance')
     profile = {'browser_profile':{'musabai':{'id':'musabai','default':True,'headless':True,
-               'executable_path':chrome,'chromium_sandbox':False}},'llm':{},'agent':{}}
+               'executable_path':chrome,'chromium_sandbox':False,'enable_default_extensions':False,'keep_alive':False}},'llm':{},'agent':{}}
     Path(temp,'config.json').write_text(json.dumps(profile))
     http = ThreadingHTTPServer(('127.0.0.1', 0), Page)
     threading.Thread(target=http.serve_forever,daemon=True).start()
     definitions = [
         ('browser-use', [str(Path(args.browser_bin)/'browser-use'), '--mcp'],
-         {'BROWSER_USE_CONFIG_DIR':temp,'BROWSER_USE_HEADLESS':'true','ANONYMIZED_TELEMETRY':'false'}),
+         {'BROWSER_USE_CONFIG_DIR':temp,'BROWSER_USE_HEADLESS':'true','BROWSER_USE_DISABLE_EXTENSIONS':'true','ANONYMIZED_TELEMETRY':'false'}),
         ('docling', [str(Path(args.docling_bin)/'docling-mcp-server'),'--transport','stdio'],
          {'DOCLING_MCP_CONVERSION_MODE':'local','DOCLING_MCP_KEEP_IMAGES':'false'}),
         ('android', ['node',str(Path(args.android_entry).resolve())], {'ANDROID_MCP_ALLOW_WRITE':'true'}),
     ]
     try:
         for name, command, env in definitions:
-            server = mcp_config.StdioServer(name, {'command':'env','args':command,'env':env}, temp)
+            log = Path(temp, name + '.stderr')
+            server = mcp_config.StdioServer(name, {'command':'sh','args':['-c','exec ' + shlex.join(command) + ' 2>' + shlex.quote(str(log))],'env':env}, temp)
             try:
                 server.start(timeout=90)
                 assert server.tools, name
@@ -66,6 +68,9 @@ with tempfile.TemporaryDirectory(prefix='musabai-linux-proof-') as temp:
                 print(json.dumps({'bundle':name,'initialize':True,'tools':len(server.tools),
                                   'real_browser_navigation':name=='browser-use',
                                   'platform':'Linux host, NOT Samsung/proot; no external Android device controlled'}),flush=True)
+            except Exception:
+                print(name + ' stderr: ' + (log.read_text(errors='replace')[-12000:] if log.exists() else 'unavailable'), flush=True)
+                raise
             finally:
                 server.stop()
     finally:
