@@ -17,17 +17,6 @@
     return data;
   }
 
-  function statusLabel(bundle) {
-    if (bundle.status === 'verified' || bundle.status === 'enabled') return tr('Verified installed', 'مثبّت بعد تحقق فعلي');
-    if (bundle.status === 'available') return tr('Ready to test and install', 'جاهز للاختبار والتثبيت');
-    if (bundle.status === 'credentials_missing') return tr('Credential required', 'يحتاج تسجيل/رمز وصول');
-    if (bundle.status === 'runtime_missing') return tr('Runtime command missing', 'أداة التشغيل غير مثبتة');
-    if (bundle.status === 'runtime_unavailable') return tr('Termux not connected', 'Termux غير متصل');
-    if (bundle.status === 'bridge_required') return tr('Termux ready · stdio bridge unavailable', 'Termux جاهز · جسر stdio غير متاح');
-    if (bundle.status === 'needs_shared_path') return tr('Needs a shared project path', 'يحتاج مسار مشروع مشترك');
-    return bundle.status || tr('Unavailable', 'غير متاح');
-  }
-
   document.addEventListener('DOMContentLoaded', () => {
     const panel = document.querySelector('.connector-panel');
     if (!panel) return;
@@ -414,79 +403,6 @@
         documentCheck.disabled = false;
       }
     };
-
-    // ---------------------------------------------------------------- Official bundles
-    const bundlesSection = node('section');
-    bundlesSection.className = 'connector-card mcp-bundles';
-    bundlesSection.append(node('h3', tr('MCP tools', 'أدوات MCP')));
-    bundlesSection.append(node('p', tr(
-      'MCP bundles are marked installed only after a real initialize + tools/list handshake. Saved state is never shown as a live connection. Missing runtimes stay disabled instead of showing a fake status.',
-      'لا يظهر أي MCP كمثبّت إلا بعد نجاح initialize + tools/list فعلياً، ولا تُعرض الحالة المحفوظة على أنها اتصال حي. إذا كانت بيئة التشغيل ناقصة تبقى الإضافة معطلة بدل حالة وهمية.'
-    )));
-    const bundleMessage = node('p');
-    bundleMessage.setAttribute('role', 'status');
-    const bundleRefresh = node('button', tr('Refresh MCP status', 'تحديث حالة MCP'));
-    bundleRefresh.type = 'button'; bundleRefresh.className = 'btn';
-    const bundleList = node('div');
-    bundlesSection.append(bundleRefresh, bundleMessage, bundleList);
-    panel.insertBefore(bundlesSection, document.querySelector('#connector-list'));
-
-    let bundleBusy = false;
-    async function withBundleBusy(fn) {
-      if (bundleBusy) return;
-      bundleBusy = true; bundleRefresh.disabled = true;
-      try { await fn(); }
-      catch (error) { bundleMessage.textContent = error.message; }
-      finally { bundleBusy = false; bundleRefresh.disabled = false; }
-    }
-
-    async function loadBundles() {
-      const sid = current();
-      const suffix = sid ? '?session=' + encodeURIComponent(sid) : '';
-      const data = await api('/api/mcp-bundles' + suffix);
-      bundleList.replaceChildren();
-      for (const bundle of data.bundles || []) {
-        const row = node('section'); row.className = 'connector-card mcp-bundle';
-        row.append(node('strong', bundle.name));
-        row.append(node('p', bundle.description || ''));
-        const state = node('p', statusLabel(bundle));
-        state.className = 'connector-status status-' + String(bundle.status || 'unknown');
-        row.append(state);
-        if (bundle.native_fallback) row.append(node('p', bundle.native_fallback));
-        if (bundle.manual_setup) row.append(node('p', bundle.manual_setup));
-        if (bundle.runtime_reason) row.append(node('p', tr('Runtime: ', 'بيئة التشغيل: ') + bundle.runtime_reason));
-        if (bundle.missing?.length) row.append(node('p', tr('Missing: ', 'الناقص: ') + bundle.missing.join(', ')));
-        if (bundle.enabled) row.append(node('p', tr('Tools: ', 'الأدوات: ') + bundle.tools));
-
-        const action = node('button');
-        action.className = 'btn';
-        action.type = 'button';
-        if (bundle.enabled) {
-          action.textContent = tr('Remove', 'إزالة');
-          action.onclick = () => withBundleBusy(async () => {
-            if (!sid || current() !== sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعًا أولًا.'));
-            await api('/api/mcp-bundles/disable', {session: sid, id: bundle.id});
-            bundleMessage.textContent = tr('Verified MCP removed.', 'تمت إزالة MCP المثبّت.');
-            await loadBundles();
-          });
-        } else {
-          action.textContent = bundle.available ? tr('Test and enable', 'اختبار وتفعيل') : tr('Unavailable', 'غير متاح');
-          action.disabled = !bundle.available;
-          action.onclick = () => withBundleBusy(async () => {
-            if (!sid || current() !== sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعًا أولًا.'));
-            bundleMessage.textContent = tr('Running a real MCP handshake…', 'جارٍ تنفيذ اختبار MCP فعلي…');
-            const result = await api('/api/mcp-bundles/enable', {session: sid, id: bundle.id});
-            bundleMessage.textContent = tr('Verified and installed. Tools: ', 'تم التحقق والتثبيت. الأدوات: ') + result.tools;
-            await loadBundles();
-          });
-        }
-        row.append(action);
-        bundleList.append(row);
-      }
-    }
-    bundleRefresh.onclick = () => withBundleBusy(async () => { bundleMessage.textContent = ''; await loadBundles(); });
-    // Initial status is safe even without a project; activation still requires one.
-    withBundleBusy(loadBundles);
 
     // ---------------------------------------------------------------- Official MCP Registry
     const registrySection = node('section');
