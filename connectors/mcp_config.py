@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from . import settings, mcp
 
 LOCK = threading.RLock()
+LEGACY_PROTOCOLS = {'2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'}
 PATHS = {'/api/mcp-servers', '/api/mcp-servers/save', '/api/mcp-servers/test', '/api/mcp-servers/remove'}
 
 
@@ -123,7 +124,7 @@ class HttpServer(mcp.HttpServer):
         result = self.request('initialize', {'protocolVersion': mcp.PROTOCOL, 'capabilities': {},
                                             'clientInfo': {'name': 'MusabAI', 'version': '1'}}, timeout)
         self.protocol = result.get('protocolVersion')
-        if self.protocol not in {'2024-11-05', '2025-03-26', mcp.PROTOCOL}:
+        if self.protocol not in LEGACY_PROTOCOLS | {mcp.PROTOCOL}:
             raise RuntimeError('MCP server selected an unsupported protocol version')
         self._post({'jsonrpc': '2.0', 'method': 'notifications/initialized'}, timeout)
         self.tools = []
@@ -289,7 +290,7 @@ class StdioServer(mcp.StdioServer):
                 'clientInfo': {'name': 'MusabAI', 'version': '1'},
             }, timeout)
             protocol = result.get('protocolVersion')
-            if protocol not in {'2024-11-05', '2025-03-26', mcp.PROTOCOL}:
+            if protocol not in LEGACY_PROTOCOLS | {mcp.PROTOCOL}:
                 raise RuntimeError('MCP server selected an unsupported protocol version')
             self._notify('notifications/initialized', timeout=timeout)
             self.tools = self._list_tools()
