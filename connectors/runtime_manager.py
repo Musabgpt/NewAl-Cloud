@@ -325,7 +325,7 @@ def requirements(commands):
             "unknown": unknown,
             "reason": probed["reason"],
             "bridge": bool(probed.get("bridge")),
-            "stdio": False,
+            "stdio": bool(probed.get("bridge")),
         }
 
     missing = [name for name in requested if shutil.which(name) is None]
@@ -495,12 +495,37 @@ def execute(command, runtime=None):
     return data
 
 
-def process_start(command):
+def process_start(command, stdio=False):
     if not isinstance(command, str) or not command.strip() or len(command) > 131072:
         raise tools.ToolError("Provide a non-empty command up to 131072 characters")
     try:
         _ensure_bridge()
-        data = _bridge_request("POST", "/process/start", {"command": command}, timeout=5)
+        data = _bridge_request(
+            "POST", "/process/start", {"command": command, "stdio": bool(stdio)}, timeout=5
+        )
+    except BridgeError as exc:
+        raise tools.ToolError(str(exc)) from exc
+    data["runtime"] = TERMUX
+    return data
+
+
+def process_request(process_id, message, timeout=120):
+    if not isinstance(process_id, str):
+        raise tools.ToolError("Invalid process id")
+    if not isinstance(message, dict):
+        raise tools.ToolError("MCP stdio message must be an object")
+    try:
+        timeout = max(1, min(int(timeout), 300))
+    except (TypeError, ValueError) as exc:
+        raise tools.ToolError("Invalid process request timeout") from exc
+    try:
+        _ensure_bridge()
+        data = _bridge_request(
+            "POST",
+            "/process/request",
+            {"id": process_id, "message": message, "timeout": timeout},
+            timeout=timeout + 5,
+        )
     except BridgeError as exc:
         raise tools.ToolError(str(exc)) from exc
     data["runtime"] = TERMUX
