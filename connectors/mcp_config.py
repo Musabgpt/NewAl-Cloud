@@ -210,19 +210,16 @@ class StdioServer(mcp.StdioServer):
         if not command:
             raise RuntimeError('MCP stdio command is missing')
         env = self.spec.get('env') or {}
-        assignments = []
-        for key, value in env.items():
+        for key in env:
             if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
                 raise RuntimeError('MCP environment contains an invalid variable name')
-            assignments.append('%s=%s' % (key, shlex.quote(str(value))))
         argv = ' '.join(shlex.quote(x) for x in [command] + args)
-        prefix = 'env ' + ' '.join(assignments) + ' ' if assignments else ''
         termux_cwd = str(self.spec.get('termux_cwd') or '').strip()
         if termux_cwd:
             if not termux_cwd.startswith('/') or '\x00' in termux_cwd:
                 raise RuntimeError('Invalid Termux MCP working directory')
-            return 'cd %s && %s%s' % (shlex.quote(termux_cwd), prefix, argv)
-        return '%s%s' % (prefix, argv)
+            return 'cd %s && %s' % (shlex.quote(termux_cwd), argv)
+        return argv
 
     def _termux_message(self, message, timeout):
         from . import runtime_manager
@@ -279,7 +276,11 @@ class StdioServer(mcp.StdioServer):
         if not state.get('stdio'):
             raise RuntimeError('Termux localhost bridge does not support MCP stdio')
         self._termux = True
-        started = runtime_manager.process_start(self._termux_command(), stdio=True)
+        started = runtime_manager.process_start(
+            self._termux_command(),
+            stdio=True,
+            env={str(k): str(v) for k, v in (self.spec.get('env') or {}).items()},
+        )
         if started.get('status') != 'running' or not started.get('id'):
             raise RuntimeError('MCP stdio process did not start')
         self._termux_process_id = started['id']
