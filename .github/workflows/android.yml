@@ -1,7 +1,7 @@
 name: MusabAI — Android
 on:
   push:
-    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state"]
+    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -119,11 +119,26 @@ jobs:
           gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
           cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
+          stat -c 'APK_BYTES=%s' MusabAI-Connectors.apk
+          sha256sum MusabAI-Connectors.apk | tee MusabAI-Connectors.apk.sha256
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools/35.0.0" -type f -name apksigner | head -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs MusabAI-Connectors.apk | tee signing-report.txt
           ls -lh MusabAI-Connectors.apk
+      - name: Build verified Phase 9 hot-update artifact
+        run: |
+          python3 connectors/build_update_bundle.py desktop/newal_code MusabAI-Hot-Update.zip
+          cat MusabAI-Hot-Update.zip.sha256
+          stat -c 'HOT_UPDATE_BYTES=%s' MusabAI-Hot-Update.zip
       - uses: actions/upload-artifact@v4
         with:
           name: MusabAI-Connectors
-          path: MusabAI-Connectors.apk
+          path: |
+            MusabAI-Connectors.apk
+            MusabAI-Connectors.apk.sha256
+            signing-report.txt
+            MusabAI-Hot-Update.zip
+            MusabAI-Hot-Update.zip.sha256
           compression-level: 0
           retention-days: 14
 
