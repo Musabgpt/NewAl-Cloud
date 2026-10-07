@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from . import mcp_config, runtime_manager
+from . import mcp_config, runtime_manager, tools
 
 PATHS = {
     "/api/mcp-bundles",
@@ -506,7 +506,7 @@ def perform(root, bundle_id, action):
             return {"ok": True, "tools": count, "enabled": True, "running": True}
 
         raise ValueError("Unknown MCP lifecycle action")
-    except (ValueError, KeyError, OSError, RuntimeError, TypeError) as exc:
+    except (ValueError, KeyError, OSError, RuntimeError, TypeError, tools.ToolError) as exc:
         _LAST_ERRORS[key] = str(exc)[:300]
         raise
 
@@ -536,7 +536,7 @@ def route(handler, method, path, body=None):
         root = _session_root(handler, data)
         action = path.rsplit("/", 1)[-1]
         handler._json(perform(root, data.get("id"), action))
-    except (ValueError, KeyError, OSError, RuntimeError, TypeError) as error:
+    except (ValueError, KeyError, OSError, RuntimeError, TypeError, tools.ToolError) as error:
         message = str(error)
         if len(message) > 300:
             message = message[:300]
