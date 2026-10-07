@@ -239,6 +239,18 @@ def _bridge_environment(commands):
     return data, health
 
 
+def termux_home():
+    """Return the real Termux HOME reported by the authenticated localhost bridge."""
+    try:
+        env, _ = _bridge_environment([])
+    except BridgeError as exc:
+        raise tools.ToolError(str(exc)) from exc
+    home = str(env.get("home") or "")
+    if not home.startswith("/") or "\x00" in home:
+        raise tools.ToolError("Termux bridge returned an invalid home directory")
+    return home
+
+
 def probe_termux(commands=None, max_age=5.0):
     """Verify command availability inside Termux through the localhost bridge."""
     global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE
