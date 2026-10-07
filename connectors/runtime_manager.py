@@ -507,14 +507,17 @@ def execute(command, runtime=None):
     return data
 
 
-def process_start(command, stdio=False):
+def process_start(command, stdio=False, env=None):
     if not isinstance(command, str) or not command.strip() or len(command) > 131072:
         raise tools.ToolError("Provide a non-empty command up to 131072 characters")
+    payload = {"command": command, "stdio": bool(stdio)}
+    if env is not None:
+        if not isinstance(env, dict):
+            raise tools.ToolError("Process environment must be an object")
+        payload["env"] = {str(k): str(v) for k, v in env.items()}
     try:
         _ensure_bridge()
-        data = _bridge_request(
-            "POST", "/process/start", {"command": command, "stdio": bool(stdio)}, timeout=5
-        )
+        data = _bridge_request("POST", "/process/start", payload, timeout=5)
     except BridgeError as exc:
         raise tools.ToolError(str(exc)) from exc
     data["runtime"] = TERMUX
