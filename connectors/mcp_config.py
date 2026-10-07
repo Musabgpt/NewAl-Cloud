@@ -222,10 +222,21 @@ class StdioServer(mcp.StdioServer):
         return argv
 
     def _termux_message(self, message, timeout):
-        from . import runtime_manager
+        from . import runtime_manager, tools
         if not self._termux_process_id:
             raise RuntimeError('MCP stdio process is not started')
-        data = runtime_manager.process_request(self._termux_process_id, message, timeout)
+        try:
+            data = runtime_manager.process_request(self._termux_process_id, message, timeout)
+        except tools.ToolError as exc:
+            detail = ''
+            try:
+                state = runtime_manager.process_status(self._termux_process_id)
+                logs = str(state.get('logs') or '').strip()
+                if logs:
+                    detail = ' | stderr: ' + logs[-1200:]
+            except Exception:
+                pass
+            raise RuntimeError(str(exc) + detail) from exc
         response = data.get('response')
         if message.get('id') is None:
             return {}
