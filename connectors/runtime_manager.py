@@ -1,36 +1,50 @@
 """Unified runtime manager for MusabAI.
 
-The Android app process is not a Linux development shell. On Android, shell
-programs such as node, npm, npx, python, git and bash belong to Termux and are
-probed/executed there. ANDROID_NATIVE represents the app/phone bridge itself
-and deliberately never depends on adb. REMOTE is an optional explicit HTTPS
-execution backend.
+Phase 6 adds a real authenticated localhost bridge inside Termux. The Android
+app uses RUN_COMMAND only to bootstrap/restart that bridge when necessary; once
+up, command discovery, synchronous execution and durable process lifecycle all
+flow over 127.0.0.1. ANDROID_NATIVE remains adb-free.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import shlex
 import shutil
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import tools
+from . import termux_bridge_server, tools
 
 ANDROID_NATIVE = "ANDROID_NATIVE"
 TERMUX = "TERMUX"
 REMOTE = "REMOTE"
 PRODUCT_RUNTIMES = (ANDROID_NATIVE, TERMUX, REMOTE)
 TERMUX_BASE_COMMANDS = ("node", "npm", "npx", "python", "git", "bash")
-NAMES = ["runtime_status", "runtime_exec"]
+NAMES = [
+    "runtime_status",
+    "runtime_exec",
+    "runtime_process_start",
+    "runtime_process_status",
+    "runtime_process_stop",
+]
+BRIDGE_PORT = 8799
 
 _CACHE_LOCK = threading.RLock()
 _CACHE_AT = 0.0
 _CACHE_VALUES = {}
 _CACHE_STATE = ""
+
+
+class BridgeError(RuntimeError):
+    pass
 
 
 def _phone_available():
@@ -39,6 +53,15 @@ def _phone_available():
         return bool(phone.available())
     except Exception:
         return False
+
+
+def _phone_key():
+    try:
+        from . import phone
+        _, key = phone.config()
+        return str(key or "")
+    except Exception:
+        return ""
 
 
 def _connectors():
@@ -82,12 +105,142 @@ def _clear_cache():
         _CACHE_STATE = ""
 
 
-def probe_termux(commands=None, max_age=5.0):
-    """Return tri-state command availability from Termux, never Android PATH.
+def _bridge_origin():
+    raw = str(os.environ.get("MUSABAI_TERMUX_BRIDGE_URL") or
+              ("http://127.0.0.1:%d" % BRIDGE_PORT)).strip()
+    parsed = urllib.parse.urlsplit(raw)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in ("127.0.0.1", "localhost", "::1")
+        or not parsed.port
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise BridgeError("Termux bridge must be an HTTP loopback origin")
+    return raw.rstrip("/")
 
-    values are True/False when Termux was actually probed and None when the
-    Termux connection is not ready, so callers do not misreport "npx missing".
-    """
+
+def _bridge_token():
+    key = _phone_key()
+    if not key:
+        raise BridgeError("Android phone key is unavailable")
+    return hashlib.sha256(b"musabai-termux-bridge-v1\0" + key.encode("utf-8")).hexdigest()
+
+
+def _bridge_request(method, path, payload=None, timeout=3.0):
+    url = _bridge_origin() + path
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"X-MusabAI-Token": _bridge_token(), "Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(1_000_001)
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read(65536) or b"{}")
+            message = body.get("error") if isinstance(body, dict) else ""
+        except ValueError:
+            message = ""
+        raise BridgeError(message or "Termux bridge returned HTTP %d" % exc.code) from exc
+    except OSError as exc:
+        raise BridgeError("Termux localhost bridge is not answering") from exc
+    if len(raw) > 1_000_000:
+        raise BridgeError("Termux bridge response exceeded 1 MB")
+    try:
+        result = json.loads(raw or b"{}")
+    except ValueError as exc:
+        raise BridgeError("Termux bridge returned invalid JSON") from exc
+    if not isinstance(result, dict):
+        raise BridgeError("Termux bridge returned invalid JSON")
+    if result.get("ok") is False:
+        raise BridgeError(str(result.get("error") or "Termux bridge operation failed"))
+    return result
+
+
+def _bridge_health(timeout=0.6):
+    data = _bridge_request("GET", "/health", timeout=timeout)
+    if data.get("bridge") != "musabai-termux" or int(data.get("version") or 0) != termux_bridge_server.VERSION:
+        raise BridgeError("Unexpected Termux bridge version")
+    return data
+
+
+def _bootstrap_bridge():
+    state = _termux_record()
+    if state.get("status") != "connected":
+        raise BridgeError(state.get("error") or "Test Termux connection before starting the localhost bridge")
+    source = Path(termux_bridge_server.__file__).read_bytes()
+    if len(source) > 100_000:
+        raise BridgeError("Termux bridge source is unexpectedly large")
+    token = _bridge_token().encode("utf-8")
+    source64 = base64.b64encode(source).decode("ascii")
+    token64 = base64.b64encode(token).decode("ascii")
+    py = (
+        "import base64,sys,pathlib;"
+        "p=pathlib.Path(sys.argv[1]);"
+        "p.write_bytes(base64.b64decode(sys.argv[2]))"
+    )
+    command = "\n".join([
+        "set -eu",
+        'D="$HOME/.musabai/runtime-bridge"',
+        'mkdir -p "$D/state" "$D/processes"',
+        'chmod 700 "$HOME/.musabai" "$D" "$D/state" "$D/processes" 2>/dev/null || true',
+        "python -c %s \"$D/server.py\" %s" % (shlex.quote(py), shlex.quote(source64)),
+        "python -c %s \"$D/token\" %s" % (shlex.quote(py), shlex.quote(token64)),
+        'chmod 600 "$D/server.py" "$D/token"',
+        'if [ -s "$D/bridge.pid" ]; then OLD="$(cat "$D/bridge.pid" 2>/dev/null || true)"; '
+        '[ -n "$OLD" ] && kill "$OLD" 2>/dev/null || true; fi',
+        'nohup env MUSABAI_TERMUX_BRIDGE_TOKEN="$(cat "$D/token")" '
+        'python "$D/server.py" --host 127.0.0.1 --port %d --root "$D/state" '
+        '>>"$D/bridge.log" 2>&1 </dev/null &' % BRIDGE_PORT,
+        'echo $! > "$D/bridge.pid"',
+    ])
+    try:
+        result = _native("termux_exec", command=command)
+        if result.get("status") == "running" and result.get("id"):
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                time.sleep(0.1)
+                result = _native("termux_result", id=result["id"])
+                if result.get("status") != "running":
+                    break
+    except Exception as exc:
+        raise BridgeError("Termux bridge bootstrap failed") from exc
+    if result.get("status") != "completed" or result.get("exit_code") not in (0, None):
+        raise BridgeError("Termux bridge bootstrap command failed")
+    _clear_cache()
+
+
+def _ensure_bridge():
+    try:
+        return _bridge_health()
+    except BridgeError:
+        _bootstrap_bridge()
+    last = None
+    for _ in range(50):
+        try:
+            return _bridge_health()
+        except BridgeError as exc:
+            last = exc
+            time.sleep(0.1)
+    raise BridgeError("Termux bridge did not become ready") from last
+
+
+def _bridge_environment(commands):
+    requested = _validated_commands(commands)
+    health = _ensure_bridge()
+    query = urllib.parse.urlencode({"commands": ",".join(requested)})
+    data = _bridge_request("GET", "/environment?" + query, timeout=3)
+    return data, health
+
+
+def probe_termux(commands=None, max_age=5.0):
+    """Verify command availability inside Termux through the localhost bridge."""
     global _CACHE_AT, _CACHE_VALUES, _CACHE_STATE
     requested = _validated_commands(commands or TERMUX_BASE_COMMANDS)
     record = _termux_record()
@@ -96,70 +249,62 @@ def probe_termux(commands=None, max_age=5.0):
         return {
             "runtime": TERMUX,
             "status": state,
+            "bridge": False,
             "commands": {name: None for name in requested},
             "reason": record.get("error") or "Connect and test Termux before probing commands.",
         }
 
-    now = time.monotonic()
-    with _CACHE_LOCK:
-        if _CACHE_STATE == state and now - _CACHE_AT <= max_age and all(name in _CACHE_VALUES for name in requested):
-            return {
-                "runtime": TERMUX,
-                "status": "connected",
-                "commands": {name: _CACHE_VALUES[name] for name in requested},
-                "reason": "Command availability was verified inside Termux.",
-            }
-
-    probe_names = list(dict.fromkeys(list(TERMUX_BASE_COMMANDS) + requested))
-    shell = (
-        "for c in " + " ".join(shlex.quote(name) for name in probe_names) +
-        '; do if command -v "$c" >/dev/null 2>&1; then printf "%s=1\\n" "$c"; '
-        'else printf "%s=0\\n" "$c"; fi; done'
-    )
     try:
-        result = _native("termux_exec", command=shell)
-        if result.get("status") == "running" and result.get("id"):
-            for _ in range(3):
-                time.sleep(0.05)
-                result = _native("termux_result", id=result["id"])
-                if result.get("status") != "running":
-                    break
-    except Exception:
+        health = _ensure_bridge()
+    except BridgeError as exc:
         return {
             "runtime": TERMUX,
             "status": "error",
+            "bridge": False,
             "commands": {name: None for name in requested},
-            "reason": "Termux command probe failed; availability is unknown.",
+            "reason": str(exc),
         }
 
-    if result.get("status") != "completed" or result.get("exit_code") not in (0, None):
+    cache_state = "connected:%s" % health.get("started_at", "")
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        if _CACHE_STATE == cache_state and now - _CACHE_AT <= max_age and all(name in _CACHE_VALUES for name in requested):
+            return {
+                "runtime": TERMUX,
+                "status": "connected",
+                "bridge": True,
+                "commands": {name: _CACHE_VALUES[name] for name in requested},
+                "reason": "Command availability was verified through the Termux localhost bridge.",
+            }
+
+    try:
+        env, health = _bridge_environment(list(dict.fromkeys(list(TERMUX_BASE_COMMANDS) + requested)))
+    except BridgeError as exc:
         return {
             "runtime": TERMUX,
-            "status": str(result.get("status") or "error"),
+            "status": "error",
+            "bridge": False,
             "commands": {name: None for name in requested},
-            "reason": "Termux command probe did not complete successfully.",
+            "reason": str(exc),
         }
-
     values = {}
-    for line in str(result.get("stdout") or "").splitlines():
-        if "=" not in line:
-            continue
-        name, flag = line.split("=", 1)
-        if name in probe_names and flag in ("0", "1"):
-            values[name] = flag == "1"
-    for name in probe_names:
+    for name, row in (env.get("commands") or {}).items():
+        if name in TERMUX_BASE_COMMANDS or name in requested:
+            values[name] = bool((row or {}).get("available"))
+    for name in list(TERMUX_BASE_COMMANDS) + requested:
         values.setdefault(name, None)
 
     with _CACHE_LOCK:
         _CACHE_AT = time.monotonic()
         _CACHE_VALUES = dict(values)
-        _CACHE_STATE = "connected"
+        _CACHE_STATE = "connected:%s" % health.get("started_at", "")
 
     return {
         "runtime": TERMUX,
         "status": "connected",
+        "bridge": True,
         "commands": {name: values.get(name) for name in requested},
-        "reason": "Command availability was verified inside Termux.",
+        "reason": "Command availability was verified through the Termux localhost bridge.",
     }
 
 
@@ -176,16 +321,17 @@ def requirements(commands):
             "missing": missing,
             "unknown": unknown,
             "reason": probed["reason"],
+            "bridge": bool(probed.get("bridge")),
             "stdio": False,
         }
 
-    # Development/CI host only. This is not the Android runtime decision path.
     missing = [name for name in requested if shutil.which(name) is None]
     return {
         "runtime": "LOCAL_HOST",
         "missing": missing,
         "unknown": [],
         "reason": "Checked on the non-Android development host.",
+        "bridge": False,
         "stdio": True,
     }
 
@@ -204,6 +350,7 @@ def command_status(command):
         "runtime": state["runtime"],
         "available": available,
         "reason": state["reason"],
+        "bridge": state.get("bridge", False),
         "stdio": state["stdio"],
     }
 
@@ -224,17 +371,34 @@ def _remote_config():
 def snapshot(probe=False):
     native_ok = _phone_available()
     termux = _termux_record() if native_ok else {"status": "unavailable", "error": "Android phone bridge unavailable"}
+    bridge = None
+    if native_ok and termux.get("status") == "connected":
+        try:
+            bridge = _ensure_bridge()
+        except BridgeError:
+            bridge = None
     termux_row = {
         "runtime": TERMUX,
-        "available": termux.get("status") == "connected",
+        "available": termux.get("status") == "connected" and bridge is not None,
         "status": termux.get("status") or "unavailable",
         "reason": termux.get("error") or "",
+        "bridge": {
+            "connected": bridge is not None,
+            "url": _bridge_origin() if bridge is not None else "",
+            "version": bridge.get("version") if bridge else None,
+            "started_at": bridge.get("started_at") if bridge else None,
+        },
         "commands": {},
     }
-    if probe and termux_row["available"]:
+    if termux.get("status") == "connected" and bridge is None:
+        termux_row["status"] = "bridge_error"
+        termux_row["reason"] = "Termux is connected but its localhost runtime bridge is unavailable."
+    if probe and termux.get("status") == "connected":
         checked = probe_termux(TERMUX_BASE_COMMANDS, max_age=0)
         termux_row["commands"] = checked["commands"]
         termux_row["reason"] = checked["reason"]
+        termux_row["available"] = checked.get("bridge", False)
+        termux_row["status"] = checked["status"]
 
     remote = _remote_config()
     return {
@@ -244,7 +408,7 @@ def snapshot(probe=False):
                 "available": native_ok,
                 "requires_adb": False,
                 "shell": False,
-                "reason": "Local app/phone bridge; Android actions use the native localhost bridge, never adb.",
+                "reason": "Local app/phone bridge; Android actions use localhost and never adb.",
             },
             termux_row,
             {
@@ -255,7 +419,7 @@ def snapshot(probe=False):
             },
         ],
         "shell_commands": list(TERMUX_BASE_COMMANDS),
-        "policy": "On Android, shell command discovery and execution use Termux instead of the app sandbox.",
+        "policy": "On Android, Termux shell discovery/execution uses the authenticated localhost bridge on 127.0.0.1.",
     }
 
 
@@ -315,26 +479,61 @@ def execute(command, runtime=None):
         state = _termux_record()
         if state.get("status") != "connected":
             raise tools.ToolError(state.get("error") or "Connect and test Termux before running commands")
-        result = _native("termux_exec", command=command)
-        return {
-            "runtime": TERMUX,
-            "id": result.get("id"),
-            "status": result.get("status"),
-            "exit_code": result.get("exit_code"),
-            "stdout": str(result.get("stdout") or ""),
-            "stderr": str(result.get("stderr") or ""),
-            "command_success": result.get("command_success"),
-        }
+        try:
+            _ensure_bridge()
+            result = _bridge_request("POST", "/exec", {"command": command, "timeout": 75}, timeout=80)
+        except BridgeError as exc:
+            raise tools.ToolError(str(exc)) from exc
+        result["runtime"] = TERMUX
+        return result
 
     data = _remote_exec(command)
     data.setdefault("runtime", REMOTE)
     return data
 
 
+def process_start(command):
+    if not isinstance(command, str) or not command.strip() or len(command) > 131072:
+        raise tools.ToolError("Provide a non-empty command up to 131072 characters")
+    try:
+        _ensure_bridge()
+        data = _bridge_request("POST", "/process/start", {"command": command}, timeout=5)
+    except BridgeError as exc:
+        raise tools.ToolError(str(exc)) from exc
+    data["runtime"] = TERMUX
+    return data
+
+
+def process_status(process_id):
+    if not isinstance(process_id, str):
+        raise tools.ToolError("Invalid process id")
+    try:
+        _ensure_bridge()
+        data = _bridge_request(
+            "GET", "/process/status?" + urllib.parse.urlencode({"id": process_id}), timeout=3
+        )
+    except BridgeError as exc:
+        raise tools.ToolError(str(exc)) from exc
+    data["runtime"] = TERMUX
+    return data
+
+
+def process_stop(process_id):
+    if not isinstance(process_id, str):
+        raise tools.ToolError("Invalid process id")
+    try:
+        _ensure_bridge()
+        data = _bridge_request("POST", "/process/stop", {"id": process_id}, timeout=6)
+    except BridgeError as exc:
+        raise tools.ToolError(str(exc)) from exc
+    data["runtime"] = TERMUX
+    return data
+
+
 def install():
     @tools.tool(
         "runtime_status",
-        "Inspect MusabAI runtime state. On Android, probes node/npm/npx/python/git/bash inside Termux, not the Android app sandbox.",
+        "Inspect MusabAI runtime state. On Android, verifies node/npm/npx/python/git/bash through the authenticated Termux localhost bridge.",
         {"probe": {"type": "boolean", "description": "when true, verify the standard shell commands inside Termux"}},
         [],
         "meta",
@@ -345,7 +544,7 @@ def install():
 
     @tools.tool(
         "runtime_exec",
-        "Run a shell command through the unified runtime manager. Android shell commands execute in connected Termux; ANDROID_NATIVE never invokes adb.",
+        "Run a bounded shell command through the unified runtime manager. Android shell commands execute in Termux over 127.0.0.1; ANDROID_NATIVE never invokes adb.",
         {
             "command": {"type": "string", "description": "shell command"},
             "runtime": {
@@ -364,3 +563,38 @@ def install():
             "exit": data.get("exit_code"),
             "pending": data.get("status") == "running",
         }
+
+    @tools.tool(
+        "runtime_process_start",
+        "Start a durable long-running process inside Termux. Returns a process id; use runtime_process_status/stop instead of repeating the command.",
+        {"command": {"type": "string", "description": "shell command"}},
+        ["command"],
+        "exec",
+    )
+    def runtime_process_start(ctx, command):
+        data = process_start(command)
+        return json.dumps(data, ensure_ascii=False), {
+            "runtime": TERMUX, "process": data.get("id"), "pending": data.get("status") == "running"
+        }
+
+    @tools.tool(
+        "runtime_process_status",
+        "Read status and recent logs for a Termux bridge process without re-running it.",
+        {"id": {"type": "string", "description": "process id from runtime_process_start"}},
+        ["id"],
+        "read",
+    )
+    def runtime_process_status(ctx, id):
+        data = process_status(id)
+        return json.dumps(data, ensure_ascii=False), {"runtime": TERMUX, "process": id}
+
+    @tools.tool(
+        "runtime_process_stop",
+        "Stop the exact Termux process group previously started by runtime_process_start. PID identity is verified before signaling.",
+        {"id": {"type": "string", "description": "process id from runtime_process_start"}},
+        ["id"],
+        "exec",
+    )
+    def runtime_process_stop(ctx, id):
+        data = process_stop(id)
+        return json.dumps(data, ensure_ascii=False), {"runtime": TERMUX, "process": id}
