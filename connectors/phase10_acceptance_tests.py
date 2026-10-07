@@ -60,6 +60,10 @@ SELECTED = [
 
 
 def build_suite() -> unittest.TestSuite:
+    # Match the real packaged-engine bootstrap direction. tools installs the
+    # runtime manager after defining its own registry API; importing
+    # runtime_manager tests first would invert that intentional dependency.
+    importlib.import_module("newal_code.tools")
     suite = unittest.TestSuite()
     for module_name, class_name, method_name in SELECTED:
         module = importlib.import_module(module_name)
