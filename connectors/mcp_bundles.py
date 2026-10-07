@@ -5,6 +5,7 @@ reported available only when its runtime (and required credential) exists.
 Enabling performs an actual initialize + tools/list handshake before persisting
 the server into the project's private MCP configuration.
 """
+import hashlib
 import os
 import re
 import shutil
@@ -142,11 +143,20 @@ def _missing(item):
 
 def _spec(item, root):
     root = os.path.realpath(root)
+    runtime = _runtime_requirements(item)
     memory_dir = os.path.join(root, ".newal")
-    os.makedirs(memory_dir, exist_ok=True)
+    if runtime["runtime"] == runtime_manager.TERMUX and item.get("id") == "memory":
+        project_key = hashlib.sha256(root.encode("utf-8")).hexdigest()[:20]
+        memory_file = os.path.join(
+            runtime_manager.termux_home(),
+            ".musabai-mcp-memory-" + project_key + ".jsonl",
+        )
+    else:
+        os.makedirs(memory_dir, exist_ok=True)
+        memory_file = os.path.join(memory_dir, "mcp-memory.jsonl")
     replacements = {
         "{root}": root,
-        "{memory_file}": os.path.join(memory_dir, "mcp-memory.jsonl"),
+        "{memory_file}": memory_file,
     }
 
     def expand(value):
@@ -180,8 +190,9 @@ def catalog(root=None):
         credential_missing = bool(item.get("credential_env_any") and not _credential(item)[1])
         record = enabled.get(item["id"]) or {}
         active = record.get("bundle") == item["id"]
-        if active:
-            status = "enabled"
+        verified = bool(active and int(record.get("tested_at") or 0) > 0 and int(record.get("tools") or 0) > 0)
+        if verified:
+            status = "verified"
         elif credential_missing:
             status = "credentials_missing"
         elif runtime["unknown"]:
@@ -189,9 +200,9 @@ def catalog(root=None):
         elif missing:
             status = "runtime_missing"
         elif runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
-            # Phase 5 can verify and execute ordinary Termux commands, but MCP stdio
-            # is intentionally not faked. Phase 6 supplies the durable localhost bridge.
             status = "bridge_required"
+        elif runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
+            status = "needs_shared_path"
         else:
             status = "available"
         public = {
@@ -204,9 +215,17 @@ def catalog(root=None):
             "missing": missing,
             "runtime": runtime["runtime"],
             "runtime_reason": runtime["reason"],
-            "enabled": active,
-            "tools": int(record.get("tools") or 0) if active else 0,
-            "tested_at": int(record.get("tested_at") or 0) if active else 0,
+            "dependencies": list(item.get("runtimes") or []),
+            "install_method": "on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled",
+            "start_method": "runtime_process_start(stdio=true)",
+            "stop_method": "runtime_process_stop",
+            "health_check": "MCP initialize + tools/list",
+            "verified": verified,
+            "installed": verified,
+            "connected": False,
+            "enabled": verified,
+            "tools": int(record.get("tools") or 0) if verified else 0,
+            "tested_at": int(record.get("tested_at") or 0) if verified else 0,
         })
         result.append(public)
     return result
@@ -225,6 +244,11 @@ def _test(item, root):
         raise RuntimeError(runtime["reason"])
     if runtime["missing"]:
         raise RuntimeError("Missing requirements: " + ", ".join(runtime["missing"]))
+    if runtime["runtime"] == runtime_manager.TERMUX and item["id"] == "filesystem":
+        raise RuntimeError(
+            "Filesystem MCP cannot access MusabAI app-private project files from Termux. "
+            "Use MusabAI built-in file tools until a shared project path is configured."
+        )
     if runtime["runtime"] == runtime_manager.TERMUX and not runtime["stdio"]:
         raise RuntimeError(
             "Termux runtime is verified, but persistent MCP stdio transport is not active yet; "
@@ -269,7 +293,7 @@ def route(handler, method, path, body=None):
             handler._json({
                 "bundles": catalog(root),
                 "automatic": True,
-                "note": "Enabled bundles are discovered by the agent automatically. Availability is never faked.",
+                "note": "Installed means a real initialize + tools/list handshake succeeded. Connected is never claimed from saved state alone.",
             })
             return True
 
