@@ -113,7 +113,8 @@ def apply_pending(service):
         # An unstarted thread is reserved work, too; activation cannot race t.start().
         if any(t.is_alive() or t.ident is None for t in service.threads.values()):
             return record
-        if getattr(service, 'dependency_setup_busy', False):
+        from . import managed_linux
+        if getattr(service, 'dependency_setup_busy', False) or managed_linux.LOCK.locked():
             return record
         candidate = record['candidate']
         # Prevent the service from accepting a new turn while switching/restarting.

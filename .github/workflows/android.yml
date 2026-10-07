@@ -147,12 +147,28 @@ jobs:
           NEWAL_TEST_WATCHDOG: "180"
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
-          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Phase 10 real npm MCP install and stdio validation (Linux host)
         env:
           PYTHONPATH: desktop
         run: python3 connectors/phase10_mcp_validation.py
+      - name: Phase 10 Linux compatibility and real browser validation
+        if: github.ref == 'refs/heads/phase10/final-validation'
+        env:
+          PYTHONPATH: desktop
+          UV_TORCH_BACKEND: cpu
+        run: |
+          python3 -m pip install uv
+          uv venv --python 3.11 /tmp/musabai-browser
+          uv venv --python 3.11 /tmp/musabai-docling
+          uv pip install --python /tmp/musabai-browser/bin/python 'browser-use==0.13.5'
+          uv pip install --python /tmp/musabai-docling/bin/python 'docling-mcp[local]==3.3.0'
+          npm install --prefix /tmp/musabai-linux-node --no-audit --no-fund node@22.22.0
+          export PATH="/tmp/musabai-linux-node/node_modules/node/bin:$PATH"
+          npm install --prefix /tmp/musabai-android --no-audit --no-fund --omit=dev @us-all/android-mcp@1.14.4
+          export ADB_PATH="$ANDROID_HOME/platform-tools/adb"
+          python3 connectors/phase10_linux_validation.py --browser-bin /tmp/musabai-browser/bin --docling-bin /tmp/musabai-docling/bin --android-entry /tmp/musabai-android/node_modules/@us-all/android-mcp/dist/index.js
       - name: Download exact Action 125 native baseline
         uses: actions/download-artifact@v4
         with:

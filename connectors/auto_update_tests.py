@@ -116,3 +116,11 @@ class AutomaticUpdateTests(unittest.TestCase):
         with patch.object(auto, 'status', return_value=record), patch.object(e, 'activate') as activate:
             self.assertEqual(auto.apply_pending(service), record)
         activate.assert_not_called()
+
+    def test_activation_waits_for_linux_package_installation(self):
+        from . import managed_linux
+        auto = self.auto()
+        record = {'state':'waiting_idle', 'candidate':'verified'}
+        with managed_linux.LOCK, patch.object(auto, 'status', return_value=record), patch.object(e, 'activate') as activate:
+            self.assertEqual(auto.apply_pending(self.service()), record)
+        activate.assert_not_called()

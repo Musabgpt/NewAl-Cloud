@@ -63,9 +63,9 @@ BUNDLES = [
         "runtimes": ["uvx"],
         "command": "uvx",
         "args": ["browser-use==0.13.5", "--cli-mcp"],
-        "description": "Browser Use CLI MCP for complex or visually difficult pages. Uses the package/stdio contract published in its official server.json.",
+        "description": "Official Browser Use MCP for browser tasks. Android uses its stdio server with headless Linux Chromium in a managed Debian environment.",
         "browser_role": "complex",
-        "manual_setup": "On Termux, uv/uvx is installed automatically before MCP verification. Browser/Python dependency compatibility is checked by the real MCP startup.",
+        "manual_setup": "Android installs a dedicated Debian/Python 3.11 environment and Chromium automatically before the real MCP handshake. Initial setup downloads Linux packages.",
     },
     {
         "id": "open-browser-use",
@@ -76,7 +76,8 @@ BUNDLES = [
         "args": ["mcp", "stdio"],
         "description": "Controls an existing real Chromium session through the open-browser-use MCP server; useful when the task requires the user's logged-in session.",
         "browser_role": "existing_session",
-        "manual_setup": "Install and verify open-browser-use first; its browser extension/native host has a user-visible setup boundary.",
+        "manual_setup": "Requires its Chrome extension and native host on a supported desktop Chromium browser. Android Chrome does not load this extension. Use the working Playwright browser route on this device, or connect a supported desktop browser.",
+        "native_fallback": "Use Microsoft Playwright MCP for browser tasks on this device; open-browser-use is a separate existing-session capability.",
     },
     {
         "id": "docling",
@@ -91,7 +92,7 @@ BUNDLES = [
         },
         "description": "Docling document understanding for PDF, Office, OCR, tables and structured conversion. The reviewed bundle pins Docling MCP 3.3.0 and starts its official stdio server in local mode.",
         "document_role": "structured",
-        "manual_setup": "On Termux, uv/uvx is installed automatically. Docling still requires compatible native Python dependencies; successful uv installation alone does not mark this MCP installed.",
+        "manual_setup": "Android installs Docling in dedicated Debian/Python 3.11 so Linux PyTorch wheels can load. Initial setup requires substantial storage and network access; installation is verified by MCP tools/list.",
         "native_fallback": "MusabAI's built-in document tools remain available for Markdown, text, HTML, ordinary PDF text and ZIP files.",
     },
     {
@@ -117,6 +118,7 @@ BUNDLES = [
         "termux_npm_entry": "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
         "termux_args": ["{root}"],
         "description": "Sandboxed file tools restricted to the current project root.",
+        "native_fallback": "Use the built-in file tools for app-private projects. Termux cannot cross the Android application sandbox.",
     },
     {
         "id": "android",
@@ -129,7 +131,7 @@ BUNDLES = [
         "termux_npm_entry": "node_modules/@us-all/android-mcp/dist/index.js",
         "termux_args": [],
         "env": {"ANDROID_MCP_ALLOW_WRITE": "true"},
-        "description": "Optional third-party ADB MCP for external-device diagnostics. This is not MusabAI's native on-phone bridge and it requires npx plus adb.",
+        "description": "Optional third-party ADB MCP for external-device diagnostics. This is not MusabAI's native on-phone bridge and uses a managed Linux Node/sharp environment plus adb on Android. An external ADB device must still be paired.",
         "native_fallback": "MusabAI Android Native Bridge is separate and works locally without adb, Wireless ADB, Wi-Fi pairing or USB ADB.",
     },
     {
@@ -164,6 +166,9 @@ def _credential(item):
 
 
 def _runtime_requirements(item):
+    from . import managed_linux
+    if item['id'] in managed_linux.RECIPES and runtime_manager._phone_available():
+        return runtime_manager.requirements(['proot-distro'])
     return runtime_manager.requirements(item.get("runtimes") or [])
 
 
@@ -194,6 +199,9 @@ def _missing(item):
 def _spec(item, root):
     root = os.path.realpath(root)
     runtime = _runtime_requirements(item)
+    from . import managed_linux
+    if runtime['runtime'] == runtime_manager.TERMUX and item['id'] in managed_linux.RECIPES:
+        return managed_linux.spec(item)
     memory_dir = os.path.join(root, ".newal")
     if runtime["runtime"] == runtime_manager.TERMUX and item.get("id") == "memory":
         project_key = hashlib.sha256(root.encode("utf-8")).hexdigest()[:20]
@@ -378,13 +386,16 @@ def catalog(root=None):
         }
         process_id = str(getattr(server, "_termux_process_id", "") or "") if server else ""
         public.update({
-            "available": status == "ready",
+            "available": status == "ready" or (
+                runtime['runtime'] == runtime_manager.TERMUX and runtime['stdio'] and not runtime['unknown']
+                and status in {'tool_missing', 'health_failed'}
+                and (item.get('termux_npm_package') or item['id'] in {'browser-use', 'docling'})),
             "status": status,
             "missing": list(runtime["missing"]),
             "runtime": runtime["runtime"],
             "runtime_reason": runtime["reason"],
             "dependencies": list(item.get("runtimes") or []),
-            "install_method": "managed_npm" if item.get("termux_npm_package") else ("on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled"),
+            "install_method": "managed_linux" if runtime["runtime"] == runtime_manager.TERMUX and item["id"] in {"browser-use", "docling", "android"} else "managed_npm" if item.get("termux_npm_package") else ("on_demand" if item.get("command") in {"npx", "uvx"} else "manual_or_preinstalled"),
             "start_method": "runtime_process_start(stdio=true)",
             "stop_method": "runtime_process_stop",
             "health_check": "live process status + MCP tools/list",
@@ -443,7 +454,7 @@ def _wait_termux_process(process_id, timeout=420):
             if last.get("exit_code") != 0:
                 detail = str(last.get("logs") or "").strip()
                 raise RuntimeError("Termux setup failed (exit_code=%s)" % last.get("exit_code")
-                                   + (": " + detail[-1200:] if detail else ""))
+                                   + (": " + detail[-6000:] if detail else ""))
             return last
         if last.get("status") not in {"running", "unknown"}:
             raise RuntimeError("Termux setup stopped unexpectedly")
@@ -489,6 +500,10 @@ def _ensure_termux_setup(item):
     _cancel_setup()
     runtime = _runtime_requirements(item)
     if runtime.get("runtime") != runtime_manager.TERMUX:
+        return
+    from . import managed_linux
+    if item['id'] in managed_linux.RECIPES:
+        managed_linux.ensure(item, getattr(_CANCEL, 'token', None))
         return
     if item.get('command') == 'uvx':
         from .automation import ensure_dependency
@@ -662,7 +677,7 @@ def perform(root, bundle_id, action):
 
         raise ValueError("Unknown MCP lifecycle action")
     except (ValueError, KeyError, OSError, RuntimeError, TypeError, tools.ToolError) as exc:
-        _LAST_ERRORS[key] = str(exc)[:300]
+        _LAST_ERRORS[key] = str(exc)[-6000:]
         raise
 
 
@@ -693,7 +708,7 @@ def route(handler, method, path, body=None):
         handler._json(perform(root, data.get("id"), action))
     except (ValueError, KeyError, OSError, RuntimeError, TypeError, tools.ToolError) as error:
         message = str(error)
-        if len(message) > 300:
-            message = message[:300]
+        if len(message) > 6000:
+            message = message[-6000:]
         handler._json({"error": "MCP lifecycle operation failed: " + message}, 400)
     return True

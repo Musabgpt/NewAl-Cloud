@@ -150,3 +150,35 @@ reconnection and update coordination; UI tests cover visible states. These are
 not Samsung installation evidence. Device readiness remains pending until the
 updated app displays verified uv and uvx versions. Python MCP compatibility and
 initialize/tools/list acceptance remain separate requirements.
+
+## Samsung screenshots: native dependency compatibility follow-up
+
+The owner supplied screenshots showing Browser Use Python builds failing, Docling
+rejecting Python 3.14 Torch wheels, Android MCP failing to load `sharp` for
+android-arm64, Memory **running**, GitHub **connected**, Google services lacking
+owner OAuth registration, and an unauthenticated external MCP error. These are
+separate failures; they do not show a disconnected Termux bridge.
+
+Browser Use, Docling and optional external Android MCP now use a dedicated managed
+Debian bookworm container in Termux. Python 3.11 and Linux wheels replace Android
+Python wheel resolution; pinned Linux Node 22.22.0 meets Android MCP/sharp engine
+requirements. Installation finishes and imports are checked before MCP starts.
+A real initialize/initialized/tools/list still gates persistence. Proot startup,
+Android kernel compatibility, storage and real Samsung execution remain unproven.
+This setup can download substantial packages and runs only when requested.
+
+Live Linux host evidence: Browser Use 16 tools plus real Chromium navigation and
+HTML read; Docling 21 tools plus a real cache-list call; Android MCP 76 tools with
+real adb installed (no attached Android device controlled). CI runs these checks
+before APK build. Host regression tests cover install failure, import verification,
+retries, and update exclusion. Full bounded stderr and HTTP status diagnostics
+replace truncated/generic errors. Registry installs can use an owner-entered bearer
+token, saved only after verification in the existing private MCP configuration.
+
+Open-browser-use still needs its browser extension on a supported desktop browser;
+Android Chrome cannot load it. Filesystem MCP cannot read app-private project data
+from Termux; existing native file tools cover that workspace. Google OAuth client
+registration/API activation and user consent, service subscriptions and provider
+keys cannot be fabricated. The Hub now explains these requirements and available
+built-in alternatives rather than silently presenting broken installation buttons.
+Phase 10 remains open for real-device acceptance; this is not an all-connected claim.

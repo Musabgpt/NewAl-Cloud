@@ -29,6 +29,8 @@ class McpConfigTests(unittest.TestCase):
                 requests.append((body, dict(self.headers)))
                 if self.path == '/denied':
                     self.send_response(401); self.end_headers(); return
+                if self.path == '/unauthorized':
+                    self.send_response(401); self.end_headers(); self.wfile.write(b'private-fixture-token'); return
                 if self.path == '/redirect':
                     self.send_response(302); self.send_header('Location', '/mcp'); self.end_headers(); return
                 if body['method'] == 'notifications/initialized':
@@ -60,6 +62,24 @@ class McpConfigTests(unittest.TestCase):
 
     def save(self, url=None):
         mcp_config.route(self.handler, 'POST', '/api/mcp-servers/save', {'session':'s','name':'fixture','url':url or self.url,'token':'private-fixture-token'})
+
+    def test_registry_bearer_token_uses_real_handshake_and_private_storage(self):
+        from . import mcp_registry
+        info = {'installable': True, 'remote': self.url, 'version': '1', 'reasons': []}
+        with patch.object(mcp_registry, 'inspect', return_value=info):
+            result = mcp_registry.install(self.root, 'io.example/authenticated', 'secured', 'private-fixture-token')
+        self.assertEqual(result['tools'], 2)
+        self.assertTrue(all(headers.get('Authorization') == 'Bearer private-fixture-token' for _, headers in self.requests))
+        self.assertNotIn('private-fixture-token', json.dumps(result))
+        self.assertEqual(os.stat(mcp_config.path_for(self.root)).st_mode & 0o777, 0o600)
+
+    def test_authentication_error_is_actionable_without_echoing_credentials(self):
+        self.save(self.url.replace('/mcp','/unauthorized'))
+        self.assertEqual(self.response[1], 400)
+        self.assertIn('HTTP 401', self.response[0]['error'])
+        self.assertIn('Authentication required', self.response[0]['error'])
+        self.assertNotIn('private-fixture-token', self.response[0]['error'])
+        self.assertEqual(mcp_config.read(self.root), {})
 
     def test_real_discovery_call_and_private_persistence(self):
         self.save()

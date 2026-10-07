@@ -90,6 +90,16 @@
           detail.append(element("div", tr("Available tools: ", "الأدوات المتاحة: ") + item.tool_count, "muted"));
         if (item.scopes) { const scopes = element("details"); scopes.append(element("summary", tr("Granted scopes", "الصلاحيات الممنوحة")), element("small", item.scopes)); detail.append(scopes); }
         if (item.error) detail.append(element("div", errorText(item.error), "muted"));
+        if (['drive','gmail','calendar','docs','sheets'].includes(item.id) && !item.configured) {
+          const setup = element("details"), title = element("summary", tr("Google service setup", "إعداد خدمات Google"));
+          setup.append(title, element("p", tr(
+            "Enable the Google APIs, register a Web OAuth client and configure the app's connection server. Then connect here to approve account access. An API key alone does not grant mailbox or Drive access.",
+            "فعّل واجهات Google وسجّل عميل OAuth من نوع Web واضبطه في خادم اتصال التطبيق. بعدها اضغط اتصال لتفويض حسابك. مفتاح API وحده لا يمنح الوصول إلى Gmail أو Drive."
+          )));
+          const link = element("a", tr("Open Google Cloud credentials", "فتح إعداد بيانات Google Cloud"));
+          link.href = "https://console.cloud.google.com/apis/credentials"; link.target = "_blank"; link.rel = "noopener noreferrer";
+          setup.append(link); detail.append(setup);
+        }
         row.append(detail);
         const actions = element("div", "", "connector-actions");
         {
@@ -131,6 +141,8 @@
         const label = labels[item.status] || [item.status, item.status];
         detail.append(element("div", tr(...label), "connector-state " + (item.running ? "connected" : "")));
         if (item.description) detail.append(element("div", item.description, "muted"));
+        if (item.manual_setup) detail.append(element("div", item.manual_setup, "muted"));
+        if (item.native_fallback) detail.append(element("div", item.native_fallback, "muted"));
         if (item.runtime_reason) detail.append(element("div", tr("Runtime: ", "بيئة التشغيل: ") + item.runtime_reason, "muted"));
         if (item.missing?.length) detail.append(element("div", tr("Missing: ", "الناقص: ") + item.missing.join(", "), "muted"));
         if (item.installed) detail.append(element("div", tr("Verified tools: ", "الأدوات المتحقق منها: ") + item.tools, "muted"));
@@ -195,7 +207,8 @@
     pending = true;
     document.querySelectorAll("#connector-list button").forEach(button => { button.disabled = true; });
     const message = document.querySelector("#connector-message");
-    message.textContent = tr("Applying MCP lifecycle action…", "جارٍ تنفيذ عملية MCP الفعلية…");
+    message.textContent = tr("Preparing dependencies, then verifying MCP…", "جارٍ تجهيز الاعتماديات ثم التحقق من MCP…");
+    message.scrollIntoView?.({block: "nearest"});
     try {
       const result = await api("/api/mcp-bundles/" + op, {session: sid, id});
       const words = {
@@ -207,7 +220,7 @@
         disable: tr("MCP removed.", "تمت إزالة MCP.")
       };
       message.textContent = (words[op] || "") + (result.tools ? tr(" Tools: ", " الأدوات: ") + result.tools : "");
-    } catch (error) { message.textContent = errorText(error.message); }
+    } catch (error) { message.textContent = errorText(error.message); message.scrollIntoView?.({block: "nearest"}); }
     finally { pending = false; lastView = ""; await refresh(); }
   }
 
@@ -222,7 +235,7 @@
       message.textContent = result.text
         || (provider === "termux" && op === "connect" ? tr("Termux test passed.", "نجح اختبار Termux.") : "")
         || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : "");
-    } catch (error) { message.textContent = errorText(error.message); }
+    } catch (error) { message.textContent = errorText(error.message); message.scrollIntoView?.({block: "nearest"}); }
     finally { pending = false; await refresh(); }
   }
   function close() {

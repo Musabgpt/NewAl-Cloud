@@ -52,11 +52,11 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(meta['runtime'], 'TERMUX')
         self.assertIn('uv 0.12', text)
 
-    def test_uv_install_failure_prevents_mcp_configuration(self):
-        from . import automation, runtime_manager as rm
+    def test_linux_install_failure_prevents_mcp_configuration(self):
+        from . import managed_linux, runtime_manager as rm
         ready = {'runtime':rm.TERMUX, 'missing':['uvx'], 'unknown':[], 'stdio':True, 'reason':'connected'}
         with mock.patch.object(mcp_bundles, '_runtime_requirements', return_value=ready), \
-             mock.patch.object(automation, 'ensure_dependency', side_effect=tools.ToolError('pkg download failed')), \
+             mock.patch.object(managed_linux, 'ensure', side_effect=tools.ToolError('pkg download failed')), \
              mock.patch.object(mcp_config, 'StdioServer') as server:
             with self.assertRaisesRegex(tools.ToolError, 'pkg download failed'):
                 self.invoke('capability_ensure', bundle='docling')

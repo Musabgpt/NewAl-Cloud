@@ -150,3 +150,10 @@ test('Termux preparation renders progress, exact failure, and verified versions 
   assert(text().includes('جاهزان وتم التحقق داخل Termux'));
   assert(text().includes('uvx 0.12.23'));
 });
+
+test('unconfigured Google explains OAuth setup without pretending account access exists', async t => {
+  const state = await panel(t, {id:'gmail',name:'Gmail',configured:false,status:'not_configured'});
+  assert(state.dom.querySelector('#connector-list').textContent.includes('مفتاح API وحده'));
+  assert.equal(state.dom.querySelector('a[href="https://console.cloud.google.com/apis/credentials"]').target, '_blank');
+  assert.equal(state.dom.querySelector('[data-action="connect:gmail"]').disabled, true);
+});

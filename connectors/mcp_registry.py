@@ -199,14 +199,14 @@ def _local_name(server_name):
     return tail
 
 
-def install(root, server_name, local_name=""):
+def install(root, server_name, local_name="", token=""):
     info = inspect(server_name)
     if not info["installable"]:
         raise ValueError("This registry entry needs manual configuration: " + "; ".join(info["reasons"]))
     local_name = str(local_name or "").strip() or _local_name(server_name)
     if not _LOCAL_NAME.fullmatch(local_name) or "__" in local_name:
         raise ValueError("Use a local server name such as my-server (24 characters maximum)")
-    spec = mcp_config.validate(local_name, info["remote"], "")
+    spec = mcp_config.validate(local_name, info["remote"], token)
     server = mcp_config.HttpServer(local_name, spec, root)
     try:
         server.start(timeout=30)
@@ -249,7 +249,7 @@ def route(handler, method, path, body=None):
             return True
         if path == "/api/mcp-registry/install" and method == "POST":
             root = _session_root(handler, data)
-            handler._json(install(root, data.get("name", ""), data.get("local_name", "")))
+            handler._json(install(root, data.get("name", ""), data.get("local_name", ""), data.get("token", "")))
             return True
         handler._json({"error": "Method not allowed"}, 405)
     except (ValueError, RuntimeError, OSError, TypeError) as error:

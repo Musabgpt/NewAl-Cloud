@@ -66,6 +66,10 @@ def validate(name, url, token=''):
     return {'url': url, 'headers': {'Authorization': 'Bearer ' + token} if token else {}}
 
 
+class MCPHTTPError(RuntimeError):
+    pass
+
+
 class HttpServer(mcp.HttpServer):
     def request(self, method, params, timeout=120):
         if method == 'tools/call':
@@ -80,12 +84,17 @@ class HttpServer(mcp.HttpServer):
                         'Accept': 'application/json, text/event-stream'})
         if self.session:
             headers['Mcp-Session-Id'] = self.session
-        stream = providers.Stream(self.spec['url'], msg, headers, timeout=min(timeout, 30))
+        stream = None
         deadline = time.monotonic() + min(timeout, 30)
         try:
+            stream = providers.Stream(self.spec['url'], msg, headers, timeout=min(timeout, 30))
             response = stream.resp
             if response.status >= 300:
-                raise RuntimeError('MCP HTTP request failed')
+                reasons = {401:'Authentication required: configure this service access token or sign in',
+                           403:'Access denied: check account permission and service subscription',
+                           404:'MCP endpoint not found', 429:'Service rate limit reached; retry later'}
+                reason = reasons.get(response.status, 'Remote service error' if response.status >= 500 else 'Redirect or HTTP request rejected')
+                raise MCPHTTPError('MCP HTTP %s: %s' % (response.status, reason))
             self.session = response.getheader('Mcp-Session-Id') or self.session
             if 'id' not in msg:
                 return {}
@@ -111,10 +120,15 @@ class HttpServer(mcp.HttpServer):
                 if len(raw) > 2 * 1024 * 1024:
                     raise RuntimeError('MCP response exceeds the size limit')
                 result = json.loads(raw)
-        except Exception:
-            raise RuntimeError('MCP request failed; check the endpoint, network and authentication') from None
+        except MCPHTTPError:
+            raise
+        except (TimeoutError, OSError) as exc:
+            raise RuntimeError('MCP transport failure (%s); check network/TLS reachability' % type(exc).__name__) from None
+        except (ValueError, UnicodeError):
+            raise RuntimeError('MCP endpoint returned invalid JSON or event-stream data') from None
         finally:
-            stream.close()
+            if stream is not None:
+                stream.close()
         if 'id' in msg and (not isinstance(result, dict) or result.get('id') != msg['id']):
             raise RuntimeError('MCP returned an invalid response ID')
         return result
@@ -233,7 +247,7 @@ class StdioServer(mcp.StdioServer):
                 state = runtime_manager.process_status(self._termux_process_id)
                 logs = str(state.get('logs') or '').strip()
                 if logs:
-                    detail = ' | stderr: ' + logs[-1200:]
+                    detail = ' | stderr: ' + logs[-6000:]
             except Exception:
                 pass
             raise RuntimeError(str(exc) + detail) from exc
@@ -422,6 +436,10 @@ def route(handler, method, path, body=None):
             servers[name] = record
             save(root, servers)
         handler._json({'ok': True, 'tools': count})
-    except (ValueError, KeyError, OSError, RuntimeError, TypeError):
-        handler._json({'error': 'MCP connection failed. Check the name, MCP URL and authentication. No unverified configuration was saved.'}, 400)
+    except (ValueError, KeyError, OSError, RuntimeError, TypeError) as exc:
+        message = str(exc)
+        secret = (body or {}).get('token', '')
+        if secret:
+            message = message.replace(secret, '[redacted]')
+        handler._json({'error': 'MCP connection failed: ' + message[-6000:] + '. No unverified configuration was saved.'}, 400)
     return True

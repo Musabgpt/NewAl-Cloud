@@ -66,7 +66,7 @@ TRUSTED_TESTS = (
     "runtime_manager_tests", "termux_bridge_tests", "git_workspace_tests",
     "observability_tests", "task_state_tests", "task_supervisor_tests",
     "provider_pool_tests", "free_provider_adapters_tests", "provider_keys_tests",
-    "automation_tests", "auto_update_tests",
+    "automation_tests", "auto_update_tests", "managed_linux_tests",
 )
 
 

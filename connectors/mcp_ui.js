@@ -446,13 +446,19 @@
       }
       for (const reason of data.reasons || []) details.append(node('p', reason));
       if (data.installable) {
+        const access = node('input');
+        access.type = 'password'; access.autocomplete = 'off';
+        access.placeholder = tr('Service access token (if required)', 'رمز وصول الخدمة إن كان مطلوبًا');
+        access.setAttribute('aria-label', access.placeholder);
+        details.append(access);
         const install = node('button', tr('Test and install', 'اختبار وتثبيت'));
         install.type = 'button'; install.className = 'btn primary';
         install.onclick = () => registryRun(async () => {
           const sid = current();
           if (!sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعاً أولاً.'));
           registryMessage.textContent = tr('Running a real MCP handshake before saving…', 'جارٍ تنفيذ اختبار MCP حقيقي قبل الحفظ…');
-          const result = await api('/api/mcp-registry/install', {session: sid, name: item.name});
+          const result = await api('/api/mcp-registry/install', {session: sid, name: item.name, ...(access.value.trim() ? {token: access.value.trim()} : {})});
+          access.value = '';
           registryMessage.textContent = tr('Installed safely. Tools: ', 'تم التثبيت بأمان. الأدوات: ') + result.tools;
         });
         details.append(install);
