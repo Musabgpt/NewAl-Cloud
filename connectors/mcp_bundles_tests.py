@@ -107,6 +107,11 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(playwright["command"], "npx")
         self.assertIn("@playwright/mcp@0.0.83", playwright["args"])
         self.assertIn("--isolated", playwright["args"])
+        self.assertIn("--headless", playwright["args"])
+        self.assertIn("--no-sandbox", playwright["args"])
+        self.assertIn("/data/data/com.termux/files/usr/bin/chromium-browser", playwright["args"])
+        self.assertEqual(playwright["env"]["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"], "1")
+        self.assertEqual(playwright["env"]["PLAYWRIGHT_BROWSERS_PATH"], "0")
         self.assertEqual(browser_use, {
             "command": "uvx",
             "args": ["browser-use==0.13.5", "--cli-mcp"],
@@ -134,6 +139,30 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(spec["env"]["GITHUB_PERSONAL_ACCESS_TOKEN"], "private-test-token")
         public = mcp_bundles.catalog(self.root)
         self.assertNotIn("private-test-token", repr(public))
+
+    def test_playwright_termux_setup_installs_system_chromium_before_handshake(self):
+        item = mcp_bundles._item("playwright")
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "Termux bridge verified",
+            "stdio": True,
+        }
+        chromium_missing = dict(ready, missing=["chromium-browser"])
+        chromium_ready = dict(ready, missing=[])
+        statuses = [
+            {"status": "completed", "exit_code": 0, "logs": ""},
+            {"status": "completed", "exit_code": 0, "logs": ""},
+        ]
+        with mock.patch.object(mcp_bundles, "_runtime_requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "requirements", side_effect=[chromium_missing, chromium_ready]), \
+             mock.patch.object(runtime_manager, "process_start", side_effect=[{"id":"repo"}, {"id":"chromium"}]) as start, \
+             mock.patch.object(runtime_manager, "process_status", side_effect=statuses), \
+             mock.patch.object(runtime_manager, "_clear_cache"):
+            mcp_bundles._ensure_termux_setup(item)
+        self.assertEqual(start.call_args_list[0].args[0], "pkg install -y x11-repo")
+        self.assertEqual(start.call_args_list[1].args[0], "pkg install -y chromium")
 
     def test_enable_persists_only_after_successful_real_handshake(self):
         handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
