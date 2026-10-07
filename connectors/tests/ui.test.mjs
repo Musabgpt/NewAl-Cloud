@@ -135,3 +135,18 @@ test('live refresh changes MCP controls from Start to Stop without reopening Mus
   assert(state.dom.querySelector('[data-action="mcp:stop:memory"]'));
   assert(state.dom.querySelector('.mcp-bundle').textContent.includes('الخادم يعمل'));
 });
+
+test('Termux preparation renders progress, exact failure, and verified versions independently of chat', async t => {
+  const state = await panel(t, {id:'termux', name:'Termux', configured:true, status:'connected', dependencies:{state:'installing'}});
+  const text = () => state.dom.querySelector('#connector-list').textContent;
+  assert(text().includes('جارٍ التثبيت والتحقق'));
+  assert(!text().includes('جاهزان'));
+  state.item.dependencies = {state:'failed', error:'pkg: repository unavailable'};
+  await state.refresh();
+  assert(text().includes('pkg: repository unavailable'));
+  assert(!text().includes('جاهزان'));
+  state.item.dependencies = {state:'ready', output:'uv 0.12.23\nuvx 0.12.23'};
+  await state.refresh();
+  assert(text().includes('جاهزان وتم التحقق داخل Termux'));
+  assert(text().includes('uvx 0.12.23'));
+});

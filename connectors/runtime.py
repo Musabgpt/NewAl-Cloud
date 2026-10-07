@@ -37,7 +37,12 @@ def status():
     if not phone.available():
         return {"ok": True, "connectors": [{"id": k, "name": v, "status": "unavailable",
                                             "error": "Android connector host required"} for k, v in CATALOG.items()]}
-    return native("status")
+    result = native("status")
+    from .automation import DEPENDENCIES
+    for item in result.get("connectors", []):
+        if item.get("id") == "termux":
+            item["dependencies"] = DEPENDENCIES.status()
+    return result
 
 
 def names():
@@ -291,6 +296,8 @@ def route(handler, method, path, body=None):
                 raise tools.ToolError("Unknown connector")
             if provider == "termux" and op == "connect":
                 result = native("termux_test")
+                from .automation import DEPENDENCIES
+                DEPENDENCIES.retry()
             elif provider == "activepieces" and op == "connect":
                 result = native(op, provider=provider, url=(body or {}).get("url", ""))
             else:

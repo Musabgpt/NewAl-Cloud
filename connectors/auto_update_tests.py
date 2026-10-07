@@ -107,3 +107,12 @@ class AutomaticUpdateTests(unittest.TestCase):
                 self.assertEqual('a'*40 in auto.status().get('blocked_commits', []), attempt == 3)
             auto.check(self.service(False))
             self.assertEqual(auto.status()['download_attempts'], 3)
+
+    def test_activation_waits_for_automatic_dependency_install(self):
+        auto = self.auto()
+        service = self.service()
+        service.dependency_setup_busy = True
+        record = {'state':'waiting_idle', 'candidate':'verified'}
+        with patch.object(auto, 'status', return_value=record), patch.object(e, 'activate') as activate:
+            self.assertEqual(auto.apply_pending(service), record)
+        activate.assert_not_called()

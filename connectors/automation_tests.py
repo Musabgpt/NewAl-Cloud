@@ -135,3 +135,50 @@ class AutomationTests(unittest.TestCase):
         with self.assertRaises(tools.ToolError):
             self.invoke('plugin_install', name='data')
         self.assertEqual(plugins.listing(self.root), [])
+
+class AutomaticDependencyTests(unittest.TestCase):
+    def test_connected_termux_prepares_uv_without_model_request(self):
+        from . import automation as a, runtime_manager as rm
+        setup = a.DependencyPreparation()
+        service = SimpleNamespace(lock=threading.RLock(), updating='')
+        with mock.patch.object(rm, '_termux_record', return_value={'status':'connected'}), \
+             mock.patch.object(a, 'ensure_dependency', return_value={'ok':True,'exit_code':0,'stdout':'uv 1\nuvx 1'}) as install:
+            setup.tick(service, threading.Event())
+            setup.tick(service, threading.Event())
+        install.assert_called_once()
+        self.assertEqual(setup.status()['state'], 'ready')
+        self.assertFalse(service.dependency_setup_busy)
+
+    def test_failure_visible_and_retries_bounded(self):
+        from . import automation as a, runtime_manager as rm
+        setup = a.DependencyPreparation()
+        service = SimpleNamespace(lock=threading.RLock(), updating='')
+        with mock.patch.object(rm, '_termux_record', return_value={'status':'connected'}), \
+             mock.patch.object(a, 'ensure_dependency', side_effect=tools.ToolError('pkg: repository unavailable')) as install:
+            for now in [0, 1, 61, 62, 182, 1000]:
+                setup.tick(service, threading.Event(), now=now)
+        self.assertEqual(install.call_count, 3)
+        self.assertEqual(setup.status()['state'], 'failed')
+        self.assertIn('repository unavailable', setup.status()['error'])
+        self.assertFalse(service.dependency_setup_busy)
+
+    def test_disconnect_invalidates_ready_and_reconnect_rechecks(self):
+        from . import automation as a, runtime_manager as rm
+        setup = a.DependencyPreparation()
+        service = SimpleNamespace(lock=threading.RLock(), updating='')
+        with mock.patch.object(rm, '_termux_record', side_effect=[{'status':'connected'}, {'status':'disconnected'}, {'status':'connected'}]), \
+             mock.patch.object(a, 'ensure_dependency', return_value={'ok':True,'exit_code':0}) as install:
+            setup.tick(service, threading.Event())
+            setup.tick(service, threading.Event())
+            self.assertEqual(setup.status()['state'], 'waiting_termux')
+            setup.tick(service, threading.Event())
+        self.assertEqual(install.call_count, 2)
+
+    def test_update_activation_defers_dependency_install(self):
+        from . import automation as a, runtime_manager as rm
+        setup = a.DependencyPreparation()
+        service = SimpleNamespace(lock=threading.RLock(), updating='candidate')
+        with mock.patch.object(rm, '_termux_record', return_value={'status':'connected'}), \
+             mock.patch.object(a, 'ensure_dependency') as install:
+            setup.tick(service, threading.Event())
+        install.assert_not_called()

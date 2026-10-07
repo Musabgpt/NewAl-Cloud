@@ -133,3 +133,20 @@ stages and verifies compatible updates, waits for idle and requests the existing
 Android engine restart through the WebView. Native startup health/rollback remains
 the final acceptance gate. Native APK changes still require Android confirmation.
 See `MUSABAI_RUNTIME_AND_AI_ROUTER_FIX.md` for the plan comparison and limitations.
+
+## uv/uvx automatic preparation correction
+
+The owner rejected uv/uvx readiness after #337: that build only installed the
+package on an agent request or MCP enable. A new engine-owned worker now checks
+connected Termux at startup and after reconnection, installs the official `uv`
+package when missing, and executes **both** version commands before reporting
+ready. It does not require a model response or an open chat. Musab Hub shows
+progress, verified version output, or the actual failure. Failures retry up to
+three times; the existing Termux Test button permits another attempt. Engine
+activation waits while this worker is installing, and shutdown cancels its job.
+
+Host regression tests cover preparation, verification failure, bounded retries,
+reconnection and update coordination; UI tests cover visible states. These are
+not Samsung installation evidence. Device readiness remains pending until the
+updated app displays verified uv and uvx versions. Python MCP compatibility and
+initialize/tools/list acceptance remain separate requirements.

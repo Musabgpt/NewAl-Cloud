@@ -72,6 +72,19 @@
         detail.append(element("strong", item.name));
         const label = labels[item.status] || [item.status, item.status];
         detail.append(element("div", tr(...label), "connector-state " + (item.status === "connected" ? "connected" : "")));
+        if (item.id === "termux" && item.dependencies) {
+          const dep = item.dependencies;
+          const states = {
+            waiting_termux: ["uv/uvx: waiting for preparation", "uv/uvx: بانتظار التجهيز"],
+            installing: ["uv/uvx: installing and verifying automatically…", "uv/uvx: جارٍ التثبيت والتحقق تلقائيًا…"],
+            ready: ["uv/uvx: verified in Termux", "uv/uvx: جاهزان وتم التحقق داخل Termux"],
+            failed: ["uv/uvx: preparation failed", "uv/uvx: تعذّر التجهيز"]
+          };
+          detail.append(element("div", tr(...(states[dep.state] || states.waiting_termux)), "muted"));
+          if (dep.error) detail.append(element("div", dep.error, "muted"));
+          if (dep.state === "ready" && dep.output) detail.append(element("small", dep.output, "muted"));
+          if (dep.state === "failed") detail.append(element("small", tr("Use Test to retry preparation.", "اضغط اختبار لإعادة محاولة التجهيز."), "muted"));
+        }
         if (item.account) detail.append(element("div", item.account, "muted"));
         if (item.transport === "mcp" && item.status === "connected")
           detail.append(element("div", tr("Available tools: ", "الأدوات المتاحة: ") + item.tool_count, "muted"));

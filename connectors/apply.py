@@ -150,12 +150,15 @@ def apply(root):
 
     def _start(self, sid, target, out=None):
 """)
-    replace(package / "server.py", '    httpd.key = Handler.key\n', '    from . import auto_update\n    httpd.automatic_stop = auto_update.start(Handler.service)\n    httpd.key = Handler.key\n')
+    replace(package / "server.py", '    httpd.key = Handler.key\n', '    from . import auto_update, automation\n    httpd.dependency_stop = automation.start_dependencies(Handler.service)\n    httpd.automatic_stop = auto_update.start(Handler.service)\n    httpd.key = Handler.key\n')
     replace(package / "server.py", 'class Server(ThreadingHTTPServer):\n', """class Server(ThreadingHTTPServer):
     def server_close(self):
         stop = getattr(self, "automatic_stop", None)
         if stop is not None:
             stop.set()
+        dependency_stop = getattr(self, "dependency_stop", None)
+        if dependency_stop is not None:
+            dependency_stop.set()
         super().server_close()
 
 """)

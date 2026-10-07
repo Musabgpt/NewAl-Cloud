@@ -1,5 +1,7 @@
 """Agent-accessible provisioning; installation is never substituted for verification."""
 import json
+import os
+import time
 from pathlib import Path
 import re
 import threading
@@ -9,6 +11,76 @@ from . import tools
 NAMES = ['capability_catalog', 'capability_ensure', 'skill_create', 'plugin_install',
          'mcp_registry_search', 'mcp_registry_install', 'dependency_install']
 _INSTALL_LOCK = threading.Lock()
+
+
+class DependencyPreparation:
+    """Engine-owned provisioning, independent of model availability and chat turns."""
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.record = {'state': 'waiting_termux', 'error': '', 'attempts': 0}
+        self.next_attempt = 0
+
+    def status(self):
+        with self.lock:
+            return dict(self.record)
+
+    def retry(self):
+        with self.lock:
+            if self.record['state'] == 'failed':
+                self.record.update(state='waiting_termux', attempts=0, error='')
+                self.next_attempt = 0
+
+    def tick(self, service, stop, now=None):
+        from . import runtime_manager as rm, providers
+        now = time.monotonic() if now is None else now
+        connected = rm._termux_record().get('status') == 'connected'
+        with self.lock:
+            if not connected:
+                self.record.update(state='waiting_termux', attempts=0, error='')
+                self.next_attempt = 0
+                return
+            if self.record['state'] in {'ready', 'installing'} or self.record['attempts'] >= 3 or now < self.next_attempt:
+                return
+            with service.lock:
+                if service.updating or stop.is_set():
+                    return
+                service.dependency_setup_busy = True
+            self.record.update(state='installing', error='', attempts=self.record['attempts'] + 1)
+        try:
+            result = ensure_dependency('uv', stop)
+            if not result.get('ok') or result.get('exit_code') != 0:
+                raise tools.ToolError('uv/uvx verification failed: ' + json.dumps(result, ensure_ascii=False))
+            with self.lock:
+                self.record.update(state='ready', error='', output=result.get('stdout', ''))
+        except providers.Cancelled:
+            with self.lock:
+                self.record.update(state='waiting_termux', error='Preparation interrupted')
+        except Exception as exc:
+            with self.lock:
+                self.next_attempt = now + 60 * self.record['attempts']
+                self.record.update(state='failed', error=str(exc)[:3000])
+        finally:
+            with service.lock:
+                service.dependency_setup_busy = False
+
+
+DEPENDENCIES = DependencyPreparation()
+
+
+def start_dependencies(service):
+    if os.environ.get('NEWAL_DISABLE_AUTOMATION') == '1' or not os.environ.get('NEWAL_PACKAGED_ENGINE'):
+        return None
+    stop = threading.Event()
+    def work():
+        while not stop.is_set():
+            try:
+                DEPENDENCIES.tick(service, stop)
+            except Exception as exc:
+                with DEPENDENCIES.lock:
+                    DEPENDENCIES.record.update(state='failed', error=str(exc)[:3000])
+            stop.wait(5)
+    threading.Thread(target=work, name='musabai-dependency-setup', daemon=True).start()
+    return stop
 
 
 def ensure_dependency(name, cancel=None, emit=None):
