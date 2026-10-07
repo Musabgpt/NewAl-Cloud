@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from . import mcp_bundles, mcp_config, runtime_manager, settings
+from . import mcp_bundles, mcp_config, runtime_manager, settings, tools
 
 
 class McpBundlesTest(unittest.TestCase):
@@ -259,6 +259,18 @@ class McpBundlesTest(unittest.TestCase):
                               {"session": "session1", "id": "memory"})
         self.assertEqual(self.response[1], 400)
         self.assertNotIn("memory", mcp_config.read(self.root))
+
+    def test_termux_bridge_tool_error_is_returned_as_json_not_dropped_connection(self):
+        handler = SimpleNamespace(service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root)))
+        handler._json = lambda data, status=200: setattr(self, "response", (data, status))
+        with mock.patch.object(mcp_bundles, "_test", side_effect=tools.ToolError("stdio request timed out")):
+            self.assertTrue(mcp_bundles.route(
+                handler, "POST", "/api/mcp-bundles/enable",
+                {"session": "session1", "id": "playwright"},
+            ))
+        self.assertEqual(self.response[1], 400)
+        self.assertIn("stdio request timed out", self.response[0]["error"])
+        self.assertNotIn("playwright", mcp_config.read(self.root))
 
 
 if __name__ == "__main__":
