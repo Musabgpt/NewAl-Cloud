@@ -128,7 +128,7 @@
         const add = (op, title, primary, disabled = false) => {
           const button = element("button", title, "btn" + (primary ? " primary" : ""));
           button.dataset.action = "mcp:" + op + ":" + item.id;
-          button.disabled = disabled || !sid;
+          button.disabled = disabled;
           button.dataset.disabled = String(button.disabled);
           button.onclick = () => bundleAction(op, item.id);
           actions.append(button);
@@ -206,7 +206,9 @@
     message.textContent = tr("Working…", "جارٍ التنفيذ…");
     try {
       const result = await api("/api/connectors/" + op, {provider});
-      message.textContent = result.text || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : "");
+      message.textContent = result.text
+        || (provider === "termux" && op === "connect" ? tr("Termux test passed.", "نجح اختبار Termux.") : "")
+        || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : "");
     } catch (error) { message.textContent = errorText(error.message); }
     finally { pending = false; await refresh(); }
   }
