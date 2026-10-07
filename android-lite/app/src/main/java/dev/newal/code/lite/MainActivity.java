@@ -222,6 +222,9 @@ public class MainActivity extends Activity {
                 if (readiness.canProbe(generation)) {
                     if (!recover && !AgentService.error.isEmpty()) break;
                     if (up(key)) {
+                        Setup setup = new Setup(this);
+                        CandidateSelection.markHealthy(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                                Setup.UPDATE_COMPAT);
                         runOnUiThread(() -> {
                             if (isFinishing() || isDestroyed()) return;
                             int action = readiness.complete(generation);
@@ -247,6 +250,14 @@ public class MainActivity extends Activity {
             }
             if (!readiness.current(generation)) return;
             String failure = readiness.startupError().isEmpty() ? AgentService.error : readiness.startupError();
+            Setup setup = new Setup(this);
+            if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                    Setup.UPDATE_COMPAT, failure.isEmpty() ? "Startup health timeout" : failure)) {
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) startAgent(true);
+                });
+                return;
+            }
             String why = failure.isEmpty()
                     ? "لم يستجب التطبيق خلال دقيقتين. اضغط إعادة المحاولة لتشغيله مجددًا."
                     : failure;
