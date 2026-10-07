@@ -149,7 +149,7 @@ jobs:
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Phase 10 acceptance gate
         env:
-          PYTHONPATH: desktop:/tmp/newal-pdf
+          PYTHONPATH: .:desktop:/tmp/newal-pdf
           PYTHONWARNINGS: ignore
         run: python3 connectors/phase10_acceptance_tests.py
       - name: Download exact Action 125 native baseline
