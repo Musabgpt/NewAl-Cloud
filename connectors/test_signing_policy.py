@@ -5,6 +5,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 GRADLE = (ROOT / "android-lite/app/build.gradle.kts").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+FINGERPRINT = (ROOT / "android-lite/signing-cert-sha256.txt").read_text(encoding="utf-8").strip()
 
 
 class SigningPolicyTests(unittest.TestCase):
@@ -23,26 +24,32 @@ class SigningPolicyTests(unittest.TestCase):
             GRADLE,
         )
 
-    def test_release_workflow_requires_complete_persistent_identity(self):
-        for name in (
+    def test_release_workflow_uses_one_bundled_secret(self):
+        self.assertIn("secrets.MUSABAI_RELEASE_SIGNING_BUNDLE", WORKFLOW)
+        for old_secret in (
             "MUSABAI_RELEASE_KEYSTORE_B64",
             "MUSABAI_RELEASE_STORE_PASSWORD",
             "MUSABAI_RELEASE_KEY_ALIAS",
             "MUSABAI_RELEASE_KEY_PASSWORD",
             "MUSABAI_RELEASE_CERT_SHA256",
         ):
-            self.assertIn(name, WORKFLOW)
-        self.assertIn("Persistent release signing configuration is incomplete", WORKFLOW)
+            self.assertNotIn(f"secrets.{old_secret}", WORKFLOW)
+        self.assertIn("base64 --decode", WORKFLOW)
+        self.assertIn("json.loads", WORKFLOW)
 
-    def test_apksigner_and_fingerprint_gate_are_mandatory_for_release_artifact(self):
+    def test_apksigner_and_pinned_fingerprint_gate_are_mandatory(self):
+        self.assertRegex(FINGERPRINT, r"^[0-9a-f]{64}$")
+        self.assertIn("android-lite/signing-cert-sha256.txt", WORKFLOW)
         self.assertIn('verify --verbose --print-certs MusabAI-Connectors.apk', WORKFLOW)
         self.assertIn('if [ "$actual" != "$expected" ]', WORKFLOW)
         self.assertIn("APK signing identity does not match the approved persistent fingerprint", WORKFLOW)
 
     def test_keystore_is_materialized_only_in_runner_temp_and_cleaned(self):
-        self.assertIn('KEYSTORE_FILE="$RUNNER_TEMP/musabai-release.jks"', WORKFLOW)
+        self.assertIn('SIGNING_DIR="$RUNNER_TEMP/musabai-signing"', WORKFLOW)
+        self.assertIn('KEYSTORE_FILE="$SIGNING_DIR/release.jks"', WORKFLOW)
         self.assertIn("base64 --decode", WORKFLOW)
-        self.assertIn('rm -f "$KEYSTORE_FILE"', WORKFLOW)
+        self.assertIn('rm -rf "$SIGNING_DIR"', WORKFLOW)
+        self.assertIn("::add-mask::", WORKFLOW)
         self.assertNotIn("set -x", WORKFLOW)
 
     def test_missing_release_identity_produces_only_development_named_apk(self):
