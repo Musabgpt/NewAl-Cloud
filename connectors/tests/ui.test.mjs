@@ -4,12 +4,12 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 const code = readFileSync(new URL('../ui.js', import.meta.url), 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function panel(t, item, bundle = null) {
+async function panel(t, item, bundle = null, session = 'project') {
   const dom = new JSDOM('<html lang="ar"><div class="side-top"></div><button id="open-github"></button></html>', {runScripts: 'outside-only', url: 'http://localhost/'});
   t.after(() => dom.window.close());
   const w = dom.window;
   const state = {item, bundle, calls: [], posts: []};
-  w.NewAlWorkspaceSession = () => 'project';
+  w.NewAlWorkspaceSession = () => session;
   w.fetch = async (url, options = {}) => {
     state.calls.push(url);
     const body = options.body ? JSON.parse(options.body) : null;
@@ -69,6 +69,31 @@ test('Termux retains its callback test without OAuth credentials', async t => {
   assert(state.dom.querySelector('[data-action="test:termux"]'));
 });
 
+
+
+test('MCP install explains missing project session instead of silently disabling the button', async t => {
+  const state = await panel(t,
+    {id: 'termux', name: 'Termux', configured: true, status: 'connected'},
+    {id:'playwright', name:'Playwright MCP', installed:false, running:false, available:true,
+      status:'ready', tools:0, missing:[]},
+    ''
+  );
+  const button = state.dom.querySelector('[data-action="mcp:enable:playwright"]');
+  assert(button);
+  assert.equal(button.disabled, false);
+  button.click();
+  await tick();
+  assert(state.dom.querySelector('#connector-message').textContent.includes('افتح محادثة أو مشروعًا أولًا'));
+  assert.equal(state.posts.length, 0);
+});
+
+test('Termux callback test shows explicit success feedback', async t => {
+  const state = await panel(t, {id: 'termux', name: 'Termux', configured: true, status: 'connected'});
+  state.dom.querySelector('[data-action="test:termux"]').click();
+  await tick(); await tick();
+  assert(state.posts.some(x => x.url === '/api/connectors/connect'));
+  assert(state.dom.querySelector('#connector-message').textContent.includes('نجح اختبار Termux'));
+});
 
 test('Musab Hub renders stopped MCP separately from installed state and exposes real lifecycle controls', async t => {
   const state = await panel(t,
