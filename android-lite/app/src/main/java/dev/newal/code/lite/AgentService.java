@@ -105,7 +105,15 @@ public class AgentService extends Service {
                 watch(python);
             } catch (Exception e) {
                 error = String.valueOf(e);
-                Log.e("NewAlCode", "cannot start", e);
+                Setup setup = new Setup(this);
+                if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                        Setup.UPDATE_COMPAT, error)) {
+                    Log.w("NewAlCode", "pending revision failed to start; rolled back", e);
+                    error = "";
+                    ensureRunning();
+                } else {
+                    Log.e("NewAlCode", "cannot start", e);
+                }
             }
         }
     }
@@ -123,6 +131,14 @@ public class AgentService extends Service {
                     if (stopping || python != p) return;
                 }
                 Log.w("NewAlCode", "NewAl Code ended (" + code + "): starting it again");
+                Setup setup = new Setup(this);
+                if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                        Setup.UPDATE_COMPAT, "Engine exited during activation (" + code + ")")) {
+                    Log.w("NewAlCode", "pending revision crashed; restoring previous verified engine");
+                    Thread.sleep(500);
+                    ensureRunning();
+                    return;
+                }
                 long now = System.currentTimeMillis();
                 synchronized (AgentService.class) {
                     restarts.removeIf(t -> now - t > 600_000);
