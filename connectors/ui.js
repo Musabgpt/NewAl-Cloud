@@ -3,12 +3,17 @@
   "use strict";
   const ar = () => document.documentElement.lang.startsWith("ar");
   const tr = (en, arabic) => ar() ? arabic : en;
+  const current = () => window.NewAlWorkspaceSession?.();
   const labels = {
     connected: ["Connected", "متصل"], authorizing: ["Waiting for authorization", "بانتظار التفويض"],
     testing: ["Testing connection", "جارٍ اختبار الاتصال"], disconnected: ["Disconnected", "غير متصل"],
     not_configured: ["Deployment required", "يحتاج تفعيل الخدمة"], error: ["Connection failed", "فشل الاتصال"],
     reauthorize: ["Reconnect required", "يحتاج إعادة تفويض"], permission_required: ["Permission required", "يحتاج صلاحية"],
-    unavailable: ["Unavailable on this host", "غير متاح على هذا الجهاز"]
+    unavailable: ["Unavailable on this host", "غير متاح على هذا الجهاز"],
+    ready: ["Ready", "جاهز"], termux_disconnected: ["Termux not connected", "Termux غير متصل"],
+    tool_missing: ["Runtime tool not installed", "الأداة غير مثبتة"], needs_setup: ["Setup required", "يحتاج إعداد"],
+    server_stopped: ["Server stopped", "الخادم متوقف"], server_running: ["Server running", "الخادم يعمل"],
+    health_failed: ["Health check failed", "فشل health check"], runtime_unavailable: ["Runtime unavailable", "بيئة التشغيل غير متاحة"]
   };
   let timer, active = false, pending = false, requesting = false, lastView = "";
   const errors = {
@@ -40,12 +45,19 @@
     requesting = true;
     const list = document.querySelector("#connector-list"), message = document.querySelector("#connector-message");
     try {
-      const [result, extensionResult] = await Promise.all([api("/api/connectors"), api("/api/extensions?directory=1")]);
+      const sid = current();
+      const bundlePath = "/api/mcp-bundles" + (sid ? "?session=" + encodeURIComponent(sid) : "");
+      const [result, extensionResult, bundleResult] = await Promise.all([
+        api("/api/connectors"), api("/api/extensions?directory=1"), api(bundlePath)
+      ]);
       if (!active) return;
-      document.querySelector("#connector-heading").textContent = tr("MusabAI connections", "اتصالات MusabAI");
-      document.querySelector("#connector-intro").textContent = tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي.");
-      document.querySelector("#open-connectors").textContent = tr("Connections", "الاتصالات");
-      const view = JSON.stringify([ar(), result.connectors, extensionResult.extensions]);
+      document.querySelector("#connector-heading").textContent = tr("Musab Hub — live integrations", "Musab Hub — الاتصالات الحية");
+      document.querySelector("#connector-intro").textContent = tr(
+        "One status manager now shows account connections and MCP runtime state separately: installed, running, stopped, permission/setup, and health.",
+        "مدير حالة واحد يعرض الآن اتصالات الحسابات وحالة MCP الفعلية بشكل منفصل: مثبّت، يعمل، متوقف، يحتاج صلاحية/إعداد، وحالة الفحص."
+      );
+      document.querySelector("#open-connectors").textContent = tr("Musab Hub", "Musab Hub");
+      const view = JSON.stringify([ar(), result.connectors, bundleResult.bundles, extensionResult.extensions]);
       if (lastView === view && !pending) {
         list.querySelectorAll("button").forEach(button => { button.disabled = button.dataset.disabled === "true"; });
         return;
@@ -96,6 +108,49 @@
         }
         row.append(actions); list.append(row);
       }
+
+      const mcpHeading = element("h3", tr("MCP runtime", "تشغيل MCP"));
+      mcpHeading.className = "integration-group-heading";
+      list.append(mcpHeading);
+      for (const item of bundleResult.bundles || []) {
+        const row = element("section", "", "connector-card mcp-bundle"), detail = element("div");
+        detail.append(element("strong", item.name));
+        const label = labels[item.status] || [item.status, item.status];
+        detail.append(element("div", tr(...label), "connector-state " + (item.running ? "connected" : "")));
+        if (item.description) detail.append(element("div", item.description, "muted"));
+        if (item.runtime_reason) detail.append(element("div", tr("Runtime: ", "بيئة التشغيل: ") + item.runtime_reason, "muted"));
+        if (item.missing?.length) detail.append(element("div", tr("Missing: ", "الناقص: ") + item.missing.join(", "), "muted"));
+        if (item.installed) detail.append(element("div", tr("Verified tools: ", "الأدوات المتحقق منها: ") + item.tools, "muted"));
+        if (item.last_error) detail.append(element("div", item.last_error, "muted"));
+        row.append(detail);
+
+        const actions = element("div", "", "connector-actions");
+        const add = (op, title, primary, disabled = false) => {
+          const button = element("button", title, "btn" + (primary ? " primary" : ""));
+          button.dataset.action = "mcp:" + op + ":" + item.id;
+          button.disabled = disabled || !sid;
+          button.dataset.disabled = String(button.disabled);
+          button.onclick = () => bundleAction(op, item.id);
+          actions.append(button);
+        };
+        if (!item.installed) {
+          add("enable", tr("Test & install", "اختبار وتثبيت"), true, !item.available);
+        } else if (item.running) {
+          add("stop", tr("Stop", "إيقاف"), true);
+          add("test", tr("Health check", "فحص الصحة"), false);
+          add("disable", tr("Remove", "إزالة"), false);
+        } else {
+          add("start", tr("Start", "تشغيل"), true, !item.can_start);
+          add("reconnect", tr("Reconnect", "إعادة اتصال"), false,
+            ["termux_disconnected", "tool_missing", "needs_setup", "permission_required", "runtime_unavailable"].includes(item.status));
+          add("test", tr("Test", "اختبار"), false,
+            ["termux_disconnected", "tool_missing", "needs_setup", "permission_required", "runtime_unavailable"].includes(item.status));
+          add("disable", tr("Remove", "إزالة"), false);
+        }
+        row.append(actions);
+        list.append(row);
+      }
+
       const extensionList = document.querySelector("#extension-list");
       if (extensionList) {
         extensionList.replaceChildren();
@@ -116,6 +171,33 @@
     } catch (error) { if (message) message.textContent = errorText(error.message); }
     finally { requesting = false; }
   }
+  async function bundleAction(op, id) {
+    if (pending) return;
+    const sid = current();
+    if (!sid) {
+      const message = document.querySelector("#connector-message");
+      if (message) message.textContent = tr("Open a project conversation first.", "افتح محادثة أو مشروعًا أولًا.");
+      return;
+    }
+    pending = true;
+    document.querySelectorAll("#connector-list button").forEach(button => { button.disabled = true; });
+    const message = document.querySelector("#connector-message");
+    message.textContent = tr("Applying MCP lifecycle action…", "جارٍ تنفيذ عملية MCP الفعلية…");
+    try {
+      const result = await api("/api/mcp-bundles/" + op, {session: sid, id});
+      const words = {
+        enable: tr("Verified and installed.", "تم التحقق والتثبيت."),
+        start: tr("Server started.", "تم تشغيل الخادم."),
+        stop: tr("Server stopped.", "تم إيقاف الخادم."),
+        reconnect: tr("Server reconnected.", "تمت إعادة اتصال الخادم."),
+        test: tr("Health check passed.", "نجح فحص الصحة."),
+        disable: tr("MCP removed.", "تمت إزالة MCP.")
+      };
+      message.textContent = (words[op] || "") + (result.tools ? tr(" Tools: ", " الأدوات: ") + result.tools : "");
+    } catch (error) { message.textContent = errorText(error.message); }
+    finally { pending = false; lastView = ""; await refresh(); }
+  }
+
   async function action(op, provider) {
     if (pending) return;
     pending = true;
@@ -157,7 +239,10 @@
     const closeButton = element("button", "×", "icon-btn"); closeButton.id = "connector-close";
     closeButton.setAttribute("aria-label", tr("Close", "إغلاق")); closeButton.onclick = close;
     head.append(title, closeButton); card.append(head);
-    card.append(element("p", tr("Connect your account in the browser. Connected means a live account test passed.", "اربط حسابك من المتصفح. حالة متصل تعني نجاح اختبار وصول فعلي."), "muted"));
+    card.append(element("p", tr(
+      "Account connectors and MCP runtimes share this live status manager. Saved configuration is never presented as a running process.",
+      "تستخدم اتصالات الحسابات وMCP مدير الحالة الحي نفسه. لا تُعرض الإعدادات المحفوظة أبدًا على أنها عملية تعمل."
+    ), "muted"));
     card.lastElementChild.id = "connector-intro";
     const message = element("p"); message.id = "connector-message"; message.setAttribute("role", "status"); card.append(message);
     const list = element("div"); list.id = "connector-list"; card.append(list); dialog.append(card); document.body.append(dialog);
