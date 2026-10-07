@@ -430,7 +430,7 @@ def _test(item, root):
         # First-run npx bundles on Termux may need to resolve/download packages
         # before the MCP process can answer initialize. CI/local hosts stay fast,
         # while Android gets a bounded longer handshake window.
-        timeout = 240 if runtime["runtime"] == runtime_manager.TERMUX and item.get("install_method", "on_demand") == "on_demand" else 45
+        timeout = 240 if runtime["runtime"] == runtime_manager.TERMUX else 45
         server.start(timeout=timeout)
         return len(server.tools)
     finally:
