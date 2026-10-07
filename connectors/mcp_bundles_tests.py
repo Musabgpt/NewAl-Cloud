@@ -140,6 +140,55 @@ class McpBundlesTest(unittest.TestCase):
         public = mcp_bundles.catalog(self.root)
         self.assertNotIn("private-test-token", repr(public))
 
+    def test_managed_termux_npm_bundle_uses_direct_node_entry(self):
+        item = mcp_bundles._item("playwright")
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "Termux bridge verified",
+            "stdio": True,
+        }
+        home = "/data/data/com.termux/files/home"
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "termux_home", return_value=home):
+            spec = mcp_bundles._spec(item, self.root)
+        self.assertEqual(spec["command"], "node")
+        self.assertIn("/.musabai/mcp/playwright/", spec["args"][0])
+        self.assertTrue(spec["args"][0].endswith("node_modules/@playwright/mcp/cli.js"))
+        self.assertNotIn("npx", spec["args"])
+        self.assertEqual(spec["termux_cwd"], os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(spec["args"][0])))))
+        self.assertIn("--isolated", spec["args"])
+        self.assertIn("--executable-path", spec["args"])
+
+    def test_managed_termux_npm_bundle_installs_once_and_verifies_entry(self):
+        item = mcp_bundles._item("memory")
+        ready = {
+            "runtime": runtime_manager.TERMUX,
+            "missing": [],
+            "unknown": [],
+            "reason": "Termux bridge verified",
+            "stdio": True,
+        }
+        home = "/data/data/com.termux/files/home"
+        probes = [
+            {"exit_code": 1, "status": "completed"},
+            {"exit_code": 0, "status": "completed"},
+        ]
+        with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "termux_home", return_value=home), \
+             mock.patch.object(runtime_manager, "execute", side_effect=probes) as execute, \
+             mock.patch.object(runtime_manager, "process_start", return_value={"id":"npm-install"}) as start, \
+             mock.patch.object(mcp_bundles, "_wait_termux_process") as wait, \
+             mock.patch.object(runtime_manager, "_clear_cache"):
+            mcp_bundles._ensure_termux_npm(item)
+        self.assertEqual(execute.call_count, 2)
+        command = start.call_args.args[0]
+        self.assertIn("npm install --prefix", command)
+        self.assertIn("@modelcontextprotocol/server-memory@0.6.3", command)
+        self.assertFalse(start.call_args.kwargs["stdio"])
+        wait.assert_called_once_with("npm-install", timeout=600)
+
     def test_playwright_termux_setup_installs_system_chromium_before_handshake(self):
         item = mcp_bundles._item("playwright")
         ready = {
@@ -156,6 +205,7 @@ class McpBundlesTest(unittest.TestCase):
             {"status": "completed", "exit_code": 0, "logs": ""},
         ]
         with mock.patch.object(mcp_bundles, "_runtime_requirements", return_value=ready), \
+             mock.patch.object(mcp_bundles, "_ensure_termux_npm"), \
              mock.patch.object(runtime_manager, "requirements", side_effect=[chromium_missing, chromium_ready]), \
              mock.patch.object(runtime_manager, "process_start", side_effect=[{"id":"repo"}, {"id":"chromium"}]) as start, \
              mock.patch.object(runtime_manager, "process_status", side_effect=statuses), \
@@ -257,6 +307,7 @@ class McpBundlesTest(unittest.TestCase):
             mcp_bundles._save_enabled(item, self.root, 1)
 
         with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "termux_home", return_value="/data/data/com.termux/files/home"), \
              mock.patch.object(mcp_config, "StdioServer", FakeServer), \
              mock.patch.object(runtime_manager, "process_stop", return_value={"ok": True}) as process_stop:
             started = mcp_bundles.perform(self.root, "playwright", "start")
@@ -304,6 +355,7 @@ class McpBundlesTest(unittest.TestCase):
         })
         mcp_bundles._RUNNING.clear()
         with mock.patch.object(runtime_manager, "requirements", return_value=ready), \
+             mock.patch.object(runtime_manager, "termux_home", return_value="/data/data/com.termux/files/home"), \
              mock.patch.object(mcp_config, "StdioServer", AttachedServer):
             catalog = {row["id"]: row for row in mcp_bundles.catalog(self.root)}
         self.assertEqual(catalog["playwright"]["status"], "server_running")
