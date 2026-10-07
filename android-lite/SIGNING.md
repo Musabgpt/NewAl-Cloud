@@ -28,6 +28,8 @@ The workflow materializes signing data only under `RUNNER_TEMP`, uses restrictiv
 
 A publishable `MusabAI-Connectors` artifact is uploaded only when `MUSABAI_RELEASE_SIGNING_BUNDLE` is present, the bundle is valid, the APK passes `apksigner verify`, and its certificate fingerprint exactly matches the pinned fingerprint.
 
+After first provisioning or rotation of the signing Secret, start a fresh workflow run so the job receives the current protected value from the beginning.
+
 If the release-signing Secret is absent, CI may still build `MusabAI-Connectors-Development` using an explicitly opted-in debug identity. That artifact is development-only and is not an update-signing baseline.
 
 If the signing bundle is malformed, incomplete, or signs the APK with a certificate different from the pinned fingerprint, CI fails and no publishable release artifact is uploaded.
