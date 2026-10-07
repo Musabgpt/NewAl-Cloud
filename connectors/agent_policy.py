@@ -1,5 +1,4 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
-from functools import lru_cache
 from pathlib import Path
 
 MARKER = 'MusabAI behavior profile v5'
@@ -44,9 +43,18 @@ TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/sessi
                        "the background. Call task_complete only after the stated result has been verified.")
 
 
-@lru_cache(maxsize=1)
 def profile():
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + Path(__file__).with_name('agent_prompt.md').read_text(encoding='utf-8').strip())
+    # Prompt resources are one of the explicitly allowed hot-reload classes. The
+    # active candidate file is still hash-checked by evolution.dynamic_file().
+    path = Path(__file__).with_name('agent_prompt.md')
+    try:
+        from . import evolution
+        dynamic = evolution.dynamic_file('agent_prompt.md')
+        if dynamic is not None:
+            path = dynamic
+    except Exception:
+        pass
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + path.read_text(encoding='utf-8').strip())
 
 
 def stale_builtin(text):
