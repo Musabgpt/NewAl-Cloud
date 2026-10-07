@@ -44,6 +44,7 @@ BUNDLES = [
             "PLAYWRIGHT_BROWSERS_PATH": "0",
         },
         "termux_setup": "chromium",
+        "install_method": "on_demand",
         "description": "Structured browser automation using Playwright accessibility snapshots. On Android, MusabAI uses Termux Chromium instead of Playwright's unsupported downloaded browser binaries.",
         "browser_role": "structured",
     },
@@ -426,7 +427,11 @@ def _test(item, root):
         )
     server = mcp_config.StdioServer(item["id"], _spec(item, root), root)
     try:
-        server.start(timeout=45)
+        # First-run npx bundles on Termux may need to resolve/download packages
+        # before the MCP process can answer initialize. CI/local hosts stay fast,
+        # while Android gets a bounded longer handshake window.
+        timeout = 240 if runtime["runtime"] == runtime_manager.TERMUX and item.get("install_method", "on_demand") == "on_demand" else 45
+        server.start(timeout=timeout)
         return len(server.tools)
     finally:
         server.stop()
