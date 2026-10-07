@@ -164,7 +164,7 @@ class McpBundlesTest(unittest.TestCase):
         self.assertEqual(start.call_args_list[0].args[0], "pkg install -y x11-repo")
         self.assertEqual(start.call_args_list[1].args[0], "pkg install -y chromium")
 
-    def test_all_termux_bundles_get_long_first_handshake_window(self):
+    def test_supported_termux_stdio_bundles_get_long_first_handshake_window(self):
         ready = {
             "runtime": runtime_manager.TERMUX,
             "missing": [],
@@ -172,7 +172,9 @@ class McpBundlesTest(unittest.TestCase):
             "reason": "Termux bridge verified",
             "stdio": True,
         }
-        for bundle_id in ("playwright", "filesystem", "memory"):
+        # Filesystem is intentionally excluded here because app-private Android
+        # project roots are not accessible from Termux until a shared path is configured.
+        for bundle_id in ("playwright", "browser-use", "open-browser-use", "docling", "github", "android", "memory"):
             seen = {}
             item = mcp_bundles._item(bundle_id)
             class FakeServer:
@@ -186,6 +188,7 @@ class McpBundlesTest(unittest.TestCase):
             with self.subTest(bundle=bundle_id), \
                  mock.patch.object(mcp_bundles, "_ensure_termux_setup"), \
                  mock.patch.object(mcp_bundles, "_runtime_requirements", return_value=ready), \
+                 mock.patch.object(runtime_manager, "termux_home", return_value="/data/data/com.termux/files/home"), \
                  mock.patch.object(mcp_config, "StdioServer", FakeServer):
                 self.assertEqual(mcp_bundles._test(item, self.root), 1)
                 self.assertEqual(seen["timeout"], 240)
