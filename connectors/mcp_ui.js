@@ -18,12 +18,13 @@
   }
 
   function statusLabel(bundle) {
-    if (bundle.status === 'enabled') return tr('Connected', 'متصل');
-    if (bundle.status === 'available') return tr('Ready to enable', 'جاهز للتفعيل');
+    if (bundle.status === 'verified' || bundle.status === 'enabled') return tr('Verified installed', 'مثبّت بعد تحقق فعلي');
+    if (bundle.status === 'available') return tr('Ready to test and install', 'جاهز للاختبار والتثبيت');
     if (bundle.status === 'credentials_missing') return tr('Credential required', 'يحتاج تسجيل/رمز وصول');
     if (bundle.status === 'runtime_missing') return tr('Runtime command missing', 'أداة التشغيل غير مثبتة');
     if (bundle.status === 'runtime_unavailable') return tr('Termux not connected', 'Termux غير متصل');
-    if (bundle.status === 'bridge_required') return tr('Termux ready · bridge required', 'Termux جاهز · يحتاج الجسر');
+    if (bundle.status === 'bridge_required') return tr('Termux ready · stdio bridge unavailable', 'Termux جاهز · جسر stdio غير متاح');
+    if (bundle.status === 'needs_shared_path') return tr('Needs a shared project path', 'يحتاج مسار مشروع مشترك');
     return bundle.status || tr('Unavailable', 'غير متاح');
   }
 
@@ -419,8 +420,8 @@
     bundlesSection.className = 'connector-card mcp-bundles';
     bundlesSection.append(node('h3', tr('MCP tools', 'أدوات MCP')));
     bundlesSection.append(node('p', tr(
-      'Playwright, Browser Use, open-browser-use, Docling, GitHub, Filesystem, Android and Memory are verified before they are marked connected. Missing runtimes stay disabled instead of showing a fake connection.',
-      'يتم اختبار Playwright وBrowser Use وopen-browser-use وDocling وGitHub والملفات وAndroid والذاكرة فعلياً قبل إظهارها كمتصلة. إذا كانت بيئة التشغيل ناقصة تبقى معطلة بدل اتصال وهمي.'
+      'MCP bundles are marked installed only after a real initialize + tools/list handshake. Saved state is never shown as a live connection. Missing runtimes stay disabled instead of showing a fake status.',
+      'لا يظهر أي MCP كمثبّت إلا بعد نجاح initialize + tools/list فعلياً، ولا تُعرض الحالة المحفوظة على أنها اتصال حي. إذا كانت بيئة التشغيل ناقصة تبقى الإضافة معطلة بدل حالة وهمية.'
     )));
     const bundleMessage = node('p');
     bundleMessage.setAttribute('role', 'status');
@@ -461,11 +462,11 @@
         action.className = 'btn';
         action.type = 'button';
         if (bundle.enabled) {
-          action.textContent = tr('Disable', 'تعطيل');
+          action.textContent = tr('Remove', 'إزالة');
           action.onclick = () => withBundleBusy(async () => {
             if (!sid || current() !== sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعًا أولًا.'));
             await api('/api/mcp-bundles/disable', {session: sid, id: bundle.id});
-            bundleMessage.textContent = tr('MCP disabled.', 'تم تعطيل MCP.');
+            bundleMessage.textContent = tr('Verified MCP removed.', 'تمت إزالة MCP المثبّت.');
             await loadBundles();
           });
         } else {
@@ -475,7 +476,7 @@
             if (!sid || current() !== sid) throw new Error(tr('Open a project conversation first.', 'افتح محادثة أو مشروعًا أولًا.'));
             bundleMessage.textContent = tr('Running a real MCP handshake…', 'جارٍ تنفيذ اختبار MCP فعلي…');
             const result = await api('/api/mcp-bundles/enable', {session: sid, id: bundle.id});
-            bundleMessage.textContent = tr('Connected. Tools: ', 'تم الاتصال. الأدوات: ') + result.tools;
+            bundleMessage.textContent = tr('Verified and installed. Tools: ', 'تم التحقق والتثبيت. الأدوات: ') + result.tools;
             await loadBundles();
           });
         }
