@@ -181,7 +181,17 @@
     const restartRequired = () => {
       if (!restart.isConnected) actions.append(restart);
       restart.disabled = !window.NewAlPhone?.restartEngine;
-      status(message, tr('Engine selected. Restart the engine to use it.', 'تم اختيار المحرّك. أعد تشغيل المحرّك لاستخدامه.') + (restart.disabled ? tr(' Close and reopen the app to restart.', ' أغلق التطبيق وافتحه مجددًا لإعادة التشغيل.') : ''));
+      status(message, tr('Verified revision is pending startup health. Restart the engine to activate it.', 'النسخة الموثقة بانتظار فحص الإقلاع. أعد تشغيل المحرّك لتفعيلها.') + (restart.disabled ? tr(' Close and reopen the app to restart.', ' أغلق التطبيق وافتحه مجددًا لإعادة التشغيل.') : ''));
+    };
+    const applyResult = result => {
+      if (!current()) return;
+      if (result.restart_required) return restartRequired();
+      if (result.hot_reloaded || result.state === 'rolled_back') {
+        status(message, result.text || tr('Verified hot resources are active.', 'تم تفعيل الموارد الساخنة الموثقة.'));
+        if (window.location?.reload) setTimeout(() => window.location.reload(), 0);
+        return;
+      }
+      status(message, result.text || result.state || '');
     };
     panel.append(node('p', tr('Describe one improvement. The agent prepares a separate engine copy, edits it and tests it. Activate a verified version here; return to the original whenever needed.', 'حدد تحسينًا واحدًا. البرنامج بيجهّز نسخة منفصلة من محرّكه ويعدّلها ويختبرها. من هون بتفعّل نسخة نجحت بالاختبار وبتقدر ترجع للأصل.')));
     const goal = node('textarea'), goalLabel = node('label', tr('What should improve?', 'شو بدك يتحسّن؟'));
@@ -192,7 +202,7 @@
     }, true);
     const rollback = button('Restore original engine', 'رجوع للمحرّك الأصلي', async () => {
       rollback.disabled = true;
-      try { await api('/api/evolution/rollback', {}); if (current()) restartRequired(); }
+      try { const result = await api('/api/evolution/rollback', {}); applyResult(result); }
       catch (e) { if (current()) status(message, e.message, true); }
       finally { rollback.disabled = false; }
     });
@@ -201,14 +211,18 @@
       status(message, tr('Loading improvements…', 'جارٍ تحميل التحسينات…'));
       try {
         const data = await api('/api/evolution'); if (!current()) return;
-        status(message, ''); list.replaceChildren();
+        list.replaceChildren();
+        const state = data.update?.state || 'up_to_date';
+        const currentVersion = data.current?.version_code ?? '';
+        const revision = data.current?.revision || 'packaged';
+        status(message, tr('Update state: ', 'حالة التحديث: ') + state + ' · v' + currentVersion + ' · ' + revision);
         if (!data.candidates.length) list.append(node('p', tr('No improvement candidates yet.', 'لا توجد نسخ محسّنة بعد.')));
         for (const item of data.candidates) {
           const row = node('section', '', 'connector-card'); row.append(node('span', item.goal + ' · ' + item.status));
-          if (item.status === 'verified') {
+          if (item.status === 'verified' || item.status === 'ready_to_activate') {
             const activate = button('Activate', 'تفعيل', async () => {
               activate.disabled = true;
-              try { await api('/api/evolution/activate', {candidate: item.id}); if (current()) restartRequired(); }
+              try { const result = await api('/api/evolution/activate', {candidate: item.id}); applyResult(result); }
               catch (e) { if (current()) status(message, e.message, true); }
               finally { activate.disabled = false; }
             }, true); row.append(activate);
