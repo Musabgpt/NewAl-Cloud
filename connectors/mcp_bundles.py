@@ -3,7 +3,8 @@
 Bundles are real server definitions, not fake connection cards. A bundle is
 reported available only when its runtime (and required credential) exists.
 Enabling performs an actual initialize + tools/list handshake before persisting
-the server into the project's private MCP configuration.
+the server into the project's private MCP configuration. Phase 8 keeps verified
+installation separate from the live start/stop/reconnect process state.
 """
 import hashlib
 import json
