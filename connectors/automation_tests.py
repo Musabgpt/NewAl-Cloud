@@ -25,6 +25,44 @@ class AutomationTests(unittest.TestCase):
         self.assertTrue(tool_name in tools.REGISTRY, 'agent cannot provision ' + tool_name + ' yet')
         return tools.REGISTRY[tool_name].fn(self.ctx, **args)
 
+    def test_dependency_install_runs_pkg_then_verifies_both_uv_commands(self):
+        from . import runtime_manager as rm
+        with mock.patch.object(rm, 'execute', side_effect=[{'status':'completed','exit_code':127},
+                {'status':'completed','exit_code':0,'stdout':'uv 0.12\nuvx 0.12'}]), \
+             mock.patch.object(rm, 'process_start', return_value={'id':'install-uv'}) as start, \
+             mock.patch.object(mcp_bundles, '_wait_termux_process', return_value={'exit_code':0}):
+            _, result = self.invoke('dependency_install', name='uvx')
+        self.assertTrue(result['ok'])
+        self.assertEqual(start.call_args.args[0], 'pkg install -y uv')
+
+    def test_dependency_install_does_not_claim_success_after_failed_verification(self):
+        from . import runtime_manager as rm
+        with mock.patch.object(rm, 'execute', return_value={'status':'completed','exit_code':127,'stderr':'uvx missing'}), \
+             mock.patch.object(rm, 'process_start', return_value={'id':'install-uv'}), \
+             mock.patch.object(mcp_bundles, '_wait_termux_process', return_value={'exit_code':0}):
+            with self.assertRaisesRegex(tools.ToolError, 'uvx missing'):
+                self.invoke('dependency_install', name='uv')
+
+    def test_android_bash_version_probe_uses_termux(self):
+        from . import runtime_manager as rm
+        with mock.patch.object(rm, '_phone_available', return_value=True), \
+             mock.patch.object(rm, 'execute', return_value={'status':'completed','exit_code':0,'stdout':'uv 0.12','runtime':'TERMUX'}) as execute:
+            text, meta = tools.t_bash(self.ctx, 'uvx --version 2>&1; uv --version 2>&1')
+        execute.assert_called_once()
+        self.assertEqual(meta['runtime'], 'TERMUX')
+        self.assertIn('uv 0.12', text)
+
+    def test_uv_install_failure_prevents_mcp_configuration(self):
+        from . import automation, runtime_manager as rm
+        ready = {'runtime':rm.TERMUX, 'missing':['uvx'], 'unknown':[], 'stdio':True, 'reason':'connected'}
+        with mock.patch.object(mcp_bundles, '_runtime_requirements', return_value=ready), \
+             mock.patch.object(automation, 'ensure_dependency', side_effect=tools.ToolError('pkg download failed')), \
+             mock.patch.object(mcp_config, 'StdioServer') as server:
+            with self.assertRaisesRegex(tools.ToolError, 'pkg download failed'):
+                self.invoke('capability_ensure', bundle='docling')
+        server.assert_not_called()
+        self.assertNotIn('docling', mcp_config.read(self.root))
+
     def test_new_skill_is_discovered_without_restarting_session(self):
         text, meta = self.invoke('skill_create', name='browser-check', description='Verify a browser task',
             instructions='Read the actual page title before reporting success.', evidence='Validated with browser tools')

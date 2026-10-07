@@ -4,6 +4,26 @@ Scope: Phase 10 only. Phase 11 has not started. This is an evidence ledger,
 not final acceptance. Samsung results below were supplied by the project owner;
 Linux/CI checks cannot replace the remaining phone tests.
 
+## Follow-up: owner rejected provider/add-on acceptance
+
+New Samsung screenshots show an app-shell uv/uvx probe ending in exit 127 and
+provider cooldown, with no completed dependency installation. #334 therefore
+does not establish acceptance for those tasks.
+
+The follow-up fixes route environment-only bash version probes to Termux, add
+`dependency_install` (official `pkg install uv`, then actual uv and uvx version
+checks), and bootstrap uv before Browser Use/Docling MCP verification. Installing
+uv alone never marks either MCP installed. Native Python dependencies may still
+reject Android and must return their actual errors.
+
+The provider router previously rejected every alternative model sharing Kilo's
+base URL. It now discovers zero-price, tools-capable routes from Kilo's real
+catalog. Model-specific upstream capacity failures may select another model;
+account/gateway rate limits block all sibling models for the cooldown. These are
+alternative model backends on the same gateway, not independent gateway services.
+An anonymous live API probe returned a real tool call from StepFun 3.7 Flash.
+Phone completion with the new build remains unverified.
+
 ## Established Samsung evidence (owner report)
 
 - Action #314: persistent-signing baseline, installed and launched.

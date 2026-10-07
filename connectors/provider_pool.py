@@ -18,6 +18,7 @@ import random
 import re
 import threading
 import time
+import urllib.request
 from email.utils import parsedate_to_datetime
 
 from . import free_provider_adapters, providers, settings
@@ -71,6 +72,53 @@ FREE_POOL = [
 
 _RETRYABLE = {404, 408, 429, 500, 502, 503, 504}
 _LOG = logging.getLogger("newal.provider_pool")
+KILO_BASE = 'https://api.kilo.ai/api/gateway'
+_KILO_CACHE = (0.0, [])
+
+
+def _fetch_kilo_catalog():
+    request = urllib.request.Request(KILO_BASE + '/models', headers={'User-Agent':'MusabAI/Phase10'})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        raw = response.read(4_000_001)
+    if len(raw) > 4_000_000:
+        raise ValueError('Model catalog exceeds size limit')
+    return json.loads(raw)
+
+
+def _kilo_models():
+    """Discover actual zero-price tool models; never infer free access from a name."""
+    global _KILO_CACHE
+    if _KILO_CACHE[0] > _now():
+        return list(_KILO_CACHE[1])
+    try:
+        data = _fetch_kilo_catalog()
+        rows = []
+        for item in data.get('data', []):
+            price = item.get('pricing') or {}
+            if any(float(price.get(k, -1)) != 0 for k in ('prompt', 'completion')):
+                continue
+            if any(float(price.get(k) or 0) != 0 for k in ('request', 'image', 'internal_reasoning')):
+                continue
+            params = item.get('supported_parameters') or []
+            mid = str(item.get('id') or '')
+            if not mid or mid == 'kilo-auto/free' or 'tools' not in params:
+                continue
+            caps = ['text', 'tools', 'streaming']
+            if 'image' in (item.get('architecture') or {}).get('input_modalities', []):
+                caps.append('vision')
+            if 'reasoning' in params:
+                caps.append('reasoning')
+            if 'response_format' in params:
+                caps.append('json')
+            rows.append({'id':mid, 'model':mid, 'name':mid, 'provider':'openai',
+                         'base_url':KILO_BASE, 'api_key':'', 'free':True, 'capabilities':caps})
+        # Prefer the route verified with a real anonymous tool call in Phase 10.
+        rows.sort(key=lambda s: s['id'] != 'stepfun/step-3.7-flash:free')
+        _KILO_CACHE = (_now() + 300, rows[:6])
+        return list(_KILO_CACHE[1])
+    except (providers.ProviderError, OSError, ValueError, TypeError):
+        _KILO_CACHE = (_now() + 30, [])
+        return []
 
 
 def _now():
@@ -308,7 +356,7 @@ def _state(pid):
 
 
 def _available(spec):
-    return HEALTH.available(spec)
+    return HEALTH.available(spec) and (_base(spec) != KILO_BASE or HEALTH.available({'id':'gateway:' + KILO_BASE}))
 
 
 def _mark_success(spec, latency):
@@ -317,6 +365,16 @@ def _mark_success(spec, latency):
 
 def _mark_failure(spec, error):
     HEALTH.failure(spec, error)
+    if _base(spec) == KILO_BASE and _status(error) in {401, 403, 429}:
+        try:
+            body = json.loads(getattr(error, 'body', '') or '{}')
+            metadata = (body.get('error') or {}).get('metadata') or {}
+        except (ValueError, TypeError, AttributeError):
+            metadata = {}
+        # Only explicitly upstream model capacity permits another model route.
+        # Account/gateway limits apply to all models and honor the same cooldown.
+        if not str(metadata.get('limit_source', '')).startswith('upstream_'):
+            HEALTH.failure({'id':'gateway:' + KILO_BASE}, error)
 
 
 def health_snapshot():
@@ -327,6 +385,8 @@ def health_snapshot():
 def reset_health():
     """Tests and explicit reconnect actions can clear the in-process breaker."""
     HEALTH.clear()
+    global _KILO_CACHE
+    _KILO_CACHE = (0.0, [])
 
 
 _CAPABILITY_NAMES = frozenset({
@@ -356,6 +416,8 @@ def capabilities(spec):
 
     pid, base = _provider_id(spec), _base(spec)
     model = str(spec.get("model") or "")
+    if base == KILO_BASE and (model or pid) == 'kilo-auto/free':
+        return frozenset({'text', 'tools', 'streaming', 'reasoning'})
     for known in FREE_POOL:
         known_model = str(known.get("model") or "")
         if pid == _provider_id(known) or (model and model == known_model) or (
@@ -458,7 +520,9 @@ def candidates(current, required_capabilities=None, include_cooling=False):
     extras = free_provider_adapters.extra_free_specs()
     gateways = [x for x in extras if x.get("provider") == "freellmapi"]
     last_resort = [x for x in extras if x.get("provider") == "aihorde"]
-    values = gateways + list(FREE_POOL) + [
+    kilo = _kilo_models() if _base(current_spec) == KILO_BASE and (
+        include_cooling or HEALTH.available({'id':'gateway:' + KILO_BASE})) else []
+    values = gateways + list(FREE_POOL) + kilo + [
         x for x in configured if isinstance(x, dict) and _explicitly_free(x)
     ] + last_resort
 
@@ -467,7 +531,7 @@ def candidates(current, required_capabilities=None, include_cooling=False):
         spec = dict(raw)
         mid = _provider_id(spec)
         base = _base(spec)
-        if not mid or mid in seen_ids or not base or base in seen_bases:
+        if not mid or mid in seen_ids or not base or (base in seen_bases and base != KILO_BASE):
             continue
         key = _key(spec)
         if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
@@ -589,6 +653,8 @@ def _next_retry(client, required):
         if state.get("state") in {"auth_error", "capability_mismatch"} or state.get("status") == 400:
             continue
         left = float(state.get("cooldown_until") or 0) - _now()
+        if _base(spec) == KILO_BASE:
+            left = max(left, float(HEALTH.state('gateway:' + KILO_BASE).get('cooldown_until') or 0) - _now())
         if left > 0:
             waits.append(left)
     return min(waits) if waits else None
@@ -640,7 +706,12 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
         if token is not None and token.is_set():
             raise providers.Cancelled()
         try:
-            return chat(client, messages, tools=tools, required_capabilities=required_capabilities, **kwargs)
+            previous = _provider_id(getattr(client, 'spec', {}) or {})
+            result = chat(client, messages, tools=tools, required_capabilities=required_capabilities, **kwargs)
+            actual = _provider_id(getattr(client, 'spec', {}) or {})
+            if actual != previous and on_status:
+                on_status('نجح الاستكمال بالنموذج البديل: ' + actual)
+            return result
         except ProviderUnavailable as error:
             local, result = _local_last_resort(client, messages, tools, required, owner, on_status, kwargs)
             if local:

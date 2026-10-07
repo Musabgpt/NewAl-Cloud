@@ -2,11 +2,81 @@
 import json
 from pathlib import Path
 import re
+import threading
 
 from . import tools
 
 NAMES = ['capability_catalog', 'capability_ensure', 'skill_create', 'plugin_install',
-         'mcp_registry_search', 'mcp_registry_install']
+         'mcp_registry_search', 'mcp_registry_install', 'dependency_install']
+_INSTALL_LOCK = threading.Lock()
+
+
+def ensure_dependency(name, cancel=None, emit=None):
+    """Install official Termux packages and verify executables in that same runtime."""
+    from . import runtime_manager as rm, mcp_bundles, providers
+    recipes = {
+        'uv': ('uv', 'uv --version && uvx --version'),
+        'uvx': ('uv', 'uv --version && uvx --version'),
+        'node': ('nodejs-lts', 'node --version && npm --version'),
+        'npm': ('nodejs-lts', 'node --version && npm --version'),
+        'python': ('python', 'python --version'),
+        'git': ('git', 'git --version'),
+    }
+    if name not in recipes:
+        raise tools.ToolError('Supported managed dependencies: ' + ', '.join(recipes))
+    while not _INSTALL_LOCK.acquire(timeout=0.2):
+        if cancel is not None and cancel.is_set():
+            raise providers.Cancelled()
+    try:
+        if cancel is not None and cancel.is_set():
+            raise providers.Cancelled()
+        package, probe = recipes[name]
+        result = rm.execute(probe, rm.TERMUX)
+        if result.get('status') == 'completed' and result.get('exit_code') == 0:
+            return dict(result, ok=True, dependency=name, installed=True)
+        if result.get('status') != 'completed':
+            raise tools.ToolError('Dependency probe did not complete: ' + json.dumps(result, ensure_ascii=False))
+        if emit:
+            emit({'type':'status', 'text':'تثبيت ' + package + ' والتحقق منه داخل Termux…'})
+        with mcp_bundles.cancel_scope(cancel):
+            process = rm.process_start('pkg install -y ' + package)
+            mcp_bundles._wait_termux_process(process['id'], timeout=600)
+        rm._clear_cache()
+        result = rm.execute(probe, rm.TERMUX)
+        if result.get('status') != 'completed' or result.get('exit_code') != 0:
+            raise tools.ToolError('Dependency verification failed: ' + json.dumps(result, ensure_ascii=False))
+        return dict(result, ok=True, dependency=name, installed=True)
+    finally:
+        _INSTALL_LOCK.release()
+
+
+@tools.tool('dependency_install', 'Install and verify an official Termux dependency without manual shell steps. uv/uvx use pkg install uv; installation succeeds only after both executables run. This does not prove every Python package supports Android.',
+            {'name': {'type':'string','enum':['uv','uvx','node','npm','python','git']}}, ['name'], 'exec')
+def dependency_install(ctx, name):
+    _writable(ctx)
+    try:
+        result = ensure_dependency(name, getattr(ctx, 'cancel', None), getattr(ctx, 'emit', None))
+        return json.dumps(result, ensure_ascii=False), result
+    except (RuntimeError, OSError) as exc:
+        raise tools.ToolError(str(exc)) from exc
+
+
+def route_dependency_probe(ctx, command):
+    """Route environment-only bash probes; project commands keep their original cwd."""
+    from . import runtime_manager as rm
+    names = r'(?:uvx?|node|npm|npx|python|git|bash)'
+    part = r'(?:' + names + r'\s+(?:--version|-V|-v)|command\s+-v\s+' + names + r')\s*(?:2>&1)?'
+    if not re.fullmatch(r'\s*' + part + r'(?:\s*(?:;|&&)\s*' + part + r')*\s*;?\s*', command):
+        return None
+    if not rm._phone_available():
+        return None
+    _writable(ctx)
+    data = rm.execute(command, rm.TERMUX)
+    output = str(data.get('stdout') or '') + str(data.get('stderr') or '')
+    if getattr(ctx, 'emit', None):
+        ctx.emit({'type':'output','text':output})
+    return 'TERMUX · exit %s\n%s' % (data.get('exit_code'), output), {
+        'runtime':rm.TERMUX, 'exit':data.get('exit_code'), 'output':output, 'command':command}
 
 
 def _writable(ctx):

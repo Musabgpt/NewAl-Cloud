@@ -65,7 +65,7 @@ BUNDLES = [
         "args": ["browser-use==0.13.5", "--cli-mcp"],
         "description": "Browser Use CLI MCP for complex or visually difficult pages. Uses the package/stdio contract published in its official server.json.",
         "browser_role": "complex",
-        "manual_setup": "Install uv/uvx and a supported local browser runtime before enabling this bundle.",
+        "manual_setup": "On Termux, uv/uvx is installed automatically before MCP verification. Browser/Python dependency compatibility is checked by the real MCP startup.",
     },
     {
         "id": "open-browser-use",
@@ -91,7 +91,7 @@ BUNDLES = [
         },
         "description": "Docling document understanding for PDF, Office, OCR, tables and structured conversion. The reviewed bundle pins Docling MCP 3.3.0 and starts its official stdio server in local mode.",
         "document_role": "structured",
-        "manual_setup": "Requires uv/uvx. Local Docling is substantially larger than the built-in document reader and is downloaded only when you explicitly test/enable this bundle.",
+        "manual_setup": "On Termux, uv/uvx is installed automatically. Docling still requires compatible native Python dependencies; successful uv installation alone does not mark this MCP installed.",
         "native_fallback": "MusabAI's built-in document tools remain available for Markdown, text, HTML, ordinary PDF text and ZIP files.",
     },
     {
@@ -490,6 +490,9 @@ def _ensure_termux_setup(item):
     runtime = _runtime_requirements(item)
     if runtime.get("runtime") != runtime_manager.TERMUX:
         return
+    if item.get('command') == 'uvx':
+        from .automation import ensure_dependency
+        ensure_dependency('uv', getattr(_CANCEL, 'token', None))
     _ensure_termux_npm(item)
     if item.get("termux_setup") != "chromium":
         return

@@ -10,6 +10,27 @@ class ProviderPoolTests(unittest.TestCase):
     def setUp(self):
         provider_pool.reset_health()
 
+    def test_kilo_can_use_another_verified_free_model_on_same_gateway(self):
+        base = 'https://api.kilo.ai/api/gateway'
+        client = SimpleNamespace(spec={'id':'kilo-auto/free', 'base_url':base})
+        rows = {'data':[{'id':'stepfun/test:free','pricing':{'prompt':'0','completion':'0'},
+                        'supported_parameters':['tools'],'architecture':{'input_modalities':['text','image']}}]}
+        with patch.object(provider_pool, '_fetch_kilo_catalog', return_value=rows):
+            items = provider_pool.candidates(client, {'tools','vision'})
+        self.assertIn('stepfun/test:free', [x['model'] for x in items])
+
+    def test_kilo_catalog_never_routes_to_paid_or_unknown_price(self):
+        self.assertTrue(hasattr(provider_pool, '_kilo_models'))
+        rows={'data':[{'id':'looks:free','pricing':{'prompt':'1','completion':'0'},'supported_parameters':['tools']},
+                      {'id':'unknown:free','supported_parameters':['tools']}]}
+        with patch.object(provider_pool,'_fetch_kilo_catalog',return_value=rows):
+            self.assertEqual(provider_pool._kilo_models(), [])
+
+    def test_gateway_rate_limit_blocks_sibling_models(self):
+        spec={'id':'kilo-auto/free','base_url':'https://api.kilo.ai/api/gateway'}
+        provider_pool._mark_failure(spec, providers.ProviderError('account rate limited',429))
+        self.assertFalse(provider_pool._available(dict(spec,id='other:free')))
+
     def test_rate_limit_recovers_after_cooldown_without_replaying_tools(self):
         self.assertTrue(hasattr(provider_pool, 'chat_recovering'), 'bounded automatic recovery missing')
         class RateThenGood:
