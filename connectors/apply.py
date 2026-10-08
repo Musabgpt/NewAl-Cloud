@@ -47,6 +47,28 @@ def apply(root):
         raise SystemExit("Unsafe patch refused: provider HTTP errors changed")
     (package / "providers.py").write_text(provider_text.replace(http_error,
         'raise ProviderError(_error_text(stream.resp.status, text), stream.resp.status, text, headers=dict(getattr(stream.resp, "getheaders", lambda: [])()))'))
+    replace(package / "providers.py", '            content, reasoning_parts = [], []\n',
+            '            content, reasoning_parts = [], []\n            completed = False\n')
+    replace(package / "providers.py", '                if data == "[DONE]":\n                    break\n',
+            '                if data == "[DONE]":\n                    completed = True\n                    break\n')
+    replace(package / "providers.py", '                    raise ProviderError(str(ev["error"].get("message") if isinstance(ev["error"], dict) else ev["error"]))\n',
+            '                    from .tool_protocol import stream_error\n                    raise stream_error(ev)\n')
+    replace(package / "providers.py", '            out.content = "".join(content)\n',
+            '            if not completed and not out.finish:\n                raise ProviderError("Provider stream disconnected before completion", 502)\n            out.content = "".join(content)\n')
+    replace(package / "providers.py", '                elif kind == "error":\n                    raise ProviderError(str((ev.get("error") or {}).get("message") or ev))\n',
+            '                elif kind == "error":\n                    from .tool_protocol import stream_error\n                    raise stream_error(ev)\n')
+    replace(package / "providers.py", '            for line in stream.lines():\n                if not line.startswith("data:"):\n                    continue\n                try:\n',
+            '            completed = False\n            for line in stream.lines():\n                if not line.startswith("data:"):\n                    continue\n                try:\n')
+    replace(package / "providers.py", '                elif kind == "error":\n',
+            '                elif kind == "message_stop":\n                    completed = True\n                elif kind == "error":\n')
+    replace(package / "providers.py", '                    raise stream_error(ev)\n        finally:\n',
+            '                    raise stream_error(ev)\n            if not completed and not out.finish:\n                raise ProviderError("Provider stream disconnected before completion", 502)\n        finally:\n')
+    provider_text = (package / "providers.py").read_text()
+    stream_end = '        finally:\n            stream.close()\n'
+    if provider_text.count(stream_end) != 2:
+        raise SystemExit('Unsafe patch refused: provider stream finalizers changed')
+    (package / "providers.py").write_text(provider_text.replace(stream_end,
+        '        except (OSError, http.client.HTTPException) as exc:\n            raise ProviderError("Provider stream disconnected: %s" % exc, 502) from exc\n' + stream_end))
     # Phase 10: keep streamed tool arguments together and validate before any side effect.
     replace(package / "providers.py", '        calls = {}\n',
             '        from .tool_protocol import ToolCallStream\n        calls = ToolCallStream()\n')
@@ -231,6 +253,12 @@ def apply(root):
       case "task_heartbeat":
         if (!replay && S.busy.has(S.current)) ensureWorking("Working · step " + (ev.step || 0));
         break;
+      case "model_request":
+        window.MusabStreamView.begin(C || turnBox());
+        break;
+      case "stream_reset":
+        window.MusabStreamView.reset(C || turnBox());
+        break;
 ''')
     replace(package / "ui/app.js", '  async function interrupt() {\n    if (S.current) await api("/api/sessions/" + S.current + "/interrupt", {}).catch(() => {});\n  }\n', '''  async function interrupt() {
     if (!S.current) return;
@@ -239,6 +267,7 @@ def apply(root):
   }
 ''')
     shutil.copyfile(here / "automatic_updates.js", package / "ui/automatic_updates.js")
+    shutil.copyfile(here / "stream_ui.js", package / "ui/stream_ui.js")
     shutil.copyfile(here / "workspace.js", package / "ui/workspace.js")
     shutil.copyfile(here / "mcp_ui.js", package / "ui/mcp_ui.js")
     replace(package / "mcp.py", '    if root:\n', '    from . import mcp_config\n    add(mcp_config.configs(root))\n    if root:\n')
@@ -254,12 +283,13 @@ def apply(root):
     replace(package / "agent.py", '        except providers.ProviderError as e:\n', '        except providers.ProviderError as e:\n            from . import provider_pool\n')
     replace(package / "agent.py", '            answer = "Model error: %s" % e\n', '            answer = provider_pool.public_error(e)\n')
     replace(package / "agent.py", '                           reasoning=reasoning, on_event=on_event, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n',
-            '                           reasoning=reasoning, on_event=on_event, on_status=self._provider_wait, cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n')
+            '                           reasoning=reasoning, on_event=on_event, on_status=self._provider_wait, on_reset=lambda: self.emit({"type": "stream_reset"}), cancel=getattr(self, "operation_cancel", self.cancel), extra=extra)\n')
+    replace(package / "agent.py", '        comp = client.chat(self.request_messages(), tools=self.schemas(), owner=s.id, max_tokens=max_tokens,\n',
+            '        self.emit({"type": "model_request"})\n        comp = client.chat(self.request_messages(), tools=self.schemas(), owner=s.id, max_tokens=max_tokens,\n')
     replace(package / "agent.py", '    def _run_tools(self, ctx, calls):\n', """    def _provider_wait(self, text):
         supervisor = getattr(self, "supervisor", None)
         if supervisor is not None:
-            supervisor._checkpoint(progress="Completed tool results remain in the session history.",
-                                   next_step="Retry model request at step %d; do not replay completed tool calls." % self.step,
+            supervisor._checkpoint(next_step="Retry model request at step %d; do not replay completed tool calls." % self.step,
                                    blocker=text)
         self.emit({"type": "status", "text": text})
 
@@ -344,7 +374,7 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "ui/index.html", '<link rel="stylesheet" href="style.css">', '<link rel="stylesheet" href="style.css">\n<link rel="stylesheet" href="connectors.css">')
-    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>\n<script src="mcp_ui.js"></script>\n<script src="automatic_updates.js"></script>')
+    replace(package / "ui/index.html", '<script src="app.js"></script>', '<script src="stream_ui.js"></script>\n<script src="app.js"></script>\n<script src="connectors.js"></script>\n<script src="workspace.js"></script>\n<script src="mcp_ui.js"></script>\n<script src="automatic_updates.js"></script>')
     replace(package / "server.py", 'if x != "env"', 'if x not in ("env", "headers")')
     replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES + _automation.NAMES + _browser_router.NAMES + _search_router.NAMES + _document_engine.NAMES + _project_rag.NAMES + _orchestrator.NAMES + _execution.NAMES + _runtime_manager.NAMES + _git_workspace.NAMES + _observability.NAMES + _task_state.NAMES\n')
     replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')

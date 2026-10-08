@@ -262,3 +262,29 @@ cancellation, real HTTP Retry-After, provider status, update exclusion, and the
 new workspace workflow. Full regression, UI, signing and original-engine checks
 are required before publishing. These are host/CI improvements, not new Samsung
 acceptance; Phase 10 remains open for the previously listed device checks.
+
+## Interrupted provider streams after #345
+
+Samsung screenshot 95182 reports `Upstream idle timeout exceeded`, including a
+failure after partial reasoning. The router previously refused failover after
+any streamed event, even though that model request had not returned a completion
+or executed a tool. A statusless idle-timeout error before output also retried
+the same slow provider. In-band SSE errors lost their status/retry metadata, and
+an EOF without a completion marker could return unfinished tool calls.
+
+The agent now explicitly opts into bounded recovery at the model-request
+boundary. It clears only the failed response draft, preserves completed tool
+messages and checkpoints, and lets the health-aware pool choose an available
+free model. Callers without a draft-reset callback keep the no-replay contract.
+User Stop interrupts recovery. Raw provider causes remain in diagnostics; an
+exhausted recovery reports the interruption and saved progress in Arabic.
+Timeouts switch routes without retrying the same request first. Both OpenAI and
+Anthropic streams require a completion signal before returning tool calls;
+in-band errors preserve HTTP-like status and retry metadata.
+
+Regression evidence uses real local HTTP/SSE servers: one write completes, the
+next response streams reasoning/text/tool arguments and fails with the exact
+reported timeout, then a replacement provider writes the requested file. The
+first write is not replayed and the interrupted write never executes. Other
+checks cover bounded retries, Stop, missing completion markers, error metadata,
+and removal of only uncommitted UI nodes. No new Samsung acceptance is inferred.

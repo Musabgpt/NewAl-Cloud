@@ -7,6 +7,70 @@ from . import provider_pool, provider_keys, providers
 
 
 class ProviderPoolTests(unittest.TestCase):
+    def test_request_boundary_recovers_after_reasoning_and_partial_tool_arguments(self):
+        messages = [{'role': 'tool', 'tool_call_id': 'done', 'content': 'already written'}]
+        events, resets, calls = [], [], []
+        def interrupted(*args, **kwargs):
+            calls.append('primary')
+            kwargs['on_event']('reasoning', 'Preparing the game')
+            kwargs['on_event']('tool_args', '{"path":"game.html",')
+            raise providers.ProviderError('Upstream idle timeout exceeded')
+        def good(model, history, **kwargs):
+            calls.append('backup')
+            self.assertIs(history, messages)
+            self.assertNotIn('on_reset', kwargs)
+            return 'complete response'
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=interrupted))
+        backup = {'id':'backup/free', 'model':'backup', 'base_url':'https://backup.invalid', 'free':True}
+        with patch.object(provider_pool, 'candidates', return_value=[backup]), \
+             patch.object(provider_pool, 'provider', return_value=SimpleNamespace(chat=good)):
+            result = provider_pool.chat_recovering(c, messages, on_event=lambda *e: events.append(e),
+                                                  on_reset=lambda: resets.append(True), recovery_budget=0)
+        self.assertEqual(result, 'complete response')
+        self.assertEqual(calls, ['primary', 'backup'])
+        self.assertEqual(resets, [True])
+        self.assertEqual(c.spec['id'], 'backup/free')
+
+    def test_upstream_timeout_does_not_repeat_same_slow_request(self):
+        calls = []
+        def slow(*args, **kwargs):
+            calls.append('slow')
+            raise providers.ProviderError('Upstream idle timeout exceeded')
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=slow))
+        with patch.object(provider_pool, 'candidates', return_value=[]), patch.object(provider_pool.time, 'sleep'):
+            with self.assertRaises(provider_pool.ProviderUnavailable):
+                provider_pool.chat(c, [])
+        self.assertEqual(calls, ['slow'])
+        self.assertEqual(provider_pool.HEALTH.state('current')['state'], 'timeout')
+
+    def test_partial_recovery_is_bounded_and_does_not_hide_final_failure(self):
+        calls, resets = [], []
+        def interrupted(*args, **kwargs):
+            calls.append(True)
+            kwargs['on_event']('text', 'Unfinished draft')
+            raise providers.ProviderError('Upstream idle timeout exceeded')
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=interrupted))
+        with patch.object(provider_pool, '_available', return_value=True):
+            with self.assertRaises(providers.ProviderError) as caught:
+                provider_pool.chat_recovering(c, [], on_reset=lambda: resets.append(True), recovery_budget=0)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(resets), 3)
+        self.assertIn('انقطع', provider_pool.public_error(caught.exception))
+        self.assertNotIn('Upstream idle timeout exceeded', provider_pool.public_error(caught.exception))
+
+    def test_stop_after_partial_error_prevents_recovery_request(self):
+        import threading
+        cancel = threading.Event()
+        def interrupted(*args, **kwargs):
+            kwargs['on_event']('reasoning', 'Starting')
+            cancel.set()
+            raise providers.ProviderError('Upstream idle timeout exceeded')
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=interrupted))
+        with patch.object(provider_pool, 'candidates') as candidates:
+            with self.assertRaises(providers.Cancelled):
+                provider_pool.chat_recovering(c, [], cancel=cancel, on_reset=lambda: None)
+        candidates.assert_not_called()
+
     def test_partial_stream_without_ui_callback_is_not_replayed(self):
         def partial(*args, **kwargs):
             kwargs['on_event']('text', 'partial answer')

@@ -8,8 +8,9 @@ Groq -> Gemini -> OpenRouter Free -> NVIDIA.
 
 Selection is protocol-aware (text, vision, tools, streaming, structured JSON,
 reasoning and explicit extended capabilities) while preserving the Phase 1
-retry/cooldown circuit breaker. Providers without credentials are skipped and
-a fallback never starts after visible streaming output has begun.
+retry/cooldown circuit breaker. Providers without credentials are skipped.
+Partial replies are retried only at an explicit uncommitted request boundary
+whose caller can discard the current UI draft before another attempt.
 """
 import json
 import math
@@ -174,9 +175,14 @@ def _retryable(error):
     text = str(error).lower()
     return any(word in text for word in (
         "overload", "temporarily unavailable", "service unavailable", "timeout",
-        "timed out", "rate limit", "too many requests", "connection reset",
+        "timed out", "stalled", "rate limit", "too many requests", "connection reset",
         "cannot reach", "connection refused",
     ))
+
+
+def _timeout_error(error):
+    return isinstance(error, TimeoutError) or _status(error) in {408, 504} or any(
+        word in str(error).lower() for word in ('timeout', 'timed out', 'stalled'))
 
 
 def _retry_after_seconds(error):
@@ -317,7 +323,7 @@ class ProviderHealthManager:
                 state = "auth_error"
             elif status == 404:
                 state = "capability_mismatch"
-            elif status == 408 or isinstance(error, TimeoutError):
+            elif _timeout_error(error):
                 state = "timeout"
             elif status == 429:
                 state = "rate_limited"
@@ -500,7 +506,7 @@ def _safe_error(error):
         return "authentication failed"
     if status == 404:
         return "capability unavailable"
-    if status == 408:
+    if _timeout_error(error):
         return "timed out"
     if status == 429 or "rate limit" in text or "too many requests" in text:
         return "rate limited"
@@ -629,7 +635,7 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
                 raise
             # Capability/rate-limit/timeout responses should move to a healthy
             # provider immediately; repeating the same request is blind retrying.
-            if (not _retryable(error) or _status(error) in {404, 408, 429}
+            if (not _retryable(error) or _timeout_error(error) or _status(error) in {404, 429}
                     or attempt + 1 >= attempts):
                 _mark_failure(spec, error)
                 raise
@@ -697,11 +703,12 @@ def _local_last_resort(client, messages, tools, required, owner, on_status, kwar
 
 
 def chat_recovering(client, messages, tools=None, required_capabilities=None,
-                    on_status=None, recovery_budget=90, owner="main", **kwargs):
+                    on_status=None, on_reset=None, recovery_budget=90, owner="main", **kwargs):
     """Bounded automatic recovery at a model-request boundary, preserving tool results.
 
-    Never retry a stream that already emitted output. User Stop and supervisor
-    cancellation interrupt cooldown waits without issuing another request.
+    The agent opts into partial-response recovery with on_reset: no tool from
+    this request has executed or been committed to history yet. Other callers
+    retain the no-replay contract. Stop always interrupts recovery.
     """
     deadline = _now() + max(0, min(float(recovery_budget), 120))
     token = kwargs.get("cancel")
@@ -735,6 +742,22 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
                         raise providers.Cancelled()
                 else:
                     time.sleep(seconds)
+        except (providers.ProviderError, TimeoutError, OSError) as error:
+            if token is not None and token.is_set():
+                raise providers.Cancelled() from error
+            if not getattr(error, '_musab_emitted', False) or not callable(on_reset):
+                raise
+            # Remove only this failed request's draft. Completed tool messages
+            # stay in `messages`; incomplete tool calls never leave the provider.
+            on_reset()
+            if not _retryable(error) or attempt == 2:
+                if isinstance(error, OSError):
+                    final = providers.ProviderError('Provider stream disconnected before completion', 502)
+                    final._musab_emitted = True
+                    raise final from error
+                raise
+            if on_status:
+                on_status('انقطع رد المزود؛ أستكمل بنموذج متاح مع الاحتفاظ بنتائج الأدوات المنفّذة.')
     raise AssertionError("bounded retry loop exhausted")
 
 
@@ -743,6 +766,8 @@ def public_error(error):
         if error.retry_after is not None:
             return "المزودون المناسبون للمهمة غير متاحين مؤقتًا. حُفظ التقدم؛ يمكن الاستكمال بعد نحو %d ثانية أو بعد إعداد مزود احتياطي يدعم الأدوات." % (error.retry_after + 1)
         return "لم يتوفر مزود مناسب للمهمة. راجع حالة المزودين وإعداداتهم في Musab Hub؛ تفاصيل الخطأ محفوظة في التشخيص."
+    if _timeout_error(error) or (getattr(error, '_musab_emitted', False) and _retryable(error)):
+        return 'انقطع رد المزود ولم تنجح محاولات الاستكمال. حُفظ تقدم المهمة ونتائج الأدوات المنفّذة؛ يمكنك المتابعة من آخر خطوة. تفاصيل الانقطاع في التشخيص.'
     return str(error)
 
 

@@ -2,6 +2,22 @@
 import json
 
 
+def stream_error(event):
+    """Keep in-band gateway error metadata as well as the human-readable cause."""
+    from .providers import ProviderError
+    error = event.get('error') or {}
+    details = error if isinstance(error, dict) else {}
+    status = details.get('status') or details.get('code') or 0
+    try:
+        status = int(status)
+    except (ValueError, TypeError):
+        status = 0
+    if not 400 <= status <= 599:
+        status = {'rate_limit_error':429, 'overloaded_error':503, 'api_error':500,
+                  'authentication_error':401, 'permission_error':403}.get(details.get('type'), 0)
+    return ProviderError(str(details.get('message') or error), status, json.dumps(event))
+
+
 class ToolCallStream:
     def __init__(self):
         self.calls = []

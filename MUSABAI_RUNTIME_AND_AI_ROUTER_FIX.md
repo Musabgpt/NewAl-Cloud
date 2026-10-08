@@ -132,3 +132,26 @@ feedback remains near its card, and refreshing providers retains unsaved drafts
 without persisting their values. See `PHASE10_ACCEPTANCE.md` for evidence and the
 remaining Samsung acceptance gates. No Phase 11 work or new device-pass claim is
 included.
+
+## Phase 10 follow-up: upstream idle timeout recovery
+
+Screenshot 95182 exposed a request-boundary bug: partial reasoning/tool argument
+events disabled failover before any tool had executed. The agent now discards
+only that uncommitted draft and retries through the available free-provider pool
+within a three-attempt bound. Completed tool history/checkpoints remain intact;
+Stop cancels recovery. Idle timeouts no longer repeat the same slow request first.
+SSE errors retain their status/retry metadata and unfinished streams cannot
+return executable tool calls. Exhausted recovery shows an Arabic explanation;
+the original provider error remains available in diagnostics.
+
+Changed: `provider_pool.py`, `tool_protocol.py`, checked upstream patches in
+`apply.py`, and the small `stream_ui.js` draft renderer. Regressions cover actual
+HTTP/SSE interruptions, exactly-once completed file writes, discarded partial
+calls, Stop, retry bounds, stream termination and UI draft isolation.
+
+Local validation: 279 trusted engine tests and 65 UI tests passed; the original
+146-test suite passed with its 19 existing skips. A live anonymous free API test
+recovered from a controlled SSE idle timeout after partial output, selected
+`nvidia/nemotron-3-ultra-550b-a55b:free`, and returned a complete write call that
+wrote the expected file once on the Linux host. The primary failure was injected;
+the fallback response was live. Samsung validation of this revision remains open.

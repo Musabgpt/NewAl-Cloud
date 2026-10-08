@@ -12,14 +12,15 @@ from . import tools, providers, agent, session
 
 
 @contextmanager
-def stream_server(events, status=200, headers=None):
+def stream_server(events, status=200, headers=None, done=True):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
         def do_POST(self):
             self.server.requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             frames = events(self.server.requests) if callable(events) else events
-            body = ''.join('data: ' + json.dumps(e) + '\n\n' for e in frames) + 'data: [DONE]\n\n'
+            body = ''.join('data: ' + json.dumps(e) + '\n\n' for e in frames)
+            if done: body += 'data: [DONE]\n\n'
             data = body.encode()
             self.send_response(status)
             for key, value in (headers or {}).items(): self.send_header(key, value)
@@ -52,6 +53,65 @@ def part(arguments, name=None, cid=None, index=None):
 
 
 class ToolProtocolTests(unittest.TestCase):
+    def test_inband_error_keeps_status_and_retry_metadata(self):
+        from . import provider_pool
+        error = {'error': {'message':'rate limited', 'code':429, 'metadata':{'retry_after':45}}}
+        with stream_server([error]) as (api, _):
+            with self.assertRaises(providers.ProviderError) as caught:
+                api.chat('fixture', [])
+        self.assertEqual(caught.exception.status, 429)
+        self.assertEqual(provider_pool._retry_after_seconds(caught.exception), 45)
+
+    def test_eof_without_completion_never_returns_executable_tool_call(self):
+        events = [delta([part('{"path":"a","content":"partial"}', 'write', 'uncommitted', 0)])]
+        with stream_server(events, done=False) as (api, _):
+            with self.assertRaises(providers.ProviderError):
+                api.chat('fixture', [])
+
+    def test_anthropic_stream_requires_completion_before_returning_tools(self):
+        frames = [{'type':'content_block_start','index':0,'content_block':{
+            'type':'tool_use','id':'incomplete','name':'write','input':{'path':'a','content':'draft'}}}]
+        with stream_server(frames, done=False) as (api, _):
+            with self.assertRaises(providers.ProviderError):
+                providers.Anthropic('', api.base_url).chat('fixture', [])
+        with stream_server(frames + [{'type':'message_stop'}], done=False) as (api, _):
+            result = providers.Anthropic('', api.base_url).chat('fixture', [])
+            self.assertEqual(result.tool_calls[0]['name'], 'write')
+
+    def test_agent_recovers_idle_timeout_without_replaying_completed_write(self):
+        from . import models, provider_pool, settings
+        def primary(requests):
+            if len(requests) == 1:
+                return [delta([part('{"path":"before.txt","content":"preserve"}', 'write', 'completed', 0)], 'tool_calls')]
+            return [
+                {'choices':[{'delta':{'reasoning_content':'Preparing the game', 'content':'Unfinished draft'}}]},
+                delta([part('{"path":"discard.txt","content":"must not execute"}', 'write', 'discard', 0)]),
+                {'error':{'message':'Upstream idle timeout exceeded','code':504}}]
+        def backup(requests):
+            history = requests[-1]['messages']
+            self.assertTrue(any(m.get('tool_call_id') == 'completed' for m in history))
+            self.assertFalse(any('Unfinished draft' in str(m) or 'discard.txt' in str(m) for m in history))
+            if len(requests) == 1:
+                return [delta([part('{"path":"game.html","content":"<canvas>verified</canvas>"}', 'write', 'game', 0)], 'tool_calls')]
+            return [{'choices':[{'delta':{'content':'Created game.html.'},'finish_reason':'stop'}]}]
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as home, \
+             patch.object(settings, 'HOME', home), stream_server(primary) as (api, requests), \
+             stream_server(backup) as (alternate, fallback_requests):
+            provider_pool.reset_health()
+            client = models.Client({'id':'idle-fixture','provider':'openai'}, api, 'fixture')
+            spec = {'id':'backup/free','provider':'openai','model':'backup','base_url':alternate.base_url,'free':True}
+            events = []
+            runner = agent.Agent(session.Session(root, mode='full-auto'), client=client, emit=events.append, persist=False)
+            with patch.object(provider_pool, 'candidates', return_value=[spec]):
+                runner.run('Create the game files and continue after any temporary provider failure.', verify=False)
+            self.assertEqual((Path(root)/'before.txt').read_text(), 'preserve')
+            self.assertEqual((Path(root)/'game.html').read_text(), '<canvas>verified</canvas>')
+            self.assertFalse((Path(root)/'discard.txt').exists())
+            self.assertEqual([e['id'] for e in events if e['type']=='tool_end'], ['completed','game'])
+            self.assertEqual(len([e for e in events if e['type']=='stream_reset']), 1)
+            self.assertFalse([e for e in events if e['type']=='turn_end'][0]['error'])
+            self.assertEqual((len(requests),len(fallback_requests)), (2,2))
+
     def completion(self, events):
         with stream_server(events) as (api, requests):
             result = api.chat('fixture', [{'role': 'user', 'content': 'create the requested file'}],
