@@ -59,6 +59,7 @@ HOT_FILES = {
     "ui/favicon.ico",
 }
 TRUSTED_TESTS = (
+    "tool_protocol_tests",
     "document_tests", "evolution_tests", "addon_tests", "memory_tests", "autonomy_tests",
     "prompt_tests", "workbench_tests", "mcp_config_tests", "mcp_bundles_tests",
     "mcp_registry_tests", "browser_router_tests", "search_router_tests",

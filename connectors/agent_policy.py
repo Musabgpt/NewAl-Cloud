@@ -1,7 +1,7 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v7'
+MARKER = 'MusabAI behavior profile v8'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -37,6 +37,10 @@ GIT_GUIDANCE = ("For local repository inspection use git_status, git_diff and gi
 OBSERVABILITY_GUIDANCE = ("Operational tracing is local and metadata-only by default. Use observability_status or "
                           "observability_tail to inspect it. Never claim external telemetry is active automatically; "
                           "observability_export sends only sanitized metadata and only after explicit use with a configured backend.")
+TOOL_ARGUMENT_GUIDANCE = ("Send all required tool arguments together in one JSON object. write needs path and the complete "
+                          "content string; bash and runtime_exec need the actual command string. After a validation "
+                          "error, correct the missing values before retrying; never repeat the incomplete call or "
+                          "claim it ran. Read existing files before replacing their contents.")
 TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/session restarts, persist bounded verified summaries "
                        "with task_checkpoint. When the user says continue, resume, or asks where work stopped, call task_resume "
                        "before reconstructing state from guesses. Task checkpoints are local summaries only: they do not run in "
@@ -54,7 +58,7 @@ def profile():
             path = dynamic
     except Exception:
         pass
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + path.read_text(encoding='utf-8').strip())
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + TOOL_ARGUMENT_GUIDANCE + '\n\n' + path.read_text(encoding='utf-8').strip())
 
 
 def stale_builtin(text):

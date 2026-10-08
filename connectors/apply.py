@@ -30,11 +30,57 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
+    for name in ("tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
             'def t_bash(ctx, command, timeout=120, background=False):\n    from .automation import route_dependency_probe\n    routed = route_dependency_probe(ctx, str(command or "")) if not background else None\n    if routed is not None:\n        return routed\n')
+    # Phase 10: keep streamed tool arguments together and validate before any side effect.
+    replace(package / "providers.py", '        calls = {}\n',
+            '        from .tool_protocol import ToolCallStream\n        calls = ToolCallStream()\n')
+    replace(package / "providers.py", '                for ch in ev.get("choices") or []:\n',
+            '                for ch in ev.get("choices") or []:\n                    if ch.get("index", 0) != 0:\n                        continue\n')
+    replace(package / "providers.py", """                    for tc in d.get("tool_calls") or []:
+                        first = first or time.time()
+                        c = calls.setdefault(tc.get("index", len(calls)), {"id": "", "name": "", "arguments": ""})
+                        c["id"] = tc.get("id") or c["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            c["name"] += fn["name"]
+                            if on_event:
+                                on_event("tool_start", c["name"])
+                        if fn.get("arguments"):
+                            c["arguments"] += fn["arguments"] if isinstance(fn["arguments"], str) else json.dumps(fn["arguments"])
+                            if on_event:
+                                on_event("tool_args", fn["arguments"] if isinstance(fn["arguments"], str) else "")
+""",
+            '                    for c, named, fragment in calls.add(d.get("tool_calls") or [], snapshot=bool(ch.get("message") and not ch.get("delta"))):\n                        first = first or time.time()\n                        if on_event and named:\n                            on_event("tool_start", c["name"])\n                        if on_event and fragment:\n                            on_event("tool_args", fragment)\n')
+    replace(package / "providers.py", '            out.tool_calls = [calls[i] for i in sorted(calls)]\n', '            out.tool_calls = calls.finish()\n')
+    replace(package / "tools.py", """    if isinstance(arguments, str):
+        try:
+            args = json.loads(arguments or "{}")
+        except ValueError as e:
+            raise ToolError("the arguments are not valid JSON (%s): %s" % (e, arguments[:200]))
+    else:
+        args = dict(arguments or {})
+    if not isinstance(args, dict):
+        raise ToolError("the arguments must be a JSON object")
+    known = set(t.params)
+    aliases = {"file_path": "path", "filename": "path", "file": "path", "old_string": "old", "new_string": "new",
+               "old_str": "old", "new_str": "new", "replace_all": "all", "cmd": "command", "query": "pattern",
+               "text": "content", "start_line": "offset", "lines": "limit", "todos": "items", "description": "prompt"}
+    fixed = {}
+    for k, v in args.items():
+        k2 = k if k in known else aliases.get(k, k)
+        if k2 in known:
+            fixed[k2] = v
+    missing = [r for r in t.required if r not in fixed]
+    if missing:
+        raise ToolError("missing argument%s: %s" % ("s" if len(missing) > 1 else "", ", ".join(missing)))
+    return t.fn(ctx, **fixed)""",
+            '    from .tool_protocol import prepare_arguments\n    return t.fn(ctx, **prepare_arguments(t, arguments))')
+    replace(package / "agent.py", '        kind = "mcp" if is_mcp else t.kind\n',
+            '        if not is_mcp:\n            from .tool_protocol import prepare_arguments\n            try:\n                args = prepare_arguments(t, args)\n            except tools.ToolError as exc:\n                text = "error: %s" % exc\n                text += self.breaker.record(key, True, name, str(exc).split(". Nothing", 1)[0])\n                self.think_next = True\n                self.emit({"type": "tool_end", "id": cid, "name": name, "ok": False,\n                           "text": text, "validation_error": True})\n                return text\n        kind = "mcp" if is_mcp else t.kind\n')
     import hashlib
     source_native = here.parent / "android-lite/app/src/main"
     hasher = hashlib.sha256()

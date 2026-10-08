@@ -203,3 +203,29 @@ repair. Samsung responsiveness is not claimed without new device evidence.
 This revision changes the Android host: install its persistent-signed APK. The
 native-fingerprint check correctly prevents an older APK from applying this engine
 alone. Existing account grants and project data are not cleared by these changes.
+
+## Missing tool arguments in the calculator / command screenshots
+
+The new Samsung screenshots show `write` missing `content` and `runtime_exec` /
+`bash` missing `command`. They do not include the raw provider stream, so the exact
+on-device trigger is not established. Host regressions reproduced argument loss:
+an unindexed continuation became another call, repeated names were concatenated,
+and final message snapshots or object arguments corrupted the assembled call.
+The stream assembler now tracks call IDs and indexes, keeps actual argument text,
+and rejects ambiguous identities instead of guessing. Only the first completion
+choice is consumed. Canonical arguments take precedence over aliases.
+
+Preflight now validates required arguments before permissions and side effects,
+accepts unambiguous argument wrappers, and returns the required schema for repair.
+A null `write.content` is rejected before opening a file; intentional empty strings
+remain valid. A full agent-loop HTTP/SSE regression verifies incomplete-call
+feedback followed by a corrected call and a real file write. Repetition remains
+bounded by the existing circuit breaker. Packaged prompt v8 refreshes built-in
+prompts in old conversations with the required argument contract.
+
+Live host evidence: the free `stepfun/step-3.7-flash:free` provider supplied both
+`path` and `content` for a write request, and supplied a complete `bash.command`;
+the latter executed in the host shell with exit 0 and the expected marker. These
+are live provider/host results, not Samsung acceptance. No device result or
+all-connected claim is inferred. New regressions are in CI and the trusted engine
+validation suite. Phase 10 remains open pending device acceptance.
