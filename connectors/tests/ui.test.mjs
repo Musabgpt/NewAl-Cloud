@@ -168,3 +168,26 @@ test('hidden Hub stops polling and refreshes once visible', async t => {
   await state.refresh();
   assert.equal(state.calls.length, before + 3);
 });
+
+test('one failing Hub section does not hide working accounts and MCP cards', async t => {
+  const state = await panel(t, {id:'github',name:'GitHub',configured:true,status:'connected'},
+    {id:'memory',name:'Memory',installed:true,running:true,status:'server_running'});
+  const w = state.dom.defaultView, fetch = w.fetch;
+  w.fetch = async (url, options) => {
+    if (String(url).startsWith('/api/extensions')) throw new Error('Extension catalog offline');
+    return fetch(url, options);
+  };
+  state.item = {...state.item, account:'Musabgpt'};
+  await state.refresh();
+  assert(state.dom.querySelector('#connector-list').textContent.includes('Musabgpt'));
+  assert(state.dom.querySelector('[data-action="mcp:stop:memory"]'));
+  assert(state.dom.querySelector('#extension-list').textContent.includes('Extension catalog offline'));
+});
+
+test('operation feedback stays beside its MCP card', async t => {
+  const state = await panel(t, {id:'termux',name:'Termux',configured:true,status:'connected'},
+    {id:'memory',name:'Memory',installed:true,running:false,can_start:true,status:'server_stopped'});
+  state.dom.querySelector('[data-action="mcp:start:memory"]').click();
+  await tick(); await tick();
+  assert(state.dom.querySelector('.mcp-bundle [role="status"]').textContent.includes('تم تشغيل الخادم'));
+});

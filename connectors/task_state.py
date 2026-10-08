@@ -107,7 +107,7 @@ def _prune(tasks, keep_id):
             tasks.pop(row.get("id"), None)
 
 
-def checkpoint(root, task_id="", objective="", progress="", next_step="", blocker="", evidence=""):
+def checkpoint(root, task_id="", objective="", progress="", next_step="", blocker="", evidence="", session_id=""):
     with _LOCK:
         data = _load(root)
         tasks = data["tasks"]
@@ -134,6 +134,8 @@ def checkpoint(root, task_id="", objective="", progress="", next_step="", blocke
         now = time.time()
         if objective:
             current["objective"] = objective
+        if session_id:
+            current["session_id"] = _text(session_id, 120)
         current["status"] = "active"
         current["updated_at"] = now
         point = {
@@ -155,7 +157,14 @@ def checkpoint(root, task_id="", objective="", progress="", next_step="", blocke
         return current
 
 
-def resume(root, task_id=""):
+def _belongs(row, session_id):
+    prefix = "auto-%s-turn-" % str(session_id)[:40]
+    return row.get("session_id") == session_id or (
+        not row.get("session_id") and (not str(row.get("id", "")).startswith("auto-")
+                                      or str(row.get("id", "")).startswith(prefix)))
+
+
+def resume(root, task_id="", session_id=""):
     with _LOCK:
         data = _load(root)
         task_id = _task_id(task_id)
@@ -163,6 +172,10 @@ def resume(root, task_id=""):
         if task_id:
             row = data["tasks"].get(task_id)
             return row if isinstance(row, dict) else None
+        if session_id:
+            # Legacy automatic checkpoints encode their owner in the id. Explicit
+            # project checkpoints without an owner remain available for migration.
+            tasks = [row for row in tasks if _belongs(row, session_id)]
         active = [row for row in tasks if row.get("status") == "active"]
         if not active:
             return None
@@ -228,18 +241,18 @@ def install():
         "meta",
     )
     def task_checkpoint(ctx, task_id="", objective="", progress="", next_step="", blocker="", evidence=""):
-        row = checkpoint(ctx.session.root, task_id, objective, progress, next_step, blocker, evidence)
+        row = checkpoint(ctx.session.root, task_id, objective, progress, next_step, blocker, evidence, session_id=ctx.session.id)
         return json.dumps(row, ensure_ascii=False), {"task_id": row["id"], "checkpointed": True}
 
     @tools.tool(
         "task_resume",
-        "Return one durable local task checkpoint. Omit task_id to resume the most recently active project task.",
+        "Return one durable local task checkpoint. Omit task_id to resume this conversation's most recently active task.",
         {"task_id": {"type": "string", "description": "checkpoint id; omit for latest active task"}},
         [],
         "read",
     )
     def task_resume(ctx, task_id=""):
-        row = resume(ctx.session.root, task_id)
+        row = resume(ctx.session.root, task_id, session_id=ctx.session.id)
         return json.dumps(row or {"active": False}, ensure_ascii=False), {
             "task_id": row.get("id") if row else None,
             "active": bool(row),
@@ -272,3 +285,32 @@ def install():
     def task_list(ctx, include_completed=False, limit=20):
         rows = list_tasks(ctx.session.root, include_completed, limit)
         return json.dumps(rows, ensure_ascii=False), {"tasks": len(rows)}
+
+
+def route(handler, method, path, body=None):
+    if path != '/api/task-state':
+        return False
+    if method != 'GET':
+        handler._json({'error': 'Method not allowed'}, 405)
+        return True
+    try:
+        sid = handler._query().get('session', '')
+        if not isinstance(sid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', sid):
+            raise ValueError('Open a conversation before viewing its tasks')
+        service = handler.service
+        sess = service.get(sid)
+        with _LOCK:
+            rows = [r for r in _load(sess.root)['tasks'].values() if isinstance(r, dict) and _belongs(r, sid)]
+            rows.sort(key=lambda r: float(r.get('updated_at') or 0), reverse=True)
+            rows = [{key: row.get(key) for key in ("id", "objective", "status", "updated_at", "checkpoint")}
+                    for row in rows[:20]]
+        worker = getattr(service, 'threads', {}).get(sid)
+        running = bool(worker and worker.is_alive())
+        owner = getattr(service, 'agents', {}).get(sid)
+        supervisor = getattr(owner, 'supervisor', None)
+        active = resume(sess.root, session_id=sid)
+        handler._json({'tasks': rows, 'active_task': active.get('id') if active else '',
+                       'running': running, 'supervisor': supervisor.snapshot() if running and supervisor else {}})
+    except (ValueError, KeyError, OSError, tools.ToolError) as error:
+        handler._json({'error': str(error)}, 400)
+    return True

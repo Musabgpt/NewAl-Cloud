@@ -433,3 +433,47 @@ class McpBundlesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ConcurrentMcpTests(unittest.TestCase):
+    setUp = McpBundlesTest.setUp
+    def test_stop_interrupts_wait_for_another_lifecycle_request(self):
+        import threading
+        from . import providers
+        key = mcp_bundles._key(self.root, 'memory')
+        lock = threading.Lock()
+        lock.acquire()
+        mcp_bundles._OPERATION_LOCKS[key] = lock
+        cancel = threading.Event(); cancel.set()
+        try:
+            with mcp_bundles.cancel_scope(cancel), mock.patch.object(mcp_bundles, '_perform') as perform:
+                with self.assertRaises(providers.Cancelled):
+                    mcp_bundles.perform(self.root, 'memory', 'start')
+            perform.assert_not_called()
+        finally:
+            lock.release()
+
+    def test_simultaneous_start_creates_only_one_process(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        key = mcp_bundles._key(self.root, 'memory')
+        entered, release = threading.Event(), threading.Event()
+        starts = []
+        class Server:
+            tools = [{}]
+            def __init__(self, *a): pass
+            def start(self, **kw):
+                starts.append(1); entered.set(); release.wait(2)
+        runtime = {'runtime': 'LOCAL_HOST', 'unknown': [], 'missing': [], 'stdio': True}
+        with mock.patch.object(mcp_bundles, '_installed_record', return_value={'tools': 1}), \
+             mock.patch.object(mcp_bundles, '_running_server', side_effect=lambda *a: mcp_bundles._RUNNING.get(key)), \
+             mock.patch.object(mcp_bundles, '_runtime_requirements', return_value=runtime), \
+             mock.patch.object(mcp_bundles, '_spec', return_value={}), \
+             mock.patch.object(mcp_bundles, '_remember_process'), \
+             mock.patch.object(mcp_config, 'StdioServer', Server), ThreadPoolExecutor(2) as pool:
+            first = pool.submit(mcp_bundles.perform, self.root, 'memory', 'start')
+            self.assertTrue(entered.wait(1))
+            second = pool.submit(mcp_bundles.perform, self.root, 'memory', 'start')
+            threading.Event().wait(.05)
+            release.set()
+            self.assertTrue(first.result()['running']); self.assertTrue(second.result()['running'])
+        self.assertEqual(len(starts), 1)

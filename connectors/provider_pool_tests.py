@@ -7,6 +7,23 @@ from . import provider_pool, provider_keys, providers
 
 
 class ProviderPoolTests(unittest.TestCase):
+    def test_partial_stream_without_ui_callback_is_not_replayed(self):
+        def partial(*args, **kwargs):
+            kwargs['on_event']('text', 'partial answer')
+            raise providers.ProviderError('network ended after output', 503)
+        c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=partial))
+        with patch.object(provider_pool, 'candidates') as candidates:
+            with self.assertRaises(providers.ProviderError):
+                provider_pool.chat(c, [])
+        candidates.assert_not_called()
+
+    def test_non_finite_retry_after_cannot_crash_recovery(self):
+        for value in ('Infinity', 'NaN', '1e9999'):
+            error = providers.ProviderError('busy', 429)
+            error.headers = {'Retry-After': value}
+            self.assertIsNone(provider_pool._retry_after_seconds(error))
+
+
     def setUp(self):
         provider_pool.reset_health()
 

@@ -9,7 +9,7 @@
   let nextId = 0;
   async function api(path, body) {
     const r = await fetch(path, {method: body ? 'POST' : 'GET', credentials: 'same-origin', headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
-    const data = await r.json(); if (!r.ok || data.error) throw new Error(data.error || tr('Request failed', 'فشل الطلب')); return data;
+    const data = await r.json(); if (!r.ok || data.error || data.ok === false) throw new Error(data.error || tr('Request failed', 'فشل الطلب')); return data;
   }
   function status(message, text, error = false) {
     message.setAttribute('role', error ? 'alert' : 'status'); message.textContent = text;
@@ -234,11 +234,48 @@
     };
     refresh();
   }
+  function tasks(panel, current, close) {
+    const sid = session();
+    if (!sid) return missingSession(panel);
+    const message = node('p'), list = node('div');
+    const refresh = async () => {
+      status(message, tr('Loading saved progress…', 'جارٍ تحميل التقدم المحفوظ…'));
+      try {
+        requireSession(sid);
+        const data = await api('/api/task-state?session=' + encodeURIComponent(sid));
+        if (!current() || session() !== sid) return;
+        list.replaceChildren();
+        status(message, data.running ? tr('This conversation is running.', 'هذه المحادثة قيد التنفيذ.')
+          : tr('Saved progress for this conversation.', 'التقدم المحفوظ لهذه المحادثة.'));
+        for (const task of data.tasks || []) {
+          const row = node('section', '', 'workspace-failure'), checkpoint = task.checkpoint || {};
+          row.append(node('strong', task.objective), node('p', task.status === 'complete'
+            ? tr('Completed', 'مكتملة') : tr('Unfinished', 'غير مكتملة')));
+          if (checkpoint.progress) row.append(node('p', checkpoint.progress, 'workspace-evidence'));
+          if (checkpoint.blocker) row.append(node('p', checkpoint.blocker, 'workspace-evidence'));
+          if (checkpoint.next_step && task.status !== 'complete') row.append(node('p', tr('Next: ', 'التالي: ') + checkpoint.next_step));
+          if (task.id === data.active_task && !data.running) {
+            row.append(button('Prepare continuation', 'تجهيز المتابعة', () => {
+              if (!current()) return;
+              try { requireSession(sid); }
+              catch (error) { status(message, error.message, true); return; }
+              close(); prompt(tr('Continue the unfinished task from its saved checkpoint. Check task_resume and keep completed operations intact.',
+                'كمل المهمة غير المكتملة من نقطة الحفظ. اقرأ task_resume وحافظ على العمليات التي اكتملت.'));
+            }, true));
+          }
+          list.append(row);
+        }
+        if (!data.tasks?.length) list.append(node('p', tr('No saved tasks in this conversation yet.', 'لا توجد مهام محفوظة في هذه المحادثة بعد.')));
+      } catch (error) { if (current()) status(message, error.message, true); }
+    };
+    panel.append(button('Refresh', 'تحديث', refresh), message, list);
+    refresh();
+  }
   function openWorkspace() {
     const view = dialog(tr('Workspace', 'مساحة العمل')), tabs = node('div', '', 'workspace-tabs'), panel = node('section', '', 'workspace-panel');
     tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', tr('Workspace', 'مساحة العمل'));
     panel.setAttribute('role', 'tabpanel'); panel.id = 'workspace-panel-' + ++nextId;
-    const definitions = [['Files', 'الملفات', files], ['Memory', 'الذاكرة', memory], ['Improve', 'التطوير', improve]];
+    const definitions = [['Files', 'الملفات', files], ['Memory', 'الذاكرة', memory], ['Improve', 'التطوير', improve], ['Tasks', 'المهام', tasks]];
     let active = 0;
     const buttons = definitions.map(([en, arabic], index) => {
       const tab = button(en, arabic, () => select(index)); tab.id = panel.id + '-tab-' + index;

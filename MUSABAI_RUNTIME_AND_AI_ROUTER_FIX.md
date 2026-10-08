@@ -115,3 +115,20 @@ native APK change still needs Android's installation confirmation on an ordinary
 Samsung phone. The channel does not automatically publish the phone's generated
 code to GitHub or obtain GitHub credentials; local verified self-improvements can
 activate locally, and CI-published repository changes can download automatically.
+
+## Phase 10 follow-up: application-wide stability and task workspace
+
+The post-#343 revision adds conversation-owned resumable checkpoints and a Tasks
+workspace tab, preserves successful work on Stop, and counts terminal/tool JSON
+streaming as progress. Nonzero shell outcomes cannot be recorded as completed
+steps. Per-bundle lifecycle serialization prevents duplicate MCP processes and
+coordinates with automatic updates. Real HTTP Retry-After headers reach provider
+health; key replacement resets only the affected route, and the Hub exposes
+sanitized cooldown state. Partial provider streams are protected from replay even
+when no UI callback is installed.
+
+Hub refresh no longer fails as a whole when one catalog is unavailable. Operation
+feedback remains near its card, and refreshing providers retains unsaved drafts
+without persisting their values. See `PHASE10_ACCEPTANCE.md` for evidence and the
+remaining Samsung acceptance gates. No Phase 11 work or new device-pass claim is
+included.

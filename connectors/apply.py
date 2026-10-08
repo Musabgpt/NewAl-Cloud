@@ -35,6 +35,18 @@ def apply(root):
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
             'def t_bash(ctx, command, timeout=120, background=False):\n    from .automation import route_dependency_probe\n    routed = route_dependency_probe(ctx, str(command or "")) if not background else None\n    if routed is not None:\n        return routed\n')
+    replace(package / "agent.py", '            elif kind == "tool_start":\n',
+            '            elif kind == "tool_args":\n                supervisor = getattr(self, "supervisor", None)\n                if supervisor is not None:\n                    supervisor.mark_progress("tool_args")\n            elif kind == "tool_start":\n')
+    replace(package / "providers.py", '    def __init__(self, message, status=0, body=""):\n',
+            '    def __init__(self, message, status=0, body="", headers=None):\n')
+    replace(package / "providers.py", '        self.body = body\n',
+            '        self.body = body\n        self.headers = dict(headers or {})\n')
+    provider_text = (package / "providers.py").read_text()
+    http_error = 'raise ProviderError(_error_text(stream.resp.status, text), stream.resp.status, text)'
+    if provider_text.count(http_error) != 2:
+        raise SystemExit("Unsafe patch refused: provider HTTP errors changed")
+    (package / "providers.py").write_text(provider_text.replace(http_error,
+        'raise ProviderError(_error_text(stream.resp.status, text), stream.resp.status, text, headers=dict(getattr(stream.resp, "getheaders", lambda: [])()))'))
     # Phase 10: keep streamed tool arguments together and validate before any side effect.
     replace(package / "providers.py", '        calls = {}\n',
             '        from .tool_protocol import ToolCallStream\n        calls = ToolCallStream()\n')
@@ -284,7 +296,9 @@ def apply(root):
         # Readiness must not run hardware probes, shell discovery or project scans.
         if path == "/api/health":
             return self._json({"ok": True})
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, mcp_registry, browser_router, search_router, document_engine, provider_keys
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, mcp_registry, browser_router, search_router, document_engine, provider_keys, task_state
+        if task_state.route(self, "GET", path):
+            return
         if mcp_config.route(self, "GET", path):
             return
         if mcp_bundles.route(self, "GET", path):
@@ -306,7 +320,9 @@ def apply(root):
         svc = self.service
 ''')
     replace(package / "server.py", '        b = self._body()\n        svc = self.service\n', '''        b = self._body()
-        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, mcp_registry, browser_router, search_router, document_engine, provider_keys
+        from . import connectors, documents, evolution, addons, memory_api, mcp_config, mcp_bundles, mcp_registry, browser_router, search_router, document_engine, provider_keys, task_state
+        if task_state.route(self, "POST", path, b):
+            return
         if mcp_config.route(self, "POST", path, b):
             return
         if mcp_bundles.route(self, "POST", path, b):

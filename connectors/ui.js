@@ -16,6 +16,7 @@
     health_failed: ["Health check failed", "فشل health check"], runtime_unavailable: ["Runtime unavailable", "بيئة التشغيل غير متاحة"]
   };
   let timer, active = false, pending = false, requesting = false, lastView = "";
+  const feedback = new Map();
   const errors = {
     "OAuth application deployment required": ["The app owner must activate this service before accounts can connect.", "هذه الخدمة تحتاج تفعيلًا من صاحب التطبيق قبل ربط الحسابات."],
     "Connector server is unavailable; retry when online": ["Connection server unavailable. Check your network and retry.", "خادم الاتصال غير متاح. تحقّق من الإنترنت وأعد المحاولة."],
@@ -40,6 +41,18 @@
     if (className) node.className = className;
     return node;
   }
+  function feedbackNode(key) {
+    const status = element("p", feedback.get(key) || "", "connector-feedback");
+    status.dataset.feedback = key; status.setAttribute("role", "status");
+    return status;
+  }
+  function showFeedback(key, text) {
+    feedback.set(key, text);
+    const message = document.querySelector("#connector-message");
+    if (message) message.textContent = text;
+    const local = [...document.querySelectorAll("[data-feedback]")].find(node => node.dataset.feedback === key);
+    if (local) local.textContent = text;
+  }
   async function refresh() {
     if (!active || document.hidden || requesting || pending) return;
     requesting = true;
@@ -47,17 +60,20 @@
     try {
       const sid = current();
       const bundlePath = "/api/mcp-bundles" + (sid ? "?session=" + encodeURIComponent(sid) : "");
-      const [result, extensionResult, bundleResult] = await Promise.all([
+      const responses = await Promise.allSettled([
         api("/api/connectors"), api("/api/extensions?directory=1"), api(bundlePath)
       ]);
-      if (!active) return;
+      if (!active || current() !== sid) return;
+      const [result, extensionResult, bundleResult] = responses.map(row => row.status === "fulfilled" ? row.value : {});
+      result.connectors ||= []; extensionResult.extensions ||= []; bundleResult.bundles ||= [];
+      const failures = responses.map(row => row.status === "rejected" ? errorText(row.reason?.message || String(row.reason)) : "");
       document.querySelector("#connector-heading").textContent = tr("Musab Hub — live integrations", "Musab Hub — الاتصالات الحية");
       document.querySelector("#connector-intro").textContent = tr(
         "One status manager now shows account connections and MCP runtime state separately: installed, running, stopped, permission/setup, and health.",
         "مدير حالة واحد يعرض الآن اتصالات الحسابات وحالة MCP الفعلية بشكل منفصل: مثبّت، يعمل، متوقف، يحتاج صلاحية/إعداد، وحالة الفحص."
       );
       document.querySelector("#open-connectors").textContent = tr("Musab Hub", "Musab Hub");
-      const view = JSON.stringify([ar(), result.connectors, bundleResult.bundles, extensionResult.extensions]);
+      const view = JSON.stringify([ar(), sid, result.connectors, bundleResult.bundles, extensionResult.extensions, failures, [...feedback]]);
       if (lastView === view && !pending) {
         list.querySelectorAll("button").forEach(button => { button.disabled = button.dataset.disabled === "true"; });
         return;
@@ -66,6 +82,7 @@
       const panel = document.querySelector(".connector-panel"), scroll = panel.scrollTop;
       const focused = document.activeElement?.dataset.action;
       list.replaceChildren();
+      if (failures[0]) list.append(element("p", failures[0], "connector-feedback"));
       for (const item of result.connectors) {
         if (item.id === "activepieces") continue; // configured in the dedicated Automation Hub card
         const row = element("section", "", "connector-card"), detail = element("div");
@@ -129,12 +146,14 @@
           disconnect.onclick = () => action("disconnect", item.id);
           actions.append(disconnect);
         }
+        detail.append(feedbackNode("account:" + item.id));
         row.append(actions); list.append(row);
       }
 
       const mcpHeading = element("h3", tr("MCP runtime", "تشغيل MCP"));
       mcpHeading.className = "integration-group-heading";
       list.append(mcpHeading);
+      if (failures[2]) list.append(element("p", failures[2], "connector-feedback"));
       for (const item of bundleResult.bundles || []) {
         const row = element("section", "", "connector-card mcp-bundle"), detail = element("div");
         detail.append(element("strong", item.name));
@@ -147,6 +166,7 @@
         if (item.missing?.length) detail.append(element("div", tr("Missing: ", "الناقص: ") + item.missing.join(", "), "muted"));
         if (item.installed) detail.append(element("div", tr("Verified tools: ", "الأدوات المتحقق منها: ") + item.tools, "muted"));
         if (item.last_error) detail.append(element("div", item.last_error, "muted"));
+        detail.append(feedbackNode("mcp:" + sid + ":" + item.id));
         row.append(detail);
 
         const actions = element("div", "", "connector-actions");
@@ -179,6 +199,7 @@
       const extensionList = document.querySelector("#extension-list");
       if (extensionList) {
         extensionList.replaceChildren();
+        if (failures[1]) extensionList.append(element("p", failures[1], "connector-feedback"));
         for (const item of extensionResult.extensions || []) {
           const provider = ["notion", "gitlab"].includes(item.id) ? item.id + "mcp" : item.id;
           if (result.connectors.some(account => account.id === provider)) continue;
@@ -207,8 +228,10 @@
     pending = true;
     document.querySelectorAll("#connector-list button").forEach(button => { button.disabled = true; });
     const message = document.querySelector("#connector-message");
-    message.textContent = tr("Preparing dependencies, then verifying MCP…", "جارٍ تجهيز الاعتماديات ثم التحقق من MCP…");
-    message.scrollIntoView?.({block: "nearest"});
+    const feedbackKey = "mcp:" + sid + ":" + id;
+    showFeedback(feedbackKey, op === "enable"
+      ? tr("Preparing dependencies, then verifying MCP…", "جارٍ تجهيز الاعتماديات ثم التحقق من MCP…")
+      : tr("Applying server operation…", "جارٍ تنفيذ عملية الخادم…"));
     try {
       const result = await api("/api/mcp-bundles/" + op, {session: sid, id});
       const words = {
@@ -219,8 +242,8 @@
         test: tr("Health check passed.", "نجح فحص الصحة."),
         disable: tr("MCP removed.", "تمت إزالة MCP.")
       };
-      message.textContent = (words[op] || "") + (result.tools ? tr(" Tools: ", " الأدوات: ") + result.tools : "");
-    } catch (error) { message.textContent = errorText(error.message); message.scrollIntoView?.({block: "nearest"}); }
+      showFeedback(feedbackKey, (words[op] || "") + (result.tools ? tr(" Tools: ", " الأدوات: ") + result.tools : ""));
+    } catch (error) { showFeedback(feedbackKey, errorText(error.message)); }
     finally { pending = false; lastView = ""; await refresh(); }
   }
 
@@ -229,13 +252,14 @@
     pending = true;
     document.querySelectorAll("#connector-list button").forEach(button => { button.disabled = true; });
     const message = document.querySelector("#connector-message");
-    message.textContent = tr("Working…", "جارٍ التنفيذ…");
+    const feedbackKey = "account:" + provider;
+    showFeedback(feedbackKey, tr("Working…", "جارٍ التنفيذ…"));
     try {
       const result = await api("/api/connectors/" + op, {provider});
-      message.textContent = result.text
+      showFeedback(feedbackKey, result.text
         || (provider === "termux" && op === "connect" ? tr("Termux test passed.", "نجح اختبار Termux.") : "")
-        || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : "");
-    } catch (error) { message.textContent = errorText(error.message); message.scrollIntoView?.({block: "nearest"}); }
+        || (result.status === "authorizing" ? tr("Approve in the browser, then return here.", "وافق في المتصفح ثم ارجع للتطبيق.") : tr("Operation completed.", "اكتملت العملية.")));
+    } catch (error) { showFeedback(feedbackKey, errorText(error.message)); }
     finally { pending = false; await refresh(); }
   }
   function close() {
@@ -266,7 +290,9 @@
     const title = element("span", tr("MusabAI connections", "اتصالات MusabAI")); title.id = "connector-heading";
     const closeButton = element("button", "×", "icon-btn"); closeButton.id = "connector-close";
     closeButton.setAttribute("aria-label", tr("Close", "إغلاق")); closeButton.onclick = close;
-    head.append(title, closeButton); card.append(head);
+    const refreshButton = element("button", tr("Refresh", "تحديث"), "btn");
+    refreshButton.id = "connector-refresh"; refreshButton.onclick = refresh;
+    head.append(title, refreshButton, closeButton); card.append(head);
     card.append(element("p", tr(
       "Account connectors and MCP runtimes share this live status manager. Saved configuration is never presented as a running process.",
       "تستخدم اتصالات الحسابات وMCP مدير الحالة الحي نفسه. لا تُعرض الإعدادات المحفوظة أبدًا على أنها عملية تعمل."

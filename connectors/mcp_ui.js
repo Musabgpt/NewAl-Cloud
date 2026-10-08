@@ -13,7 +13,7 @@
       body: body ? JSON.stringify(body) : undefined
     });
     const data = await r.json();
-    if (!r.ok || data.error) throw new Error(data.error || 'MCP request failed');
+    if (!r.ok || data.error || data.ok === false) throw new Error(data.error || 'MCP request failed');
     return data;
   }
 
@@ -48,6 +48,7 @@
 
     async function loadProviders() {
       const data = await api('/api/free-providers');
+      const drafts = new Map([...providerList.querySelectorAll('input[data-provider]')].map(input => [input.dataset.provider, input.value]));
       providerList.replaceChildren();
       for (const provider of data.providers || []) {
         const row = node('section'); row.className = 'connector-card free-provider';
@@ -55,7 +56,26 @@
         row.append(node('p', provider.configured
           ? tr('Key saved securely', 'المفتاح محفوظ بأمان')
           : tr('Key not configured', 'المفتاح غير مضاف')));
+        const health = provider.health || {};
+        const healthLabels = {
+          available: tr('Endpoint verified', 'تم التحقق من الخدمة'),
+          untested: tr('Not tested yet', 'لم يُختبر بعد'),
+          rate_limited: tr('Usage limit reached', 'تم بلوغ حد الاستخدام'),
+          auth_error: tr('Key or authorization rejected', 'رُفض المفتاح أو التفويض'),
+          overloaded: tr('Provider busy', 'المزود مشغول'),
+          timeout: tr('Provider timed out', 'انتهت مهلة المزود'),
+          retry_ready: tr('Ready to retry', 'يمكن إعادة المحاولة'),
+          cooldown: tr('Waiting to retry', 'بانتظار إعادة المحاولة'),
+          capability_mismatch: tr('Model unavailable for this request', 'النموذج غير متاح لهذا الطلب')
+        };
+        if (provider.configured) {
+          let status = healthLabels[health.state] || healthLabels.untested;
+          if (health.retry_after_seconds > 0) status += tr(' · retry in ', ' · إعادة المحاولة بعد ') + health.retry_after_seconds + tr(' seconds', ' ثانية');
+          row.append(node('p', status));
+        }
         const input = node('input');
+        input.dataset.provider = provider.id;
+        input.value = drafts.get(provider.id) || '';
         input.type = 'password'; input.autocomplete = 'off';
         input.placeholder = tr('API key', 'مفتاح API');
         input.setAttribute('aria-label', provider.name + ' API key');
@@ -77,6 +97,7 @@
             providerMessage.textContent = tr('Testing the real free endpoint…', 'جارٍ اختبار الخدمة المجانية فعليًا…');
             await api('/api/free-providers/test', {provider: provider.id});
             providerMessage.textContent = tr('Connected to the free endpoint.', 'تم الاتصال بالخدمة المجانية.');
+            await loadProviders();
           });
           const remove = node('button', tr('Remove key', 'حذف المفتاح'));
           remove.type = 'button'; remove.className = 'btn';

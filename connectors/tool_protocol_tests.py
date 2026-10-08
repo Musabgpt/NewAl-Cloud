@@ -12,7 +12,7 @@ from . import tools, providers, agent, session
 
 
 @contextmanager
-def stream_server(events):
+def stream_server(events, status=200, headers=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -21,7 +21,8 @@ def stream_server(events):
             frames = events(self.server.requests) if callable(events) else events
             body = ''.join('data: ' + json.dumps(e) + '\n\n' for e in frames) + 'data: [DONE]\n\n'
             data = body.encode()
-            self.send_response(200)
+            self.send_response(status)
+            for key, value in (headers or {}).items(): self.send_header(key, value)
             self.send_header('Content-Type', 'text/event-stream')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
@@ -58,6 +59,13 @@ class ToolProtocolTests(unittest.TestCase):
             required = requests[0]['tools'][0]['function']['parameters']['required']
             self.assertIn('content', required)
             return result
+
+    def test_real_http_retry_after_reaches_provider_health(self):
+        from . import provider_pool
+        with stream_server([], status=429, headers={'Retry-After': '137'}) as (api, _):
+            with self.assertRaises(providers.ProviderError) as caught:
+                api.chat('fixture', [])
+        self.assertEqual(provider_pool._retry_after_seconds(caught.exception), 137)
 
     def test_unindexed_continuation_preserves_file_content(self):
         c = self.completion([

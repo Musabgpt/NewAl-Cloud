@@ -12,6 +12,7 @@ retry/cooldown circuit breaker. Providers without credentials are skipped and
 a fallback never starts after visible streaming output has begun.
 """
 import json
+import math
 import logging
 import os
 import random
@@ -229,7 +230,7 @@ def _retry_after_seconds(error):
                 seconds = dt.timestamp() - time.time()
             except (TypeError, ValueError, OverflowError):
                 continue
-        if seconds >= 0:
+        if math.isfinite(seconds) and seconds >= 0:
             return max(1, min(int(seconds + 0.999), 1800))
     return None
 
@@ -342,6 +343,10 @@ class ProviderHealthManager:
                 pid: dict(value, cooling_down=float(value.get("cooldown_until") or 0) > now)
                 for pid, value in self._data.items()
             }
+
+    def forget(self, provider_id):
+        with self._lock:
+            self._data.pop(provider_id, None)
 
     def clear(self):
         with self._lock:
@@ -573,8 +578,7 @@ class _ObservedEvents:
 def _attempt(client_provider, model, messages, tools, kwargs):
     call_kwargs = dict(kwargs)
     observed = _ObservedEvents(call_kwargs.get("on_event"))
-    if "on_event" in call_kwargs:
-        call_kwargs["on_event"] = observed
+    call_kwargs["on_event"] = observed
     started = _now()
     try:
         result = client_provider.chat(model, messages, tools=tools, **call_kwargs)

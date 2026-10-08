@@ -174,3 +174,43 @@ class TaskSupervisorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SupervisorRecoveryTests(unittest.TestCase):
+    setUp = TaskSupervisorTests.setUp
+    make = TaskSupervisorTests.make
+    def test_continue_reuses_task_and_keeps_verified_progress_on_stop(self):
+        first = self.make('Build calculator', 1)
+        first.start()
+        first.observe({'type': 'tool_end', 'name': 'write', 'ok': True, 'step': 2})
+        first.request_stop(); first.finish(error='interrupted')
+        self.user_cancel.clear()
+        resumed = self.make('كمل', 2)
+        self.assertEqual(resumed.task_id, first.task_id)
+        self.assertEqual(resumed.objective, 'Build calculator')
+        self.assertIn('Completed write', resumed.resume_context('كمل'))
+        resumed.start(); resumed.finish(answer='done')
+        self.assertEqual(task_state.resume(self.root, first.task_id)['status'], 'complete')
+
+    def test_another_conversation_is_not_resumed(self):
+        other = task_supervisor.TaskSupervisor(SimpleNamespace(id='other-session', root=str(self.root)),
+                    threading.Event(), None, 'Other project task', 1)
+        other.start(); other.finish(error='interrupted')
+        sup = self.make('كمل', 2)
+        self.assertEqual(sup.resume_context('كمل'), '')
+
+    def test_output_and_tool_arguments_are_progress_without_checkpoint_spam(self):
+        sup = self.make()
+        for kind in ('terminal_output', 'tool_args'):
+            sup.last_progress_at = 0
+            with patch.object(task_state, 'checkpoint') as save:
+                sup.observe({'type': kind, 'text': 'stream data'})
+            self.assertGreater(sup.last_progress_at, 0)
+            save.assert_not_called()
+
+    def test_nonzero_command_is_not_saved_as_completed(self):
+        sup = self.make(); sup.start()
+        sup.observe({'type': 'tool_end', 'name': 'bash', 'ok': True, 'meta': {'exit': 1}, 'step': 2})
+        row = task_state.resume(self.root, sup.task_id)
+        self.assertNotIn('Completed bash', row['checkpoint']['progress'])
+        self.assertIn('bash', row['checkpoint']['blocker'])
+        sup.finish(error='cleanup')

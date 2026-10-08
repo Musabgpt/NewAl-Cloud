@@ -7,6 +7,30 @@ from . import provider_keys
 
 
 class ProviderKeysTests(unittest.TestCase):
+    def test_public_status_exposes_real_cooldown_without_secrets(self):
+        pool = provider_keys.provider_pool
+        pool.reset_health(); self.addCleanup(pool.reset_health)
+        spec = next(s for s in pool.FREE_POOL if s.get('secret_id') == 'groq')
+        pool._mark_failure(spec, provider_keys.providers.ProviderError('limited', 429))
+        with mock.patch.object(provider_keys, 'configured', return_value=True):
+            provider_keys.route(self.handler(), 'GET', '/api/free-providers')
+        item = self.response[0]['providers'][0]
+        self.assertEqual(item['health']['state'], 'rate_limited')
+        self.assertGreater(item['health']['retry_after_seconds'], 0)
+
+    def test_replacing_one_key_resets_only_that_provider_health(self):
+        pool = provider_keys.provider_pool
+        pool.reset_health(); self.addCleanup(pool.reset_health)
+        a = next(s for s in pool.FREE_POOL if s.get('secret_id') == 'groq')
+        b = next(s for s in pool.FREE_POOL if s.get('secret_id') == 'nvidia')
+        pool._mark_failure(a, provider_keys.providers.ProviderError('old key', 401))
+        pool._mark_failure(b, provider_keys.providers.ProviderError('limited', 429))
+        with mock.patch.object(provider_keys, '_phone', return_value={'ok': True}):
+            provider_keys.route(self.handler(), 'POST', '/api/free-providers/save', {'provider':'groq', 'key':'new-key-123'})
+        self.assertTrue(pool._available(a))
+        self.assertFalse(pool._available(b))
+
+
     def handler(self):
         h = SimpleNamespace()
         h._json = lambda data, status=200: setattr(self, "response", (data, status))

@@ -41,14 +41,14 @@ test('one workspace entry contains accessible tabs and restores focus on Escape'
   assert.equal(modal.getAttribute('aria-modal'), 'true');
   assert.equal(doc.getElementById(modal.getAttribute('aria-labelledby')).textContent, 'Workspace');
   const tabs = [...doc.querySelectorAll('[role="tab"]')];
-  assert.deepEqual(tabs.map(n => n.textContent), ['Files', 'Memory', 'Improve']);
+  assert.deepEqual(tabs.map(n => n.textContent), ['Files', 'Memory', 'Improve', 'Tasks']);
   assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
-  assert.deepEqual(tabs.map(n => n.tabIndex), [0, -1, -1]);
+  assert.deepEqual(tabs.map(n => n.tabIndex), [0, -1, -1, -1]);
   tabs[0].focus(); tabs[0].dispatchEvent(new w.KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}));
   await tick();
   assert.equal(doc.activeElement, tabs[1]);
   assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
-  assert.deepEqual(tabs.map(n => n.tabIndex), [-1, 0, -1]);
+  assert.deepEqual(tabs.map(n => n.tabIndex), [-1, 0, -1, -1]);
   doc.activeElement.dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
   assert.equal(doc.querySelector('[role="dialog"]'), null);
   assert.equal(doc.activeElement, entry);
@@ -68,9 +68,9 @@ test('workspace traps focus at its boundaries and tabs support Home and End', as
   tabs[0].focus();
   tabs[0].dispatchEvent(new w.KeyboardEvent('keydown', {key: 'End', bubbles: true}));
   await tick();
-  assert.equal(doc.activeElement, tabs[2]);
-  assert.equal(tabs[2].getAttribute('aria-selected'), 'true');
-  tabs[2].dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Home', bubbles: true}));
+  assert.equal(doc.activeElement, tabs.at(-1));
+  assert.equal(tabs.at(-1).getAttribute('aria-selected'), 'true');
+  tabs.at(-1).dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Home', bubbles: true}));
   await tick();
   assert.equal(doc.activeElement, tabs[0]);
   assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
@@ -78,7 +78,7 @@ test('workspace traps focus at its boundaries and tabs support Home and End', as
 
 test('Arabic workspace includes Arabic tab labels', async t => {
   const {doc} = await app(t, {lang: 'ar'});
-  assert.deepEqual([...doc.querySelectorAll('[role="tab"]')].map(n => n.textContent), ['الملفات', 'الذاكرة', 'التطوير']);
+  assert.deepEqual([...doc.querySelectorAll('[role="tab"]')].map(n => n.textContent), ['الملفات', 'الذاكرة', 'التطوير', 'المهام']);
 });
 
 test('memory and files require a conversation and never query the global project', async t => {
@@ -298,4 +298,26 @@ test('Improve does not hide a failed channel check before the first update is st
   const panel = state.doc.querySelector('[role="tabpanel"]');
   assert.match(panel.textContent, /Update channel network unavailable/);
   assert.doesNotMatch(panel.textContent, /up_to_date/);
+});
+
+test('Tasks shows durable progress and prepares continuation without claiming execution', async t => {
+  const state = await app(t, {handler: ({url}) => url.startsWith('/api/task-state?') ? {
+    running:false, active_task:'saved-1', tasks:[{id:'saved-1',objective:'Build calculator',status:'active',
+      checkpoint:{progress:'File written',next_step:'Test the page',blocker:'Provider unavailable'}}]
+  } : undefined});
+  await state.tab('Tasks');
+  assert.match(state.doc.querySelector('[role="tabpanel"]').textContent, /File written/);
+  assert.match(state.doc.querySelector('[role="tabpanel"]').textContent, /Provider unavailable/);
+  assert(state.calls.at(-1).url.endsWith('session=project-one'));
+  button(state.doc, 'Prepare continuation').click();
+  assert.match(state.doc.querySelector('#input').value, /task_resume/);
+  assert(!state.calls.some(call => call.method === 'POST'));
+});
+
+test('Tasks never offers a duplicate run while the conversation is active', async t => {
+  const state = await app(t, {handler: ({url}) => url.startsWith('/api/task-state?') ? {
+    running:true, active_task:'saved-1',tasks:[{id:'saved-1',objective:'Build',status:'active',checkpoint:{}}]
+  } : undefined});
+  await state.tab('Tasks');
+  assert.equal(button(state.doc, 'Prepare continuation'), undefined);
 });

@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import threading
 import time
+import weakref
 
 from . import mcp_config, runtime_manager, tools
 
@@ -244,6 +245,7 @@ def _spec(item, root):
 
 
 _RUNNING_LOCK = threading.RLock()
+_OPERATION_LOCKS = weakref.WeakValueDictionary()
 _RUNNING = {}
 _LAST_ERRORS = {}
 
@@ -637,7 +639,27 @@ def _health(item, root):
     return len(tools)
 
 
+def operations_busy():
+    with _RUNNING_LOCK:
+        return any(lock.locked() for lock in list(_OPERATION_LOCKS.values()))
+
+
 def perform(root, bundle_id, action):
+    # Serialize lifecycle changes per project/bundle, not unrelated MCP servers.
+    # A strong local reference keeps this lock alive while another caller waits.
+    key = _key(root, _item(bundle_id)["id"])
+    with _RUNNING_LOCK:
+        lock = _OPERATION_LOCKS.setdefault(key, threading.Lock())
+    while not lock.acquire(timeout=0.1):
+        _cancel_setup()
+    try:
+        _cancel_setup()
+        return _perform(root, bundle_id, action)
+    finally:
+        lock.release()
+
+
+def _perform(root, bundle_id, action):
     item = _item(bundle_id)
     key = _key(root, item["id"])
     try:

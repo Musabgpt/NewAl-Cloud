@@ -72,13 +72,13 @@ def read_feed():
     return validate_feed(json.loads(raw))
 
 
-def request_activation(candidate):
+def request_activation(candidate, automatic=False):
     with _LOCK:
         path = e.candidate(candidate)
         record = e._record(candidate)
         if record.get('status') not in {'verified','ready_to_activate'} or e.digest(path/'newal_code') != record.get('verified_digest'):
             raise tools.ToolError('Candidate must pass unchanged verification before automatic activation')
-        _save(state='waiting_idle', candidate=candidate, source_commit=record.get('source_commit') or '', restart_ready=False, error='')
+        _save(state='waiting_idle', automatic_requested=bool(automatic), candidate=candidate, source_commit=record.get('source_commit') or '', restart_ready=False, error='')
         return {'ok':True, 'state':'waiting_idle', 'candidate':candidate, 'restart_required':record.get('restart_required',True)}
 
 
@@ -108,13 +108,13 @@ def status():
 def apply_pending(service):
     with _LOCK, service.lock:
         record = status()
-        if record.get('state') != 'waiting_idle':
+        if record.get('state') != 'waiting_idle' or (record.get('automatic_requested') and not enabled()):
             return record
         # An unstarted thread is reserved work, too; activation cannot race t.start().
         if any(t.is_alive() or t.ident is None for t in service.threads.values()):
             return record
-        from . import managed_linux
-        if getattr(service, 'dependency_setup_busy', False) or managed_linux.LOCK.locked():
+        from . import managed_linux, mcp_bundles
+        if getattr(service, 'dependency_setup_busy', False) or managed_linux.LOCK.locked() or mcp_bundles.operations_busy():
             return record
         candidate = record['candidate']
         # Prevent the service from accepting a new turn while switching/restarting.
@@ -139,9 +139,9 @@ def check(service):
             return apply_pending(service)
         # Verification runs Python suites and starts subprocesses; leave active
         # conversations their CPU/memory and check again after the task finishes.
-        from . import managed_linux
+        from . import managed_linux, mcp_bundles
         with service.lock:
-            if managed_linux.LOCK.locked() or getattr(service, "dependency_setup_busy", False) or any(t.is_alive() or t.ident is None for t in service.threads.values()):
+            if mcp_bundles.operations_busy() or managed_linux.LOCK.locked() or getattr(service, "dependency_setup_busy", False) or any(t.is_alive() or t.ident is None for t in service.threads.values()):
                 return pending
         if not enabled():
             return pending
@@ -164,7 +164,7 @@ def check(service):
             if verified.get('status') != 'ready_to_activate':
                 detail = verified.get('results') or []
                 raise tools.ToolError('Automatic update verification failed: ' + str(detail[-1].get('output','') if detail else 'no successful checks')[-1500:])
-            request_activation(verified['id'])
+            request_activation(verified['id'], automatic=True)
             return apply_pending(service)
         except Exception as exc:
             # Network interruption may retry; invalid bytes, failed checks and

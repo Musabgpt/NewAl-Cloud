@@ -131,3 +131,20 @@ class AutomaticUpdateTests(unittest.TestCase):
             auto.check(self.service(True))
         feed.assert_not_called()
         verify.assert_not_called()
+
+    def test_update_does_not_restart_during_mcp_lifecycle_operation(self):
+        from . import mcp_bundles
+        auto = self.auto()
+        record = {'state': 'waiting_idle', 'candidate': 'verified'}
+        with patch.object(mcp_bundles, 'operations_busy', return_value=True, create=True), \
+             patch.object(auto, 'status', return_value=record), patch.object(e, 'activate') as activate:
+            self.assertEqual(auto.apply_pending(self.service()), record)
+        activate.assert_not_called()
+
+    def test_disabling_automatic_updates_pauses_an_automatically_queued_candidate(self):
+        auto = self.auto()
+        record = {'state':'waiting_idle', 'candidate':'verified', 'automatic_requested':True}
+        with patch.object(auto, 'status', return_value=record), patch.object(auto, 'enabled', return_value=False), \
+             patch.object(e, 'activate') as activate:
+            self.assertEqual(auto.apply_pending(self.service()), record)
+        activate.assert_not_called()

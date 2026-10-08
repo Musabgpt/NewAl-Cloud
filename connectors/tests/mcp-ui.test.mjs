@@ -214,3 +214,22 @@ test('free provider key is cleared after save and never rendered back into the p
   assert.equal(input.value, '');
   assert.equal(w.document.body.textContent.includes('groq-secret-example'), false);
 });
+
+test('provider refresh preserves unsaved keys and displays the real cooldown', async t => {
+  const {w} = await setup(t);
+  const input = w.document.querySelector('input[data-provider="groq"]');
+  input.value = 'draft-not-saved';
+  const fetch = w.fetch;
+  w.fetch = async (path, options = {}) => {
+    if (path === '/api/free-providers' && options.method !== 'POST') return {ok:true,json:async()=>({providers:[
+      {id:'groq',name:'Groq Free',configured:false},
+      {id:'nvidia',name:'NVIDIA Free',configured:true,health:{state:'rate_limited',retry_after_seconds:77}}
+    ]})};
+    return fetch(path, options);
+  };
+  [...w.document.querySelectorAll('.free-providers button')].find(b=>b.textContent==='تحديث حالة المزودين').click();
+  await tick(); await tick();
+  assert.equal(w.document.querySelector('input[data-provider="groq"]').value, 'draft-not-saved');
+  assert.match(w.document.querySelector('.free-providers').textContent, /77/);
+  assert.match(w.document.querySelector('.free-providers').textContent, /تم بلوغ حد الاستخدام/);
+});

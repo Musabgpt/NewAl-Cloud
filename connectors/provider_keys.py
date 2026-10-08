@@ -5,6 +5,7 @@ value is persisted by ConnectorVault and fetched only by the embedded Python
 engine over the authenticated 127.0.0.1 phone bridge.
 """
 import re
+import time
 
 from . import phone, provider_pool, providers
 
@@ -63,15 +64,29 @@ def _test(provider):
     client = provider_pool.provider(spec)
     # A one-token real request proves endpoint + credential, not just that a
     # string was saved. It uses only the user's explicitly configured free tier.
-    client.chat(
-        spec["model"],
-        [{"role": "user", "content": "Reply with OK."}],
-        tools=[],
-        max_tokens=1,
-        temperature=0,
-        reasoning="off",
-    )
+    if not spec.get("api_key"):
+        raise ValueError("A provider key has not been configured")
+    started = time.monotonic()
+    try:
+        client.chat(
+            spec["model"],
+            [{"role": "user", "content": "Reply with OK."}],
+            tools=[],
+            max_tokens=1,
+            temperature=0,
+            reasoning="off",
+        )
+    except (providers.ProviderError, OSError) as error:
+        provider_pool._mark_failure(spec, error)
+        raise
+    provider_pool._mark_success(spec, time.monotonic() - started)
     return True
+
+
+def _reset_provider(pid):
+    for spec in provider_pool.FREE_POOL:
+        if spec.get("secret_id") == pid:
+            provider_pool.HEALTH.forget(provider_pool._provider_id(spec))
 
 
 def route(handler, method, path, body=None):
@@ -81,7 +96,14 @@ def route(handler, method, path, body=None):
         if method == "GET" and path == "/api/free-providers":
             items = []
             for pid, name in PUBLIC:
-                items.append({"id": pid, "name": name, "configured": configured(pid)})
+                spec = next(s for s in provider_pool.FREE_POOL if s.get("secret_id") == pid)
+                health = provider_pool.HEALTH.state(provider_pool._provider_id(spec))
+                remaining = max(0, int(float(health.get("cooldown_until") or 0) - provider_pool._now() + .999))
+                public_health = {"state": health.get("state", "untested"), "retry_after_seconds": remaining,
+                                 "latency_ms": health.get("latency_ms")}
+                if health and not remaining and public_health["state"] not in ("available", "untested"):
+                    public_health["state"] = "retry_ready"
+                items.append({"id": pid, "name": name, "configured": configured(pid), "health": public_health})
             handler._json({"providers": items, "free_only": True})
             return True
 
@@ -99,10 +121,12 @@ def route(handler, method, path, body=None):
             if len(value) < 8 or len(value) > 8192 or re.search(r"\s", value):
                 raise ValueError("Invalid API key")
             _phone("provider_secret_set", pid, value=value)
+            _reset_provider(pid)
             handler._json({"ok": True, "configured": True})
             return True
         if path.endswith("/remove"):
             _phone("provider_secret_remove", pid)
+            _reset_provider(pid)
             handler._json({"ok": True, "configured": False})
             return True
         if path.endswith("/test"):

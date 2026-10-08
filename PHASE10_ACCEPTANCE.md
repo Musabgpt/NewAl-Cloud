@@ -229,3 +229,36 @@ the latter executed in the host shell with exit 0 and the expected marker. These
 are live provider/host results, not Samsung acceptance. No device result or
 all-connected claim is inferred. New regressions are in CI and the trusted engine
 validation suite. Phase 10 remains open pending device acceptance.
+
+## Application-wide reliability and workspace improvements after #343
+
+The owner requested broader development within Phase 10. Reproduced host failures
+included cross-conversation checkpoint selection, lost verified progress after
+Stop, shell exit 1 recorded as completed, unobserved streaming progress, and two
+concurrent MCP starts creating duplicate processes. HTTP provider errors also
+lost `Retry-After` headers before the router received them. A failing extension
+catalog prevented the entire Hub refresh, and operation feedback was separated
+from the selected card.
+
+The new changes preserve and resume the same task/objective within its owning
+conversation, keep verified work when stopped, distinguish failed/pending tool
+outcomes, and observe terminal/tool-argument streaming without writing every
+fragment to disk. An authenticated, bounded task-state view supplies a new Tasks
+tab with saved progress, blockers and a continuation draft; it does not silently
+send a new task or claim background execution.
+
+MCP lifecycle requests serialize per project/bundle, remain cancellable while
+waiting, and defer automatic engine activation while an operation is active.
+Disabling automatic updates pauses automatically queued activation; an explicitly
+requested activation remains available. Provider cooldown honors real response
+headers, rejects nonfinite retry values, tracks partial streams even without a UI
+callback, and exposes sanitized health in the provider cards. Saving a replacement
+key clears only that provider's old failure state; a saved key is not verification.
+
+Hub sections refresh independently and retain operation feedback beside each
+card. Provider refresh preserves unsaved key drafts in the current page only.
+Regression tests cover these failures, session isolation, concurrent starts,
+cancellation, real HTTP Retry-After, provider status, update exclusion, and the
+new workspace workflow. Full regression, UI, signing and original-engine checks
+are required before publishing. These are host/CI improvements, not new Samsung
+acceptance; Phase 10 remains open for the previously listed device checks.

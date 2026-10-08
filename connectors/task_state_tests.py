@@ -72,3 +72,20 @@ class TaskStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TaskStateRouteTests(unittest.TestCase):
+    setUp = TaskStateTests.setUp
+    def test_tasks_route_requires_session_and_isolates_conversations(self):
+        from types import SimpleNamespace
+        a = task_state.checkpoint(self.root_a, objective='First conversation', session_id='first')
+        task_state.checkpoint(self.root_a, objective='Other conversation', session_id='second')
+        results = []
+        handler = SimpleNamespace(_query=lambda: {'session':'first'},
+            service=SimpleNamespace(get=lambda sid: SimpleNamespace(root=self.root_a), threads={}, agents={}),
+            _json=lambda data, status=200: results.append((data,status)))
+        task_state.route(handler, 'GET', '/api/task-state')
+        self.assertEqual([r['id'] for r in results[-1][0]['tasks']], [a['id']])
+        self.assertFalse(results[-1][0]['running'])
+        handler._query = lambda: {}
+        task_state.route(handler, 'GET', '/api/task-state')
+        self.assertEqual(results[-1][1], 400)
