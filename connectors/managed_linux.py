@@ -82,7 +82,10 @@ def ensure(item, cancel=None):
                 probe += ' && cd ' + shlex.quote(root) + ' && ' + NODE + ' -e ' + shlex.quote("require('sharp'); if (+process.versions.node.split('.')[0] < 22) process.exit(1)")
             else:
                 module = 'docling_mcp' if item['id'] == 'docling' else 'browser_use'
-                probe += ' && ' + root + '/bin/python -c ' + shlex.quote('import ' + module)
+                check = 'import ' + module
+                if item['id'] == 'browser-use':
+                    check += '; from importlib.metadata import version; assert version("pydantic") == "2.12.5"'
+                probe += ' && ' + root + '/bin/python -c ' + shlex.quote(check)
             if item['id'] == 'browser-use':
                 probe += ' && test -x /usr/bin/chromium && test -f /opt/musabai/browser-config/config.json'
             if exists(login(probe)):
@@ -98,10 +101,10 @@ def ensure(item, cancel=None):
             run(login('export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends ' + packages))
             package = RECIPES[item['id']][0]
             if item['id'] == 'android':
-                run(login('npm install --prefix /opt/musabai/node22 --ignore-scripts --no-audit --no-fund node@22.22.0 && node /opt/musabai/node22/node_modules/node/installArchSpecificPackage.js && ' + NODE + ' --version'))
+                run(login('npm install --prefix /opt/musabai/node22 --ignore-scripts --no-audit --no-fund node@22.22.0 && cd /opt/musabai/node22/node_modules/node && node installArchSpecificPackage.js && ' + NODE + ' --version'))
                 install = 'export PATH=/opt/musabai/node22/node_modules/node/bin:$PATH; mkdir -p {r} && npm install --prefix {r} --no-audit --no-fund --omit=dev {p}'.format(r=shlex.quote(root), p=shlex.quote(package))
             else:
-                install = 'export MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2 MAKEFLAGS=-j2; python3 -m venv {r} && {r}/bin/python -m pip install --upgrade pip && {r}/bin/python -m pip install {p}'.format(r=shlex.quote(root),p=shlex.quote(package))
+                install = 'export MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2 MAKEFLAGS=-j2; python3 -m venv {r} && {r}/bin/python -m pip install --upgrade pip && {r}/bin/python -m pip install {p}'.format(r=shlex.quote(root),p=shlex.quote(package) + (' pydantic==2.12.5' if item['id'] == 'browser-use' else ''))
             run(login(install))
             if item['id'] == 'browser-use':
                 # Supported server profile: headless Debian Chromium, no Android binaries.

@@ -162,10 +162,10 @@ jobs:
           python3 -m pip install uv
           uv venv --python 3.11 /tmp/musabai-browser
           uv venv --python 3.11 /tmp/musabai-docling
-          uv pip install --python /tmp/musabai-browser/bin/python 'browser-use==0.13.5'
+          uv pip install --python /tmp/musabai-browser/bin/python 'browser-use==0.13.5' 'pydantic==2.12.5'
           uv pip install --python /tmp/musabai-docling/bin/python 'docling-mcp[local]==3.3.0'
           npm install --prefix /tmp/musabai-linux-node --ignore-scripts --no-audit --no-fund node@22.22.0
-          node /tmp/musabai-linux-node/node_modules/node/installArchSpecificPackage.js
+          (cd /tmp/musabai-linux-node/node_modules/node && node installArchSpecificPackage.js)
           /tmp/musabai-linux-node/node_modules/node/bin/node --version
           export PATH="/tmp/musabai-linux-node/node_modules/node/bin:$PATH"
           npm install --prefix /tmp/musabai-android --no-audit --no-fund --omit=dev @us-all/android-mcp@1.14.4
