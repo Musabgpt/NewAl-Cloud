@@ -233,3 +233,16 @@ test('provider refresh preserves unsaved keys and displays the real cooldown', a
   assert.match(w.document.querySelector('.free-providers').textContent, /77/);
   assert.match(w.document.querySelector('.free-providers').textContent, /تم بلوغ حد الاستخدام/);
 });
+
+test('provider argument failures are displayed as failures rather than untested', async t => {
+  const {w} = await setup(t);
+  const fetch = w.fetch;
+  w.fetch = async (path, options = {}) => path === '/api/free-providers'
+    ? {ok:true,json:async()=>({providers:[{id:'groq',name:'Groq Free',configured:true,
+        health:{state:'invalid_tool_response',retry_after_seconds:180}}]})}
+    : fetch(path, options);
+  [...w.document.querySelectorAll('.free-providers button')].find(b=>b.textContent==='تحديث حالة المزودين').click();
+  await tick(); await tick();
+  assert.match(w.document.querySelector('.free-provider').textContent, /أرسل النموذج معطيات أدوات غير صالحة/);
+  assert.doesNotMatch(w.document.querySelector('.free-provider').textContent, /لم يُختبر بعد/);
+});

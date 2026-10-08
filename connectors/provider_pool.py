@@ -24,6 +24,7 @@ import urllib.request
 from email.utils import parsedate_to_datetime
 
 from . import free_provider_adapters, providers, settings
+from .tool_protocol import InvalidToolResponse
 
 FREE_POOL = [
     {
@@ -167,6 +168,8 @@ def _status(error):
 
 
 def _retryable(error):
+    if isinstance(error, InvalidToolResponse):
+        return True
     if isinstance(error, (TimeoutError, OSError)):
         return True
     status = _status(error)
@@ -244,7 +247,9 @@ def _retry_after_seconds(error):
 def _cooldown_seconds(error, failures):
     status = _status(error)
     explicit = _retry_after_seconds(error)
-    if status == 404:
+    if isinstance(error, InvalidToolResponse):
+        base = 180
+    elif status == 404:
         base = 90
     elif status == 429 or "rate limit" in str(error).lower():
         base = 30
@@ -319,7 +324,9 @@ class ProviderHealthManager:
             failures = int(old.get("failures") or 0) + 1
             wait = _cooldown_seconds(error, failures)
             status = _status(error)
-            if status in {401, 403}:
+            if isinstance(error, InvalidToolResponse):
+                state = 'invalid_tool_response'
+            elif status in {401, 403}:
                 state = "auth_error"
             elif status == 404:
                 state = "capability_mismatch"
@@ -583,11 +590,14 @@ class _ObservedEvents:
 
 def _attempt(client_provider, model, messages, tools, kwargs):
     call_kwargs = dict(kwargs)
+    validator = call_kwargs.pop('_completion_validator', None)
     observed = _ObservedEvents(call_kwargs.get("on_event"))
     call_kwargs["on_event"] = observed
     started = _now()
     try:
         result = client_provider.chat(model, messages, tools=tools, **call_kwargs)
+        if validator is not None:
+            validator(result, tools)
         return result, observed.emitted, _now() - started
     except Exception as error:
         setattr(error, "_musab_emitted", observed.emitted)
@@ -595,6 +605,8 @@ def _attempt(client_provider, model, messages, tools, kwargs):
 
 
 def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
+    from . import request_context
+    messages = request_context.project(spec, messages, tools)
     attempts = 2
     last = None
     for attempt in range(attempts):
@@ -635,7 +647,7 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
                 raise
             # Capability/rate-limit/timeout responses should move to a healthy
             # provider immediately; repeating the same request is blind retrying.
-            if (not _retryable(error) or _timeout_error(error) or _status(error) in {404, 429}
+            if (isinstance(error, InvalidToolResponse) or not _retryable(error) or _timeout_error(error) or _status(error) in {404, 429}
                     or attempt + 1 >= attempts):
                 _mark_failure(spec, error)
                 raise
@@ -703,7 +715,7 @@ def _local_last_resort(client, messages, tools, required, owner, on_status, kwar
 
 
 def chat_recovering(client, messages, tools=None, required_capabilities=None,
-                    on_status=None, on_reset=None, recovery_budget=90, owner="main", **kwargs):
+                    on_status=None, on_reset=None, validate_tools=False, recovery_budget=90, owner="main", **kwargs):
     """Bounded automatic recovery at a model-request boundary, preserving tool results.
 
     The agent opts into partial-response recovery with on_reset: no tool from
@@ -713,6 +725,9 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
     deadline = _now() + max(0, min(float(recovery_budget), 120))
     token = kwargs.get("cancel")
     required = request_capabilities(messages, tools, required_capabilities, **kwargs)
+    if validate_tools:
+        from .tool_protocol import validate_completion
+        kwargs['_completion_validator'] = validate_completion
     for attempt in range(3):
         if token is not None and token.is_set():
             raise providers.Cancelled()
@@ -757,11 +772,18 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
                     raise final from error
                 raise
             if on_status:
-                on_status('انقطع رد المزود؛ أستكمل بنموذج متاح مع الاحتفاظ بنتائج الأدوات المنفّذة.')
+                on_status('أرسل النموذج استدعاءً ناقصًا؛ لم أنفّذه وأنتقل إلى بديل.' if isinstance(error, InvalidToolResponse) else
+                          'انقطع رد المزود؛ أستكمل بنموذج متاح مع الاحتفاظ بنتائج الأدوات المنفّذة.')
+            if isinstance(error, InvalidToolResponse):
+                messages = messages + [{'role':'user', 'content':
+                    str(error)[:2500] + '\nNo tools from that response were executed. Supply complete required arguments. '
+                    'Use small, complete file edits; do not write placeholder content.'}]
     raise AssertionError("bounded retry loop exhausted")
 
 
 def public_error(error):
+    if isinstance(error, InvalidToolResponse):
+        return 'لم يُنتج المزود استدعاء أدوات صالحًا بعد محاولات الاستكمال. لم تُنفّذ الاستدعاءات الناقصة؛ الملفات السابقة محفوظة. راجع حالة النماذج في Musab Hub.'
     if isinstance(error, ProviderUnavailable):
         if error.retry_after is not None:
             return "المزودون المناسبون للمهمة غير متاحين مؤقتًا. حُفظ التقدم؛ يمكن الاستكمال بعد نحو %d ثانية أو بعد إعداد مزود احتياطي يدعم الأدوات." % (error.retry_after + 1)
@@ -791,6 +813,8 @@ def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
             # Do not fall back after any visible stream event.
             if getattr(first, "_musab_emitted", False):
                 raise
+            if isinstance(first, InvalidToolResponse):
+                messages = messages + [{'role':'user','content':str(first)[:2500] + '\nNo tools were executed. Correct all required arguments.'}]
             errors.append(old_id + ": " + _safe_error(first))
     else:
         errors.append(old_id + ": cooling down")

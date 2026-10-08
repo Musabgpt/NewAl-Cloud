@@ -53,6 +53,80 @@ def part(arguments, name=None, cid=None, index=None):
 
 
 class ToolProtocolTests(unittest.TestCase):
+    def test_remote_history_projection_keeps_instructions_and_tool_pairs_without_mutation(self):
+        from . import request_context
+        original = [{'role':'system','content':'System instructions'}, {'role':'user','content':'Build my game; preserve existing files.'}]
+        for i in range(15):
+            original += [{'role':'assistant','content':'Created file '+str(i), 'reasoning_content':'old thinking '*3000,
+                          'tool_calls':[{'id':'w'+str(i),'type':'function','function':{'name':'write','arguments':json.dumps({'path':'src/%d.js'%i,'content':'x'*20000})}}]},
+                         {'role':'tool','tool_call_id':'w'+str(i),'content':'wrote src/%d.js'%i}]
+        original += [{'role':'user','content':'Continue and test it on the phone.'}]
+        before = json.dumps(original)
+        projected = request_context.project({'provider':'openai'}, original, tools.schemas(['write']))
+        self.assertEqual(json.dumps(original), before)
+        self.assertLess(len(json.dumps(projected)), 96000)
+        self.assertEqual([m['content'] for m in projected if m['role']=='user'], [original[1]['content'], original[-1]['content']])
+        self.assertTrue(all('reasoning_content' not in m for m in projected))
+        self.assertIn('src/0.js', str(projected))
+        calls = {c['id'] for m in projected for c in m.get('tool_calls', [])}
+        self.assertEqual(calls, {m['tool_call_id'] for m in projected if m['role']=='tool'})
+        self.assertIs(request_context.project({'provider':'local'}, original, []), original)
+
+    def test_completion_preflight_rejects_entire_batch_before_any_tool_can_run(self):
+        from .tool_protocol import validate_completion, InvalidToolResponse
+        response = providers.Completion()
+        response.tool_calls = [{'id':'a','name':'write','arguments':'{"path":"keep.txt","content":"changed"}'},
+                               {'id':'b','name':'bash','arguments':'{}'}]
+        with self.assertRaises(InvalidToolResponse):
+            validate_completion(response, tools.schemas(['write','bash']))
+
+    def test_completion_preflight_preserves_alias_repair_and_rejects_cut_off_values(self):
+        from .tool_protocol import validate_completion, InvalidToolResponse
+        response=providers.Completion()
+        response.tool_calls=[{'id':'a','name':'apply_diff','arguments':"{'file_path':'a','old_string':'before','new_string':'after',"}]
+        validate_completion(response,tools.schemas(['edit']))
+        response.finish='length'
+        response.tool_calls=[{'id':'a','name':'write','arguments':'{"path":"a","content":"unfinished'}]
+        with self.assertRaises(InvalidToolResponse):
+            validate_completion(response,tools.schemas(['write']))
+
+    def test_context_projection_preserves_images_and_unanswered_calls(self):
+        from . import request_context
+        messages = [{'role':'system','content':'Keep these constraints'},
+                    {'role':'user','content':[{'type':'text','text':'Use this image'},
+                                             {'type':'image_url','image_url':{'url':'data:image/png;base64,ABC'}}]},
+                    {'role':'assistant','tool_calls':[{'id':'pending','type':'function','function':{
+                        'name':'write','arguments':json.dumps({'path':'large.txt','content':'x'*110000})}}]}]
+        before=json.dumps(messages)
+        projected=request_context.project({'provider':'openai'},messages,[])
+        self.assertEqual(projected[0],messages[0])
+        self.assertEqual(projected[1],messages[1])
+        self.assertEqual(projected[2]['tool_calls'],messages[2]['tool_calls'])
+        self.assertEqual(json.dumps(messages),before)
+
+    def test_agent_rejects_mixed_invalid_batch_without_modifying_existing_file(self):
+        from . import models, provider_pool, settings
+        bad=[delta([part('{"path":"keep.txt","content":"wrong"}','write','bad-write',0),
+                    part('{}','bash','bad-shell',1)],'tool_calls')]
+        def good(requests):
+            if len(requests)==1:
+                return [delta([part('{"path":"result.txt","content":"verified"}','write','good',0)],'tool_calls')]
+            return [{'choices':[{'delta':{'content':'Created result.txt.'},'finish_reason':'stop'}]}]
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as home, \
+             patch.object(settings,'HOME',home), stream_server(bad) as (api,requests), stream_server(good) as (other, _):
+            provider_pool.reset_health()
+            (Path(root)/'keep.txt').write_text('original')
+            client=models.Client({'id':'bad-batch','provider':'openai'},api,'fixture')
+            backup={'id':'valid/free','provider':'openai','base_url':other.base_url,'model':'valid','free':True}
+            events=[]
+            runner=agent.Agent(session.Session(root,mode='full-auto'),client=client,emit=events.append,persist=False)
+            with patch.object(provider_pool,'candidates',return_value=[backup]):
+                runner.run('Create result.txt and preserve keep.txt.',verify=False)
+            self.assertEqual((Path(root)/'keep.txt').read_text(),'original')
+            self.assertEqual((Path(root)/'result.txt').read_text(),'verified')
+            self.assertEqual([e['id'] for e in events if e['type']=='tool_end' and not e.get('prefetch')],['good'])
+            self.assertEqual(len(requests),1)
+
     def test_inband_error_keeps_status_and_retry_metadata(self):
         from . import provider_pool
         error = {'error': {'message':'rate limited', 'code':429, 'metadata':{'retry_after':45}}}
@@ -237,8 +311,8 @@ class ToolProtocolTests(unittest.TestCase):
             if len(requests) == 1:
                 return [delta([part('{"path":"calculator.html"}', 'write', 'bad', 0)], 'tool_calls')]
             if len(requests) == 2:
-                feedback = [m['content'] for m in requests[-1]['messages'] if m['role'] == 'tool']
-                self.assertTrue(any('Required schema' in text and 'content' in text for text in feedback))
+                feedback = [m['content'] for m in requests[-1]['messages'] if m['role'] == 'user']
+                self.assertTrue(any('content' in text and 'rejected' in text for text in feedback))
                 return [delta([part('{"path":"calculator.html",', 'write', 'good')]),
                         delta([part('"content":"<h1>Verified calculator</h1>"}')], 'tool_calls')]
             return [{'choices': [{'index': 0, 'delta': {'content': 'Created calculator.html.'}, 'finish_reason': 'stop'}]}]
@@ -249,11 +323,14 @@ class ToolProtocolTests(unittest.TestCase):
             events = []
             sess = session.Session(root, mode='full-auto')
             runner = agent.Agent(sess, client=client, emit=events.append, persist=False)
-            runner.run('Create calculator.html with the requested calculator.', verify=False)
+            backup = {'id':'repair/free','provider':'openai','base_url':api.base_url,'model':'repair','free':True}
+            with patch.object(provider_pool,'candidates',return_value=[backup]):
+                runner.run('Create calculator.html with the requested calculator.', verify=False)
             self.assertEqual((Path(root) / 'calculator.html').read_text(), '<h1>Verified calculator</h1>')
             ends = [e for e in events if e['type'] == 'tool_end']
-            self.assertEqual([(e['name'], e['ok']) for e in ends], [('write', False), ('write', True)])
-            self.assertTrue(ends[0].get('validation_error'))
+            self.assertEqual([(e['name'], e['ok']) for e in ends], [('write', True)])
+            self.assertEqual(client.spec['id'], 'repair/free')
+            self.assertEqual(provider_pool.HEALTH.state('argument-fixture')['state'], 'invalid_tool_response')
             self.assertEqual(len(requests), 3)
 
     def test_validation_precedes_permission_and_no_placeholder_command_is_run(self):

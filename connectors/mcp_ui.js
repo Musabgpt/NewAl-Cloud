@@ -64,6 +64,7 @@
           auth_error: tr('Key or authorization rejected', 'رُفض المفتاح أو التفويض'),
           overloaded: tr('Provider busy', 'المزود مشغول'),
           timeout: tr('Provider timed out', 'انتهت مهلة المزود'),
+          invalid_tool_response: tr('Model returned invalid tool arguments', 'أرسل النموذج معطيات أدوات غير صالحة'),
           retry_ready: tr('Ready to retry', 'يمكن إعادة المحاولة'),
           cooldown: tr('Waiting to retry', 'بانتظار إعادة المحاولة'),
           capability_mismatch: tr('Model unavailable for this request', 'النموذج غير متاح لهذا الطلب')

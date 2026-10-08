@@ -155,3 +155,25 @@ recovered from a controlled SSE idle timeout after partial output, selected
 `nvidia/nemotron-3-ultra-550b-a55b:free`, and returned a complete write call that
 wrote the expected file once on the Linux host. The primary failure was injected;
 the fallback response was live. Samsung validation of this revision remains open.
+
+## #346 device failures and the next correction
+
+The user rejected #346 on-device: recovery still failed with large context, and
+incomplete write/bash calls reached the ordinary three-failure circuit breaker.
+The router had treated a syntactically completed response as provider success
+without checking its tool arguments. Remote requests also resent old reasoning
+and entire prior source writes until the model's late compaction threshold.
+
+`request_context.py` now projects older completed tool groups into labeled
+records without modifying stored messages or files. Required instructions and
+images remain intact. `tool_protocol.validate_completion` checks all remote
+agent tool calls before any are executed; `provider_pool` treats a rejected
+completion as a model-quality failure and applies cooldown/failover. Missing
+arguments are never fabricated. Checked patches in `apply.py` wire this into the
+agent. Prompt v9 reaches existing built-in sessions, and Hub can display invalid
+tool responses as a distinct provider state.
+
+See `PHASE10_ACCEPTANCE.md` for the reproducible malformed-batch/large-history
+tests and the live high-reasoning fallback result. An actual upstream 503 was
+also observed and recorded. The new fix is not claimed device-accepted before
+Samsung evidence is supplied, and no Phase 11 work is included.

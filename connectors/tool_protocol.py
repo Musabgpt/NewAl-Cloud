@@ -1,5 +1,36 @@
 """Lossless tool-call assembly and preflight validation; never invent arguments."""
 import json
+from .providers import ProviderError
+
+
+class InvalidToolResponse(ProviderError):
+    """The entire uncommitted completion was rejected before any tools ran."""
+
+
+def validate_completion(completion, definitions):
+    from . import tools, repair
+    schemas = {d['function']['name']:d['function'].get('parameters', {}) for d in definitions or []}
+    for call in completion.tool_calls:
+        name = call.get('name')
+        try:
+            raw = call.get('arguments') or '{}'
+            # Preserve the engine's existing syntax/alias repair, but never
+            # repair a response the provider explicitly cut at its output cap.
+            args = json.loads(raw) if completion.finish == 'length' or call.get('cut_off') else repair.loads(raw)
+            if not isinstance(args, dict):
+                raise ValueError('arguments must be a JSON object')
+            name, args = repair.normalize(name, args, schemas)
+            if name not in schemas:
+                raise ValueError('unknown tool %s; no tools executed' % name)
+            if name in tools.REGISTRY:
+                prepare_arguments(tools.REGISTRY[name], args)
+            else:
+                missing = [key for key in schemas[name].get('required', []) if key not in args]
+                if missing:
+                    raise ValueError('missing arguments: ' + ', '.join(missing))
+        except (ValueError, TypeError, tools.ToolError) as error:
+            # The schema/field names suffice; never invent content or commands.
+            raise InvalidToolResponse('Model response rejected for %s: %s' % (name, error)) from error
 
 
 def stream_error(event):

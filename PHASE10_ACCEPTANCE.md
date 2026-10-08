@@ -288,3 +288,36 @@ reported timeout, then a replacement provider writes the requested file. The
 first write is not replayed and the interrupted write never executes. Other
 checks cover bounded retries, Stop, missing completion markers, error metadata,
 and removal of only uncommitted UI nodes. No new Samsung acceptance is inferred.
+
+## Device rejection of #346: large context and malformed model calls
+
+The user explicitly confirmed screenshots 95201/95203/95193/95212/95293 were
+from #346. They show recurrent failed recovery with roughly 100k–132k input
+tokens, `write` missing `content`, and `bash` missing `command`. #346 is not
+accepted as resolving these device failures.
+
+The next revision adds non-destructive remote request projection. Older completed
+tool-call/result groups become clearly labeled historical records containing
+paths, payload hashes and actual result excerpts. Old OpenAI reasoning is not
+resent. System/user instructions, images and incomplete tool groups remain
+intact; full local session history and files are not changed. The working budget
+is 96k characters including schema allowance, not a token guarantee; protected
+instructions can exceed it. Native/local model history stays unchanged.
+
+Remote agent completions are validated as a whole before any tool executes.
+Missing/invalid required fields or unsupported tool names are model failures,
+not successful provider replies. The failing route enters a cooldown and the
+uncommitted response can move to another available free model. Existing supported
+tool aliases/JSON syntax repair are retained; explicitly truncated values are
+rejected. Built-in prompt v9 asks for small complete edits and runnable increments.
+
+Host HTTP/SSE regressions cover a valid write paired with an invalid bash call:
+neither call from that batch executes, the existing file stays unchanged, and a
+replacement response writes the intended result. Large-history tests verify that
+instructions and tool/result pairing survive and the original history is intact.
+An initial live NVIDIA attempt returned a real 503 overload; that is not a pass.
+A subsequent live free-pool probe using high reasoning selected
+`stepfun/step-5-preview-free`: 934,492 historical characters became 86,612 outgoing
+characters, the API reported 12,321 input tokens, and a complete validated write
+executed once. The initial invalid response was controlled; the fallback API was
+live. This does not prove the new revision on Samsung or eliminate provider outages.
