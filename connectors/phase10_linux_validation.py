@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import shlex
+import subprocess
 import tempfile
 import threading
 import time
@@ -28,13 +29,27 @@ class Page(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+
+def check_result(result):
+    # Browser Use 0.13.5 can put an exception in text with isError=false.
+    # Do not let a later request hide the first (and most useful) error.
+    errors = [part.get('text', '') for part in result.get('content', [])
+              if part.get('type') == 'text' and part.get('text', '').startswith('Error:')]
+    assert not result.get('isError') and not errors, result
+    return result
+
+
 with tempfile.TemporaryDirectory(prefix='musabai-linux-proof-') as temp:
     chrome = next((shutil.which(name) for name in ('chromium','chromium-browser','google-chrome') if shutil.which(name)), None)
     if not chrome:
         raise RuntimeError('A real Chromium executable is required for browser acceptance')
     profile = {'browser_profile':{'musabai':{'id':'musabai','default':True,'headless':True,
-               'executable_path':chrome,'chromium_sandbox':False,'enable_default_extensions':False,'keep_alive':False}},'llm':{},'agent':{}}
+               'executable_path':chrome,'chromium_sandbox':False,'enable_default_extensions':False,'keep_alive':False,
+               'user_data_dir':str(Path(temp, 'browser-use-user-data-dir-proof'))}},'llm':{},'agent':{}}
     Path(temp,'config.json').write_text(json.dumps(profile))
+    version = subprocess.run([chrome, '--version'], capture_output=True, text=True, timeout=15)
+    print(json.dumps({'browser_executable':chrome, 'browser_version':version.stdout.strip(),
+                      'isolated_profile':True}), flush=True)
     http = ThreadingHTTPServer(('127.0.0.1', 0), Page)
     threading.Thread(target=http.serve_forever,daemon=True).start()
     definitions = [
@@ -53,15 +68,17 @@ with tempfile.TemporaryDirectory(prefix='musabai-linux-proof-') as temp:
                 assert server.tools, name
                 if name == 'browser-use':
                     result=server.request('tools/call',{'name':'browser_navigate','arguments':{'url':'http://127.0.0.1:%d/'%http.server_port}},90)
-                    assert not result.get('isError'),result
+                    print(json.dumps({'browser_navigate':result}), flush=True)
+                    check_result(result)
                     for _ in range(10):
                         result=server.request('tools/call',{'name':'browser_get_html','arguments':{}},30)
+                        check_result(result)
                         if 'PHASE10_BROWSER_PROOF' in json.dumps(result):
                             break
                         time.sleep(.5)
                     assert not result.get('isError') and 'PHASE10_BROWSER_PROOF' in json.dumps(result),result
                     result=server.request('tools/call',{'name':'browser_close_all','arguments':{}},30)
-                    assert not result.get('isError'),result
+                    check_result(result)
                 if name == 'docling':
                     result=server.request('tools/call',{'name':'list_cached_documents','arguments':{}},30)
                     assert not result.get('isError'),result
