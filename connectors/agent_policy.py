@@ -1,5 +1,6 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
 from pathlib import Path
+import os
 
 MARKER = 'MusabAI behavior profile v5'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
@@ -54,7 +55,12 @@ def profile():
             path = dynamic
     except Exception:
         pass
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + path.read_text(encoding='utf-8').strip())
+    body = path.read_text(encoding='utf-8').strip()
+    # Experimental, OFF by default. Cannot enable tools or relax permissions.
+    if os.environ.get('MUSABAI_PROMPT_EXPERIMENT', '').strip().lower() == 'v4':
+        supplement = Path(__file__).with_name('agent_prompt_v4.md')
+        body += '\n\n' + supplement.read_text(encoding='utf-8').strip()
+    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + body)
 
 
 def stale_builtin(text):

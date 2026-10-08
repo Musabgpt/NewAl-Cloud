@@ -1,5 +1,6 @@
 """The uploaded behavior profile reaches real default and resumed agent requests."""
 import tempfile
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,6 +18,27 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn('asgeirtj', text)
         self.assertNotIn('ToolSearch', text)
         self.assertLess(len(text), 16000)
+
+    def test_experimental_v4_is_opt_in_only_and_within_budget(self):
+        with patch.dict(os.environ, {'MUSABAI_PROMPT_EXPERIMENT': ''}):
+            original = prompts.system('sh')
+        with patch.dict(os.environ, {'MUSABAI_PROMPT_EXPERIMENT': 'v4'}):
+            experiment = prompts.system('sh')
+        with patch.dict(os.environ, {'MUSABAI_PROMPT_EXPERIMENT': 'unknown'}):
+            unknown = prompts.system('sh')
+        self.assertEqual(original, unknown)
+        self.assertNotIn('MusabAI V4 — experimental evidence gates', original)
+        self.assertIn('MusabAI V4 — experimental evidence gates', experiment)
+        self.assertIn('UNVERIFIED', experiment)
+        self.assertLess(len(experiment), 16000)
+
+    def test_experimental_v4_keeps_phone_and_local_constraints(self):
+        with patch.dict(os.environ, {'MUSABAI_PROMPT_EXPERIMENT': 'v4'}):
+            local = prompts.system('sh', local=True, steps=25, phone=True)
+        self.assertIn('a turn has 25 steps', local)
+        self.assertIn('Android phone', local)
+        self.assertIn('runtime permissions', local)
+        self.assertLess(len(local), 16000)
 
     def test_local_profile_keeps_budget_and_phone_environment(self):
         text = prompts.system('sh', local=True, steps=25, phone=True)
