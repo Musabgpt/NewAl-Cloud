@@ -420,6 +420,14 @@ def apply(root):
         summary = (comp.content or "").strip()
         s.replace_messages(continuity.compact_messages(s, summary, s.active_objective))
 ''')
+    # Pinned upstream regression expected the old security bug: a model-made
+    # summary impersonating the user. Assert the new roles and preserved request.
+    replace(root / "desktop/tests/test_newal_code.py",
+            '        self.assertIn("SUMMARY", s.messages[0]["content"])\n        self.assertIn("<context>", s.messages[0]["content"])\n',
+            '        self.assertEqual([m["role"] for m in s.messages], ["user", "assistant", "user"])\n'
+            '        self.assertIn("<context>", s.messages[0]["content"])\n'
+            '        self.assertIn("SUMMARY", s.messages[1]["content"])\n'
+            '        self.assertEqual(s.messages[-1]["content"], "more")\n')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });
