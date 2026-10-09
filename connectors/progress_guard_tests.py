@@ -157,5 +157,26 @@ class ShellInspectionLoopTests(unittest.TestCase):
         self.assertIn("Stop inspecting", last)
 
 
+class SupervisorProbeTests(unittest.TestCase):
+    def test_bash_probe_completion_does_not_checkpoint_fake_progress(self):
+        sup = task_supervisor.TaskSupervisor.__new__(task_supervisor.TaskSupervisor)
+        sup._lock = threading.RLock()
+        sup.last_progress_at = 0
+        sup.last_event = "previous"
+        sup.last_tool = ""
+        sup.step = 30
+        sup.recoveries = 0
+        sup._checkpoint = Mock()
+        probe = {"command": 'cd "workspace" && find . -maxdepth 2 -type f 2>&1 | head -50'}
+        sup.observe({"type": "tool_start", "id": "b1", "name": "bash", "args": probe, "step": 31})
+        sup.observe({"type": "tool_end", "id": "b1", "name": "bash", "ok": True, "step": 31, "meta": {}})
+        sup._checkpoint.assert_not_called()
+        build = {"command": "python3 -m pytest connectors"}
+        sup.observe({"type": "tool_start", "id": "b2", "name": "bash", "args": build, "step": 32})
+        sup.observe({"type": "tool_end", "id": "b2", "name": "bash", "ok": True, "step": 32, "meta": {}})
+        self.assertEqual(sup._checkpoint.call_count, 1)
+        self.assertIn("bash", sup._checkpoint.call_args.kwargs["progress"])
+
+
 if __name__ == "__main__":
     unittest.main()
