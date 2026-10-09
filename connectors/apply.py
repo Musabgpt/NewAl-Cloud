@@ -391,6 +391,35 @@ def apply(root):
     replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES + _automation.NAMES + _browser_router.NAMES + _search_router.NAMES + _document_engine.NAMES + _project_rag.NAMES + _orchestrator.NAMES + _execution.NAMES + _runtime_manager.NAMES + _git_workspace.NAMES + _observability.NAMES + _task_state.NAMES + _tool_search.NAMES\n')
     replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')
     replace(package / "agent.py", '        parts.append(text)\n', '        parts.append("For document tasks use document_create/read/download and archive_pack/extract. Save a real file and report its path; do not claim a file exists without checking. For self-improvement use self_evolve, edit the isolated candidate, then self_evolve_verify. Never claim an untested candidate improved intelligence. Remember supported preferences with memory_learn. For existing project code, use project_rag_search to retrieve relevant file/line evidence before broad edits. For cross-tool multi-step work, use orchestrator_plan when routing is not obvious; it is advisory and never bypasses permissions. For execution routing use execution_plan. On Android, run bounded shell commands through runtime_exec so node/npm/npx/python/git/bash are discovered and executed in Termux over the authenticated localhost bridge rather than the Android app sandbox; ANDROID_NATIVE never needs adb. For long-running Termux commands use runtime_process_start, then runtime_process_status or runtime_process_stop using the returned process id; never repeat a pending command. sandbox_exec is scratch-only and is not an OS security boundary. Use bounded git_status/git_diff/git_log/git_commit for local repository work; git_commit never pushes. Observability is local metadata by default; use observability_status/tail for inspection and observability_export only when the user explicitly wants export to a configured backend. For long work that should survive a restart, use task_checkpoint after meaningful verified progress; when the user asks to continue or resume, use task_resume before guessing; mark the checkpoint complete only after verification with task_complete.")\n        parts.append(text)\n')
+    # Limit repeated automatic compaction when no tool result has arrived.
+    # Claude Code stops compaction thrashing rather than repeatedly asking a model.
+    replace(package / "session.py", '        self.active_objective = ""\n',
+            '        self.active_objective = ""\n        self.compact_since_tool = 0\n')
+    replace(package / "session.py", '"active_objective": self.active_objective, "goal_progress":',
+            '"active_objective": self.active_objective, "compact_since_tool": self.compact_since_tool, "goal_progress":')
+    replace(package / "session.py", '        s.active_objective = meta.get("active_objective", "")\n',
+            '        s.active_objective = meta.get("active_objective", "")\n'
+            '        s.compact_since_tool = int(meta.get("compact_since_tool") or 0)\n')
+    replace(package / "agent.py", '            s.active_objective = str(text or "")[:2000]\n',
+            '            s.active_objective = str(text or "")[:2000]\n'
+            '            s.compact_since_tool = 0\n')
+    replace(package / "agent.py", '            s.add({"role": "tool", "tool_call_id": c["id"], "content": text})\n',
+            '            s.add({"role": "tool", "tool_call_id": c["id"], "content": text})\n'
+            '            s.compact_since_tool = 0\n')
+    replace(package / "agent.py", '        from . import continuity\n        summary = (comp.content or "").strip()\n',
+            '        from . import continuity\n        summary = (comp.content or "").strip()\n')
+    replace(package / "agent.py", '        s.replace_messages(continuity.compact_messages(s, summary, s.active_objective))\n',
+            '        s.replace_messages(continuity.compact_messages(s, summary, s.active_objective))\n'
+            '        s.compact_since_tool = getattr(s, "compact_since_tool", 0) + 1\n'
+            '        s.save_meta()\n')
+    replace(package / "agent.py",
+            '        hook_cfg = self.cfg.get("hooks") or {}\n'
+            '        if hooks.configured(hook_cfg, "PreCompact"):\n',
+            '        if not force and getattr(s, "compact_since_tool", 0) >= 2:\n'
+            '            raise providers.ProviderError("Repeated automatic compaction without tool progress; '
+            'the task remains resumable. Reduce tool/context load or change model.")\n'
+            '        hook_cfg = self.cfg.get("hooks") or {}\n'
+            '        if hooks.configured(hook_cfg, "PreCompact"):\n')
     # A session remembers selected MCP tools, without saving any credentials.
     replace(package / "session.py", '        self.tool_names = []\n',
             '        self.tool_names = []\n        self.discovered_mcp_tools = []\n')
