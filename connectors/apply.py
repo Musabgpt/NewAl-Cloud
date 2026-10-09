@@ -199,7 +199,10 @@ def apply(root):
     replace(package / "agent.py", '        except providers.Cancelled:\n            error = "interrupted"\n            answer = answer or "(interrupted)"\n            self._close_dangling_calls()\n', '''        except providers.Cancelled:
             supervisor = getattr(self, "supervisor", None)
             reason = supervisor.cancel_token.reason() if supervisor is not None else "user"
-            if reason == "hard_timeout":
+            if reason == "stall_exhausted":
+                error = "stall_exhausted"
+                answer = "توقفت المحاولات بعد تعليق متكرر دون خطوة ناجحة. التقدم محفوظ؛ راجع حالة المزودين ثم استكمل."
+            elif reason == "hard_timeout":
                 error = "timeout"
                 answer = answer or "Stopped safely after the task timeout. Resume to continue from the saved checkpoint."
             else:
@@ -207,7 +210,7 @@ def apply(root):
                 answer = answer or "(interrupted)"
             self._close_dangling_calls()
 ''')
-    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\n                tools.stop_jobs(s)\n', '            if self.depth == 0 and error in ("interrupted", "timeout", "budget_exhausted", "repair_blocked", "goal_unmet", "verification_failed"):\n                tools.stop_jobs(s)\n')
+    replace(package / "agent.py", '            if self.depth == 0 and error == "interrupted":\n                tools.stop_jobs(s)\n', '            if self.depth == 0 and error in ("interrupted", "timeout", "budget_exhausted", "repair_blocked", "goal_unmet", "verification_failed", "stall_exhausted"):\n                tools.stop_jobs(s)\n')
     replace(package / "agent.py", '        seconds = time.time() - started\n', '''        supervisor = getattr(self, "supervisor", None)
         if self.depth == 0 and supervisor is not None:
             supervisor.finish(error=error, answer=answer)

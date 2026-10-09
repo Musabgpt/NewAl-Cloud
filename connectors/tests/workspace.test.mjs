@@ -321,3 +321,15 @@ test('Tasks never offers a duplicate run while the conversation is active', asyn
   await state.tab('Tasks');
   assert.equal(button(state.doc, 'Prepare continuation'), undefined);
 });
+
+test('Improve update switch uses saved state and can pause and enable the worker', async t => {
+  const state = await app(t, {handler: call => call.url === '/api/evolution' ? {
+    candidates: [], automatic: {enabled: false}
+  } : call.url === '/api/evolution/automatic' ? {enabled: call.body.enabled} : undefined});
+  await state.tab('Improve');
+  button(state.doc, 'Enable automatic updates').click(); await tick();
+  assert.deepEqual(state.calls.at(-1).body, {enabled: true});
+  button(state.doc, 'Pause automatic updates').click(); await tick();
+  assert.deepEqual(state.calls.at(-1).body, {enabled: false});
+  assert(button(state.doc, 'Enable automatic updates'));
+});

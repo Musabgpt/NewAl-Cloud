@@ -43,6 +43,19 @@ class TaskSupervisorTests(unittest.TestCase):
             time.sleep(0.01)
         return bool(predicate())
 
+    def test_only_completed_successful_tools_reset_consecutive_stalls(self):
+        sup = self.make()
+        for event in ({'type':'status'}, {'type':'tool_args'},
+                      {'type':'tool_end','ok':False},
+                      {'type':'tool_end','ok':True,'meta':{'exit_code':1}},
+                      {'type':'tool_end','ok':True,'meta':{'pending':True}}):
+            sup.recoveries = 2
+            sup.observe(event)
+            self.assertEqual(sup.recoveries, 2)
+        sup.observe({'type':'tool_end','name':'write','ok':True,'meta':{}})
+        self.assertEqual(sup.recoveries, 0)
+        self.assertFalse(sup.cancel_token.is_set())
+
     def test_manual_stop_sets_real_cancel_and_preserves_resume_checkpoint(self):
         sup = self.make()
         sup.start()
@@ -68,7 +81,7 @@ class TaskSupervisorTests(unittest.TestCase):
         self.assertFalse(sup.cancel_token.is_set())
         sup.finish(error="test cleanup")
 
-    def test_hard_timeout_stops_after_repeated_stalls(self):
+    def test_stall_exhaustion_is_not_a_hard_timeout(self):
         with patch.dict(os.environ, {
             "NEWAL_SUPERVISOR_HEARTBEAT_SECONDS": "0.05",
             "NEWAL_SUPERVISOR_STALL_SECONDS": "0.10",
@@ -79,9 +92,9 @@ class TaskSupervisorTests(unittest.TestCase):
             sup.start()
             self.assertTrue(self.wait_for(lambda: sup.cancel_token.reason() == "watchdog_stall"))
             self.assertTrue(sup.consume_watchdog())
-            self.assertTrue(self.wait_for(lambda: sup.cancel_token.reason() == "hard_timeout"))
+            self.assertTrue(self.wait_for(lambda: sup.cancel_token.reason() == "stall_exhausted"))
             snap = sup.snapshot()
-            self.assertEqual(snap["reason"], "hard_timeout")
+            self.assertEqual(snap["reason"], "stall_exhausted")
             self.assertGreaterEqual(snap["recoveries"], 1)
             sup.finish(error="timeout")
             row = task_state.resume(self.root, sup.task_id)

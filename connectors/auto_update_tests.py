@@ -21,6 +21,16 @@ class AutomaticUpdateTests(unittest.TestCase):
         thread = SimpleNamespace(is_alive=lambda: busy, ident=1)
         return SimpleNamespace(lock=threading.RLock(), threads={'task':thread}, updating='', agents={})
 
+    def test_update_switch_persists_and_rejects_non_boolean(self):
+        auto = self.auto()
+        with patch.object(auto.settings, 'save') as save, patch.object(auto, 'status', return_value={'enabled':False}):
+            self.assertFalse(auto.configure(False)['enabled'])
+            save.assert_called_once_with({'automatic_updates':False})
+            for value in ('false', None, 0, {}):
+                with self.assertRaises(Exception):
+                    auto.configure(value)
+            self.assertEqual(save.call_count, 1)
+
     def test_feed_is_restricted_to_exact_repository_phase10_and_compatible_engine(self):
         auto=self.auto()
         feed={'schema':1, 'repository':e.UPDATE_REPOSITORY, 'branch':'phase10/final-validation',

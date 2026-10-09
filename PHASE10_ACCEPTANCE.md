@@ -321,3 +321,32 @@ A subsequent live free-pool probe using high reasoning selected
 characters, the API reported 12,321 input tokens, and a complete validated write
 executed once. The initial invalid response was controlled; the fallback API was
 live. This does not prove the new revision on Samsung or eliminate provider outages.
+
+## Samsung build 348 rejection, 2026-10-09
+
+Screenshots 95364/95362 show repeated provider interruption and a task-timeout
+message. Build 348 is not accepted as a resolution. The displayed 85% context
+indicator alone does not prove the size of an individual projected HTTP request.
+
+Follow-up changes:
+- Exclude a failed partial-response route for the remainder of that request,
+  even when its cooldown expires while another route is running. Completed tool
+  results are retained; only the uncommitted draft is reset.
+- Reset the consecutive-stall budget only after a completed successful tool.
+  Streaming/status messages and failed/pending tools do not reset that budget.
+- Distinguish exhausted stall recovery from the absolute task deadline.
+- Discover up to 16 zero-price tool routes instead of six, checking cache/search
+  charges too. This is one shared gateway, not 16 independent providers.
+- Expose persisted enable/pause controls for the existing verified GitHub update
+  worker in Workspace / Improve. It continues using idle activation and rollback.
+
+A real anonymous StepFun tool response was obtained on the Linux host after an
+injected missing-content response. The intended file was written exactly once;
+934492 history characters projected to 86612, reported prompt tokens 12321.
+This is host evidence, not Samsung acceptance.
+
+Limits: no unlimited free-provider guarantee; no external model-weight training;
+no new endless self-editing worker. Tool provisioning and skill/plugin tools
+remain available, but services requiring account credentials cannot be connected
+without those credentials. Phase 10 phone long-task/stop/resume and recovery
+acceptance remain open.

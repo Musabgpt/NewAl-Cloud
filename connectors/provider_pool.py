@@ -100,7 +100,7 @@ def _kilo_models():
             price = item.get('pricing') or {}
             if any(float(price.get(k, -1)) != 0 for k in ('prompt', 'completion')):
                 continue
-            if any(float(price.get(k) or 0) != 0 for k in ('request', 'image', 'internal_reasoning')):
+            if any(float(price.get(k) or 0) != 0 for k in ('request', 'image', 'internal_reasoning', 'web_search', 'input_cache_read', 'input_cache_write')):
                 continue
             params = item.get('supported_parameters') or []
             mid = str(item.get('id') or '')
@@ -116,8 +116,8 @@ def _kilo_models():
             rows.append({'id':mid, 'model':mid, 'name':mid, 'provider':'openai',
                          'base_url':KILO_BASE, 'api_key':'', 'free':True, 'capabilities':caps})
         # Prefer the route verified with a real anonymous tool call in Phase 10.
-        rows.sort(key=lambda s: s['id'] != 'stepfun/step-3.7-flash:free')
-        _KILO_CACHE = (_now() + 300, rows[:6])
+        rows.sort(key=lambda s: s['id'] != 'stepfun/step-5-preview-free')
+        _KILO_CACHE = (_now() + 300, rows[:16])
         return list(_KILO_CACHE[1])
     except (providers.ProviderError, OSError, ValueError, TypeError):
         _KILO_CACHE = (_now() + 30, [])
@@ -633,6 +633,7 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
                 )
                 setattr(safe, "_musab_emitted", True)
                 _mark_failure(spec, safe)
+                safe._musab_provider_id = _provider_id(spec)
                 raise safe
             error = TimeoutError("provider stalled without progress")
             setattr(error, "_musab_emitted", False)
@@ -644,6 +645,7 @@ def _call_with_retry(spec, client_provider, model, messages, tools, kwargs):
             # duplicate or contradict text/tool calls. Surface that failure.
             if getattr(error, "_musab_emitted", False):
                 _mark_failure(spec, error)
+                error._musab_provider_id = _provider_id(spec)
                 raise
             # Capability/rate-limit/timeout responses should move to a healthy
             # provider immediately; repeating the same request is blind retrying.
@@ -665,10 +667,12 @@ class ProviderUnavailable(providers.ProviderError):
         self.retry_after = retry_after
 
 
-def _next_retry(client, required):
+def _next_retry(client, required, excluded=()):
     specs = [getattr(client, "spec", {}) or {}] + candidates(client, required, include_cooling=True)
     waits = []
     for spec in specs:
+        if _provider_id(spec) in excluded:
+            continue
         if not _supports(spec, required, legacy_current=spec is specs[0]):
             continue
         state = HEALTH.state(_provider_id(spec))
@@ -728,12 +732,13 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
     if validate_tools:
         from .tool_protocol import validate_completion
         kwargs['_completion_validator'] = validate_completion
+    excluded = set()
     for attempt in range(3):
         if token is not None and token.is_set():
             raise providers.Cancelled()
         try:
             previous = _provider_id(getattr(client, 'spec', {}) or {})
-            result = chat(client, messages, tools=tools, required_capabilities=required_capabilities, **kwargs)
+            result = chat(client, messages, tools=tools, required_capabilities=required_capabilities, excluded_providers=excluded, **kwargs)
             actual = _provider_id(getattr(client, 'spec', {}) or {})
             if actual != previous and on_status:
                 on_status('نجح الاستكمال بالنموذج البديل: ' + actual)
@@ -765,6 +770,9 @@ def chat_recovering(client, messages, tools=None, required_capabilities=None,
             # Remove only this failed request's draft. Completed tool messages
             # stay in `messages`; incomplete tool calls never leave the provider.
             on_reset()
+            failed_id = getattr(error, "_musab_provider_id", None)
+            if failed_id:
+                excluded.add(failed_id)
             if not _retryable(error) or attempt == 2:
                 if isinstance(error, OSError):
                     final = providers.ProviderError('Provider stream disconnected before completion', 502)
@@ -793,7 +801,7 @@ def public_error(error):
     return str(error)
 
 
-def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
+def chat(client, messages, tools=None, required_capabilities=None, excluded_providers=(), **kwargs):
     current_spec = dict(getattr(client, "spec", {}) or {})
     current_spec.setdefault("id", getattr(client, "model_name", "current"))
     current_spec.setdefault("model", getattr(client, "model_name", "current"))
@@ -806,7 +814,7 @@ def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
 
     if not _supports(current_spec, required, legacy_current=True):
         incompatible.append(old_id)
-    elif _available(current_spec):
+    elif old_id not in excluded_providers and _available(current_spec):
         try:
             return _call_with_retry(current_spec, client.provider, client.model_name, messages, tools, kwargs)
         except (providers.ProviderError, TimeoutError, OSError) as first:
@@ -817,9 +825,9 @@ def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
                 messages = messages + [{'role':'user','content':str(first)[:2500] + '\nNo tools were executed. Correct all required arguments.'}]
             errors.append(old_id + ": " + _safe_error(first))
     else:
-        errors.append(old_id + ": cooling down")
+        errors.append(old_id + (": failed earlier in this request" if old_id in excluded_providers else ": cooling down"))
 
-    fallbacks = candidates(client, required)
+    fallbacks = [spec for spec in candidates(client, required) if _provider_id(spec) not in excluded_providers]
     if incompatible and not fallbacks:
         names = ", ".join(sorted(required))
         raise providers.ProviderError(
@@ -847,4 +855,4 @@ def chat(client, messages, tools=None, required_capabilities=None, **kwargs):
     message = "Free AI providers are temporarily unavailable"
     if errors:
         message += " (" + " | ".join(errors)[:900] + ")"
-    raise ProviderUnavailable(message, _next_retry(client, required))
+    raise ProviderUnavailable(message, _next_retry(client, required, excluded_providers))

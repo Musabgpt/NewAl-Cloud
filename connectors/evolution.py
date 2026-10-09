@@ -939,6 +939,9 @@ def route(handler, method, path, body=None):
         elif method == "GET" and path == "/api/evolution/automatic":
             from . import auto_update
             handler._json(auto_update.status())
+        elif method == "POST" and path == "/api/evolution/automatic":
+            from . import auto_update
+            handler._json(auto_update.configure((body or {}).get('enabled')))
         elif method == "POST" and path == "/api/evolution/activate":
             handler._json(activate((body or {}).get("candidate", "")))
         elif method == "POST" and path == "/api/evolution/rollback":

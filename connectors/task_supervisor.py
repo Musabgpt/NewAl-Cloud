@@ -73,7 +73,7 @@ class CancelToken:
         if self.user_event.is_set():
             return "user"
         if self.hard_event.is_set():
-            return "hard_timeout"
+            return self._reason or "hard_timeout"
         if self.watchdog_event.is_set():
             return self._reason or "watchdog_stall"
         return ""
@@ -86,11 +86,11 @@ class CancelToken:
             self.watchdog_event.set()
             return True
 
-    def trigger_hard_timeout(self):
+    def trigger_hard_timeout(self, reason="hard_timeout"):
         with self._lock:
             if self.user_event.is_set() or self.hard_event.is_set():
                 return False
-            self._reason = "hard_timeout"
+            self._reason = reason
             self.hard_event.set()
             return True
 
@@ -228,6 +228,9 @@ class TaskSupervisor:
             ok = bool((ev or {}).get("ok")) and meta.get("ok") is not False and not meta.get("error") and not meta.get("isError")
             ok = ok and all(meta.get(field) in (None, 0) for field in ("exit", "exit_code", "returncode"))
             pending = bool(meta.get("pending")) or meta.get("status") == "running"
+            if ok and not pending:
+                with self._lock:
+                    self.recoveries = 0
             name = str((ev or {}).get("name") or self.last_tool or "tool")
             self._checkpoint(
                 progress=("Started" if pending else "Completed") + " %s at agent step %d." % (name, self.step) if ok else None,
@@ -283,7 +286,7 @@ class TaskSupervisor:
                 return
             if idle >= self.stall_s and not self.cancel_token.watchdog_event.is_set():
                 if self.recoveries >= self.max_recoveries:
-                    if self.cancel_token.trigger_hard_timeout():
+                    if self.cancel_token.trigger_hard_timeout("stall_exhausted"):
                         self._checkpoint(
                             next_step="Resume from the last completed checkpoint and choose a different route.",
                             blocker="Repeated stalls without progress.",
@@ -318,7 +321,7 @@ class TaskSupervisor:
         if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join(timeout=1)
         reason = self.cancel_token.reason()
-        if not error and reason not in ("user", "hard_timeout"):
+        if not error and reason not in ("user", "hard_timeout", "stall_exhausted"):
             try:
                 task_state.complete(
                     self.session.root,

@@ -46,14 +46,17 @@ class ProviderPoolTests(unittest.TestCase):
     def test_partial_recovery_is_bounded_and_does_not_hide_final_failure(self):
         calls, resets = [], []
         def interrupted(*args, **kwargs):
-            calls.append(True)
+            calls.append(args[0])
             kwargs['on_event']('text', 'Unfinished draft')
             raise providers.ProviderError('Upstream idle timeout exceeded')
         c = SimpleNamespace(spec={'id':'current'}, model_name='current', provider=SimpleNamespace(chat=interrupted))
-        with patch.object(provider_pool, '_available', return_value=True):
+        backups = [{'id': 'backup%d' % i, 'model': 'backup%d' % i, 'base_url': 'https://backup.invalid', 'free': True} for i in range(2)]
+        with patch.object(provider_pool, '_available', return_value=True), \
+             patch.object(provider_pool, 'candidates', return_value=backups), \
+             patch.object(provider_pool, 'provider', return_value=SimpleNamespace(chat=interrupted)):
             with self.assertRaises(providers.ProviderError) as caught:
                 provider_pool.chat_recovering(c, [], on_reset=lambda: resets.append(True), recovery_budget=0)
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls, ['current', 'backup0', 'backup1'])
         self.assertEqual(len(resets), 3)
         self.assertIn('انقطع', provider_pool.public_error(caught.exception))
         self.assertNotIn('Upstream idle timeout exceeded', provider_pool.public_error(caught.exception))
@@ -106,6 +109,14 @@ class ProviderPoolTests(unittest.TestCase):
                       {'id':'unknown:free','supported_parameters':['tools']}]}
         with patch.object(provider_pool,'_fetch_kilo_catalog',return_value=rows):
             self.assertEqual(provider_pool._kilo_models(), [])
+
+    def test_catalog_discovers_more_than_six_and_rejects_hidden_charges(self):
+        rows = [{'id':'free/%d' % i, 'pricing':{'prompt':'0','completion':'0'}, 'supported_parameters':['tools']} for i in range(14)]
+        rows += [{'id':'charged-cache', 'pricing':{'prompt':'0','completion':'0','input_cache_write':'0.1'}, 'supported_parameters':['tools']}]
+        with patch.object(provider_pool, '_fetch_kilo_catalog', return_value={'data':rows}):
+            found = provider_pool._kilo_models()
+        self.assertEqual(len(found), 14)
+        self.assertNotIn('charged-cache', [s['id'] for s in found])
 
     def test_gateway_rate_limit_blocks_sibling_models(self):
         spec={'id':'kilo-auto/free','base_url':'https://api.kilo.ai/api/gateway'}

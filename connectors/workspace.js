@@ -206,12 +206,25 @@
       catch (e) { if (current()) status(message, e.message, true); }
       finally { rollback.disabled = false; }
     });
-    const actions = node('div', '', 'connector-actions'); actions.append(ask, rollback); panel.append(actions, message, list);
+    let updatesEnabled = true;
+    const updateToggle = button('Pause automatic updates', 'إيقاف التحديثات التلقائية', async () => {
+      updateToggle.disabled = true;
+      try {
+        const data = await api('/api/evolution/automatic', {enabled: !updatesEnabled});
+        updatesEnabled = data.enabled;
+        updateToggle.textContent = updatesEnabled ? tr('Pause automatic updates', 'إيقاف التحديثات التلقائية') : tr('Enable automatic updates', 'تشغيل التحديثات التلقائية');
+        status(message, updatesEnabled ? tr('Verified GitHub updates will be checked while idle.', 'سيجري فحص تحديثات GitHub واختبارها وتفعيلها وقت الخمول.') : tr('Automatic updates paused.', 'أُوقفت التحديثات التلقائية.'));
+      } catch (e) { if (current()) status(message, e.message, true); }
+      finally { updateToggle.disabled = false; }
+    });
+    const actions = node('div', '', 'connector-actions'); actions.append(ask, rollback, updateToggle); panel.append(actions, message, list);
     const refresh = async () => {
       status(message, tr('Loading improvements…', 'جارٍ تحميل التحسينات…'));
       try {
         const data = await api('/api/evolution'); if (!current()) return;
         list.replaceChildren();
+        updatesEnabled = data.automatic?.enabled !== false;
+        updateToggle.textContent = updatesEnabled ? tr('Pause automatic updates', 'إيقاف التحديثات التلقائية') : tr('Enable automatic updates', 'تشغيل التحديثات التلقائية');
         const update = data.automatic?.state || data.automatic?.error ? data.automatic : data.update;
         const state = update?.state || (update?.error ? 'check_failed' : 'up_to_date');
         const currentVersion = data.current?.version_code ?? '';

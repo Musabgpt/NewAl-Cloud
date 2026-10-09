@@ -177,3 +177,24 @@ See `PHASE10_ACCEPTANCE.md` for the reproducible malformed-batch/large-history
 tests and the live high-reasoning fallback result. An actual upstream 503 was
 also observed and recorded. The new fix is not claimed device-accepted before
 Samsung evidence is supplied, and no Phase 11 work is included.
+
+### Build 348 follow-up research (2026-10-09)
+
+Samsung screenshots still reject the stability claim. Request-scoped route
+exclusion fixes retrying an interrupted model after its global cooldown expired.
+Successful completed tools now reset consecutive stalls, and exhausted stall
+recovery no longer impersonates an absolute task timeout.
+
+The live official Kilo catalog at https://api.kilo.ai/api/gateway/models lists
+additional zero-price tool models beyond the previous six-route cap. Discovery
+now keeps up to 16 and rejects nonzero cache/search prices. Models on this gateway
+still share its availability and rate limits. Google explicitly documents RPM,
+TPM and RPD quotas at https://ai.google.dev/gemini-api/docs/rate-limits . Attempts
+to fetch Groq/OpenRouter rate-limit documentation returned HTTP 403 here; no
+claims of unlimited access or tested independent fallback are inferred.
+
+The Improve screen now controls the existing automatic verified GitHub updater.
+This is software update automation, not training hosted models. Downloading tests
+does not update a third-party model's weights. Indefinite autonomous self-training,
+credential-free access to arbitrary providers, and automatic activation of every
+external integration are not implemented or claimed.

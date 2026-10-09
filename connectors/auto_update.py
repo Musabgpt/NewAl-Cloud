@@ -27,6 +27,14 @@ def enabled():
     return settings.user().get('automatic_updates', True) is True
 
 
+def configure(value):
+    if type(value) is not bool:
+        raise tools.ToolError('enabled must be a boolean')
+    with _LOCK:
+        settings.save({'automatic_updates': value})
+        return status()
+
+
 def _record():
     return e._read_json(e.home() / 'automatic.json')
 
