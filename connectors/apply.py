@@ -593,6 +593,24 @@ def apply(root):
             return True
         hook_cfg = self.cfg.get("hooks") or {}
 ''')
+    # A task switch projects the request immediately. Waiting for the 80%
+    # compaction threshold would leak an old game's history into WhatsApp.
+    replace(package / "agent.py", '            task_identity.activate(s, text)\n'
+            '        supervisor_context = []\n',
+            '            previous = str(getattr(s, "active_objective", "") or "")\n'
+            '            task_identity.activate(s, text)\n'
+            '            self._task_switched = bool(previous and previous != s.active_objective)\n'
+            '        supervisor_context = []\n')
+    replace(package / "agent.py",
+            '            s.save_meta()\n'
+            '        if s.turn == 1 and self.depth == 0:\n',
+            '''            s.save_meta()
+            if getattr(self, "_task_switched", False):
+                from . import continuity
+                s.replace_messages(continuity.compact_messages(
+                    s, "", s.active_objective), note="new-task-boundary")
+        if s.turn == 1 and self.depth == 0:
+''')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });
