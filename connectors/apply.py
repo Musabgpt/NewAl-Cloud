@@ -620,7 +620,7 @@ def apply(root):
             '        self.assertIn("SUMMARY", s.messages[1]["content"])\n'
             '        self.assertEqual(s.messages[-1]["content"], "more")\n',
             '        self.assertEqual([m["role"] for m in s.messages], ["assistant", "user"])\n'
-            '        self.assertIn("answer one", s.messages[-1]["content"])\n'
+            '        self.assertIn("do it", s.messages[-1]["content"])\n'
             '        self.assertNotIn("more", s.messages[-1]["content"])\n'
             '        self.assertNotIn("SUMMARY: user asked one thing.", str(s.messages))\n')
     replace(root / "desktop/tests/test_newal_code.py",
