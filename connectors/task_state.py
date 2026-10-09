@@ -204,7 +204,7 @@ def complete(root, task_id, summary=""):
         return row
 
 
-def list_tasks(root, include_completed=False, limit=20):
+def list_tasks(root, include_completed=False, limit=20, session_id=""):
     with _LOCK:
         data = _load(root)
         try:
@@ -212,6 +212,8 @@ def list_tasks(root, include_completed=False, limit=20):
         except (TypeError, ValueError):
             raise tools.ToolError("limit must be an integer")
         rows = [row for row in data["tasks"].values() if isinstance(row, dict)]
+        if session_id:
+            rows = [row for row in rows if _belongs(row, session_id)]
         if not include_completed:
             rows = [row for row in rows if row.get("status") == "active"]
         rows.sort(key=lambda row: float(row.get("updated_at") or 0), reverse=True)
@@ -252,7 +254,11 @@ def install():
         "read",
     )
     def task_resume(ctx, task_id=""):
-        row = resume(ctx.session.root, task_id, session_id=ctx.session.id)
+        from . import task_identity
+        if task_id:
+            row = resume(ctx.session.root, task_id, session_id=ctx.session.id)
+        else:
+            row = task_identity.previous_checkpoint(ctx.session, True)
         return json.dumps(row or {"active": False}, ensure_ascii=False), {
             "task_id": row.get("id") if row else None,
             "active": bool(row),
@@ -283,7 +289,7 @@ def install():
         "read",
     )
     def task_list(ctx, include_completed=False, limit=20):
-        rows = list_tasks(ctx.session.root, include_completed, limit)
+        rows = list_tasks(ctx.session.root, include_completed, limit, session_id=ctx.session.id)
         return json.dumps(rows, ensure_ascii=False), {"tasks": len(rows)}
 
 
