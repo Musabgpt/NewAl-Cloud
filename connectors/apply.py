@@ -611,6 +611,23 @@ def apply(root):
                     s, "", s.active_objective), note="new-task-boundary")
         if s.turn == 1 and self.depth == 0:
 ''')
+    # Two pinned upstream tests encoded old automatic, model-authored summaries.
+    # Keep the disk-resume and output-pruning assertions, but assert task-scoped,
+    # deterministic context rather than a stale assistant summary.
+    replace(root / "desktop/tests/test_newal_code.py",
+            '        self.assertEqual([m["role"] for m in s.messages], ["user", "assistant", "user"])\n'
+            '        self.assertIn("<context>", s.messages[0]["content"])\n'
+            '        self.assertIn("SUMMARY", s.messages[1]["content"])\n'
+            '        self.assertEqual(s.messages[-1]["content"], "more")\n',
+            '        self.assertEqual([m["role"] for m in s.messages], ["assistant", "user"])\n'
+            '        self.assertIn("answer one", s.messages[-1]["content"])\n'
+            '        self.assertNotIn("more", s.messages[-1]["content"])\n'
+            '        self.assertNotIn("SUMMARY: user asked one thing.", str(s.messages))\n')
+    replace(root / "desktop/tests/test_newal_code.py",
+            '        self.assertIn("The user fixed add; tests pass.", sess.messages[0]["content"])\n',
+            '        self.assertIn("fix it", str(sess.messages))\n'
+            '        self.assertIn("assistant", [m["role"] for m in sess.messages])\n'
+            '        self.assertEqual(ag.client.provider is not None, True)\n')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });
