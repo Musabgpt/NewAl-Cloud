@@ -20,6 +20,7 @@ _WORDS = re.compile(r"[^\W_]{2,}", re.UNICODE)
 _NOISE = frozenset((
     "the", "for", "with", "from", "this", "that", "into", "then", "please",
     "use", "tool", "tools", "mcp", "and", "can", "you", "get", "show",
+    "phone", "android", "service",
     "من", "في", "على", "هذا", "هذه", "الى", "إلى", "بدي", "عندي", "عبر", "مع",
 ))
 
