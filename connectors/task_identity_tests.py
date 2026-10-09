@@ -24,11 +24,17 @@ class TaskIdentityTests(unittest.TestCase):
         task_identity.activate(s, "اعمل لعبة طيارة ودبابة HTML")
         s.todo = [{"text": "Test game in browser", "status": "pending"}]
         s.goal = "Verify game"
+        s.read_attempts = {"previous-game-inspection": 2}
+        s.consecutive_inspections = 9
+        s.compact_since_tool = 2
         task_identity.activate(s, "افتح واتساب")
         self.assertEqual(s.active_objective, "افتح واتساب")
         self.assertEqual(s.active_task_anchor, "افتح واتساب")
         self.assertEqual(s.todo, [])
         self.assertEqual(s.goal, "")
+        self.assertEqual(s.read_attempts, {})
+        self.assertEqual(s.consecutive_inspections, 0)
+        self.assertEqual(s.compact_since_tool, 0)
 
     def test_game_followup_does_not_start_new_task(self):
         s = self.session
