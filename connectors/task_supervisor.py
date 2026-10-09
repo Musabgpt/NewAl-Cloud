@@ -132,14 +132,15 @@ class TaskSupervisor:
         self.task_id = "auto-%s-turn-%d" % (str(session.id)[:40], self.turn)
         self._stop = threading.Event()
         self._lock = threading.RLock()
-        try:
-            self.previous = task_state.resume(session.root, session_id=session.id)
-        except Exception:
-            self.previous = None
+        from . import task_identity
+        is_continue = task_identity.continuation(self.objective)
+        original = str(getattr(session, "active_objective", "") or "").strip()
+        self.previous = task_identity.previous_checkpoint(session, is_continue)
         self._latest_checkpoint = {}
-        if self.previous and _CONTINUATION.search(self.objective):
+        if is_continue and original and not task_identity.continuation(original):
+            self.objective = original
+        if self.previous:
             self.task_id = self.previous["id"]
-            self.objective = self.previous.get("objective") or self.objective
             self._latest_checkpoint = dict(self.previous.get("checkpoint") or {})
         self._thread = None
 
@@ -201,6 +202,9 @@ class TaskSupervisor:
                 return None
 
     def start(self):
+        self.session.active_task_id = self.task_id
+        if hasattr(self.session, "save_meta"):
+            self.session.save_meta()
         self._checkpoint(
             progress=self._latest_checkpoint.get("progress") or "Supervised turn started.",
             next_step=self._latest_checkpoint.get("next_step") or "Continue from agent step 0.",
