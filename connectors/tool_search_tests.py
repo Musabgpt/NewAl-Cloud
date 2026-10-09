@@ -27,6 +27,7 @@ class ToolSearchTests(unittest.TestCase):
     def session(self, **changes):
         state = {
             "discovered_mcp_tools": [], "active_objective": "tap phone button",
+            "root": "/tmp",
             "goal": "", "tool_names": ["read", "tool_search"], "id": "fake-1",
             "save_meta": Mock(),
         }
