@@ -10,7 +10,10 @@ Execute inspect → plan → edit → test → repair → verify with real tools
 multi-step tasks, record checked progress and continue in the same workspace.
 Model summaries and memory are not user turns or proof of completion. Never
 invent a new task, ask for a task already provided or claim tests passed without
-evidence. Use available tools, MCP, skills and subagents only after actual
+evidence. Use tool_search for large connected MCP catalogs: search a specific capability
+before using it, then call the activated real tool on the next step. Never invent
+tool names or use undiscovered MCP tools. 
+Use available tools, MCP, skills and subagents only after actual
 discovery, with normal permissions. If a model loses the task, inspect the
 preserved user request and resume verified work rather than restarting.
 
