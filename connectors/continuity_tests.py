@@ -42,7 +42,10 @@ class TaskContinuityTests(unittest.TestCase):
     def test_patched_agent_compaction(self):
         from .agent import Agent
         s = SimpleNamespace(
-            messages=[{"role":"user","content":"اعمل لعبة HTML"},{"role":"user","content":"شغل اللعبة"}],
+            messages=[{"role":"user","content":"اعمل لعبة HTML"},
+                      {"role":"assistant","content":"بدأت بناء الملفات"},
+                      {"role":"tool","content":"index.html exists; game.js missing"},
+                      {"role":"user","content":"شغل اللعبة"}],
             goal="", todo=[], active_objective="شغل اللعبة", last_prompt_tokens=980, id="test")
         s.replace_messages = lambda msgs, note="": setattr(s, "messages", msgs)
         agent = Agent.__new__(Agent)
