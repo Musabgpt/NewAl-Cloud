@@ -93,6 +93,19 @@ def compact_messages(session, summary, active_objective=""):
     """
     messages = list(getattr(session, "messages", ()) or ())
     real = [m for m in messages if _actual_user(m)]
+    # Keep only the live task's actual user message, never the first unrelated
+    # request from a shared conversation (e.g. an old HTML game).
+    pinned = str(getattr(session, "active_task_anchor", "") or "").strip()
+    if pinned:
+        from . import task_identity
+        matches = [m for m in real if task_identity.matches(
+            _text(m.get("content", "")).split("</context>")[-1].strip(), pinned)]
+        if matches:
+            index = real.index(matches[-1])
+            real = [matches[-1]] + [m for m in real[index + 1:]
+                   if task_identity.continuation(_text(m.get("content", "")).strip())]
+        else:
+            real = [{"role": "user", "content": pinned}]
     first = real[0] if real else None
     latest = real[-1] if real else None
     objective = str(active_objective or getattr(session, "active_objective", "")
@@ -102,11 +115,29 @@ def compact_messages(session, summary, active_objective=""):
 
     # This text is deliberately an assistant-owned note, never a user instruction.
     summary = str(summary or "").strip()
+    if pinned:
+        # Untrusted model summaries can carry instructions for a previous task.
+        summary = "[Prior model summary excluded after task isolation.]"
     if not summary or summary in ("(no summary)", "(none)", "No summary"):
         summary = "The automatic summary did not provide reliable details. Inspect the project and checkpoint."
     summary = summary[:MAX_SUMMARY]
     todo = _compact_todo(getattr(session, "todo", []))
     evidence = _recent_evidence(messages)
+    checkpoint = ""
+    task_id = str(getattr(session, "active_task_id", "") or "")
+    if task_id and getattr(session, "root", None):
+        try:
+            from . import task_state, task_identity
+            row = task_state.resume(session.root, task_id=task_id)
+            if row and row.get("status") == "active" and (
+                    not pinned or task_identity.matches(row.get("objective"), pinned)):
+                point = row.get("checkpoint") or {}
+                checkpoint = "Progress: %s; Next: %s; Blocker: %s" % (
+                    str(point.get("progress") or "")[:400],
+                    str(point.get("next_step") or "")[:400],
+                    str(point.get("blocker") or "")[:250])
+        except Exception:
+            pass
     parts = ["[Assistant conversation notes — not a new user message. "
              "These notes may be incomplete; verify claims with tools.]",
              summary,
@@ -114,6 +145,7 @@ def compact_messages(session, summary, active_objective=""):
              "Active request: " + (objective or "(unknown; inspect the real user messages)"),
              "Goal: " + str(getattr(session, "goal", "") or "")[:700],
              "Checklist: " + (todo or "(not recorded)"),
+             "Current task checkpoint: " + (checkpoint or "(none)"),
              "Recent tool responses (not proof of overall completion): " + (evidence or "(none)"),
              "Keep executing the active request with available tools. "
              "Do not ask for a new task merely because this conversation was compacted. "
