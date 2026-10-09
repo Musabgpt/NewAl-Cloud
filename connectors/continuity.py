@@ -95,6 +95,13 @@ def compact_messages(session, summary, active_objective=""):
     real = [m for m in messages if _actual_user(m)]
     first = real[0] if real else None
     latest = real[-1] if real else None
+    # An older user task is not the active instruction after an explicit switch.
+    # Keep only the active user turn, never an unrelated historic request.
+    from . import progress_guard
+    if latest and progress_guard.is_continuation(_text(latest.get("content"))):
+        latest = next((m for m in reversed(real[:-1])
+                       if not progress_guard.is_continuation(_text(m.get("content")))), latest)
+    first = latest
     objective = str(active_objective or getattr(session, "active_objective", "")
                     or getattr(session, "goal", "") or "").strip()[:MAX_OBJECTIVE]
     if not objective and latest:
