@@ -144,6 +144,8 @@ class TaskSupervisorTests(unittest.TestCase):
             next_step="Build APK",
             evidence="run-123",
         )
+        self.session.active_objective = "Finish release"
+        self.session.active_task_id = previous["id"]
         sup = self.make("Continue the release")
         context = sup.resume_context("كمل من حيث توقفنا")
         self.assertIn(previous["id"], context)
@@ -214,6 +216,7 @@ class SupervisorRecoveryTests(unittest.TestCase):
     setUp = TaskSupervisorTests.setUp
     make = TaskSupervisorTests.make
     def test_continue_reuses_task_and_keeps_verified_progress_on_stop(self):
+        self.session.active_objective = 'Build calculator'
         first = self.make('Build calculator', 1)
         first.start()
         first.observe({'type': 'tool_end', 'name': 'write', 'ok': True, 'step': 2})
