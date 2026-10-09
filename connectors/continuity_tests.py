@@ -61,15 +61,14 @@ class TaskContinuityTests(unittest.TestCase):
         a.cancel = threading.Event()
         a.emit = Mock()
         a._prune_outputs = lambda: 0
-        for turn in range(2):
-            self.assertTrue(a._maybe_compact())
-            self.assertEqual(s.compact_since_tool, turn + 1)
-            s.messages.append({"role":"assistant","content":"Waiting without tool progress"})
-            s.last_prompt_tokens = 950
-        with self.assertRaises(providers.ProviderError):
-            a._maybe_compact()
-        self.assertEqual(a.client.chat.call_count, 2,
-                         "No third summary request may be sent without tool progress")
+        self.assertTrue(a._maybe_compact())
+        self.assertEqual(s.compact_since_tool, 1)
+        s.messages.append({"role":"assistant","content":"Waiting without tool progress"})
+        s.last_prompt_tokens = 950
+        self.assertFalse(a._maybe_compact())
+        self.assertEqual(s.compact_since_tool, 1)
+        self.assertEqual(a.client.chat.call_count, 0,
+                         "Automatic compaction must not call the LLM or block future work")
 
     def test_patched_agent_compaction(self):
         from .agent import Agent
