@@ -56,6 +56,28 @@ class TaskSupervisorTests(unittest.TestCase):
         self.assertEqual(sup.recoveries, 0)
         self.assertFalse(sup.cancel_token.is_set())
 
+    def test_unfinished_checklist_never_marks_task_complete(self):
+        self.session.todo = [
+            {"content": "Write game.js", "status": "in_progress"},
+            {"content": "Test in Android browser", "status": "pending"},
+        ]
+        sup = self.make("Build the airplane and tank HTML game")
+        sup.start()
+        sup.finish(answer="Ready. What would you like me to do?")
+        row = task_state.resume(self.root, sup.task_id)
+        self.assertEqual(row["status"], "active")
+        self.assertIn("Write game.js", row["checkpoint"]["next_step"])
+        self.assertIn("without verified", row["checkpoint"]["blocker"])
+
+    def test_lost_task_reply_does_not_complete_task_with_empty_todo(self):
+        self.session.todo = []
+        sup = self.make("شغل اللعبة")
+        sup.start()
+        sup.finish(answer="ما عندي مهمة، شو بدك أعمل؟")
+        row = task_state.resume(self.root, sup.task_id)
+        self.assertEqual(row["status"], "active")
+        self.assertIn("without verified", row["checkpoint"]["blocker"])
+
     def test_manual_stop_sets_real_cancel_and_preserves_resume_checkpoint(self):
         sup = self.make()
         sup.start()
