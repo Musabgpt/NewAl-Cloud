@@ -322,6 +322,21 @@ class TaskSupervisor:
             self._thread.join(timeout=1)
         reason = self.cancel_token.reason()
         if not error and reason not in ("user", "hard_timeout", "stall_exhausted"):
+            # A provider ending its reply is not evidence that multi-step work
+            # finished. Keep the task resumable until the checklist is complete.
+            pending = [
+                str(item.get("content") or item.get("text") or item.get("title") or "")[:150]
+                for item in (getattr(self.session, "todo", None) or [])
+                if isinstance(item, dict) and item.get("status") not in ("done", "completed")
+            ]
+            from . import continuity
+            if pending or continuity.lost_task_reply(answer, self.objective):
+                self._checkpoint(
+                    next_step=("Complete unfinished checklist: " + "; ".join(pending[:4]))
+                              if pending else "Resume the actual user request from the current files.",
+                    blocker="Turn ended without verified task completion.",
+                )
+                return
             try:
                 task_state.complete(
                     self.session.root,
