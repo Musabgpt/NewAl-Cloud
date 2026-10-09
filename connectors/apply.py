@@ -30,7 +30,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("request_context", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
+    for name in ("request_context", "continuity", "continuity_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
@@ -382,6 +382,44 @@ def apply(root):
     replace(package / "tools.py", '    names += ["memory_recall"]\n', '    names += ["memory_recall"] + _documents.NAMES + _evolution.NAMES + _addons.NAMES + _automation.NAMES + _browser_router.NAMES + _search_router.NAMES + _document_engine.NAMES + _project_rag.NAMES + _orchestrator.NAMES + _execution.NAMES + _runtime_manager.NAMES + _git_workspace.NAMES + _observability.NAMES + _task_state.NAMES\n')
     replace(package / "ui/app.js", '    connectEvents();\n', '    window.NewAlWorkspaceSession = () => S.current;\n    connectEvents();\n')
     replace(package / "agent.py", '        parts.append(text)\n', '        parts.append("For document tasks use document_create/read/download and archive_pack/extract. Save a real file and report its path; do not claim a file exists without checking. For self-improvement use self_evolve, edit the isolated candidate, then self_evolve_verify. Never claim an untested candidate improved intelligence. Remember supported preferences with memory_learn. For existing project code, use project_rag_search to retrieve relevant file/line evidence before broad edits. For cross-tool multi-step work, use orchestrator_plan when routing is not obvious; it is advisory and never bypasses permissions. For execution routing use execution_plan. On Android, run bounded shell commands through runtime_exec so node/npm/npx/python/git/bash are discovered and executed in Termux over the authenticated localhost bridge rather than the Android app sandbox; ANDROID_NATIVE never needs adb. For long-running Termux commands use runtime_process_start, then runtime_process_status or runtime_process_stop using the returned process id; never repeat a pending command. sandbox_exec is scratch-only and is not an OS security boundary. Use bounded git_status/git_diff/git_log/git_commit for local repository work; git_commit never pushes. Observability is local metadata by default; use observability_status/tail for inspection and observability_export only when the user explicitly wants export to a configured backend. For long work that should survive a restart, use task_checkpoint after meaningful verified progress; when the user asks to continue or resume, use task_resume before guessing; mark the checkpoint complete only after verification with task_complete.")\n        parts.append(text)\n')
+    # Context compaction and task identity must be deterministic, not model-owned.
+    # The original session source is pinned; fail closed if any anchor has changed.
+    replace(package / "session.py", '        self.goal = ""\n',
+            '        self.goal = ""\n        self.active_objective = ""\n')
+    replace(package / "session.py", '"goal": self.goal, "goal_progress": self.goal_progress,',
+            '"goal": self.goal, "active_objective": self.active_objective, "goal_progress": self.goal_progress,')
+    replace(package / "session.py", '        s.goal = meta.get("goal", "")\n',
+            '        s.goal = meta.get("goal", "")\n        s.active_objective = meta.get("active_objective", "")\n')
+    replace(package / "agent.py", '        s.add({"role": "user", "content": content})\n',
+            '        s.add({"role": "user", "content": content})\n        if self.depth == 0:\n            s.active_objective = str(text or "")[:2000]\n            s.save_meta()\n')
+    replace(package / "agent.py", '        answer = ""\n        verify_rounds = goal_rounds = stop_rounds = 0\n',
+            '        answer = ""\n        from . import continuity\n        recovered_continuity = False\n        verify_rounds = goal_rounds = stop_rounds = 0\n')
+    replace(package / "agent.py", '                answer = shown(comp.content)\n',
+            '''                answer = shown(comp.content)
+                if self.depth == 0 and not recovered_continuity and continuity.lost_task_reply(
+                        answer, s.active_objective):
+                    recovered_continuity = True
+                    s.add({"role": "assistant", "content": continuity.correction(s.active_objective)})
+                    self.emit({"type": "status", "text": "Recovering the active task after lost context…"})
+                    continue
+''')
+    replace(package / "agent.py", '        comp = self.client.chat(msgs, tools=self.schemas(), owner=s.id, max_tokens=700, reasoning="off",\n',
+            '        comp = self.client.chat(msgs, tools=None, owner=s.id, max_tokens=700, reasoning="off",\n')
+    replace(package / "agent.py", '''        summary = (comp.content or "").strip() or "(no summary)"
+        first_user = next((m for m in s.messages if m.get("role") == "user"), None)
+        keep = []
+        if first_user and isinstance(first_user.get("content"), str) and "<context>" in first_user["content"]:
+            ctx_part = first_user["content"].split("</context>")[0] + "</context>"
+            keep.append({"role": "user", "content": ctx_part + "\n\nSummary of the conversation so far:\n" + summary})
+        else:
+            keep.append({"role": "user", "content": "Summary of the conversation so far:\n" + summary})
+        keep.append({"role": "assistant", "content": "Understood. I'll continue from here."})
+        s.replace_messages(keep)
+''',
+            '''        from . import continuity
+        summary = (comp.content or "").strip()
+        s.replace_messages(continuity.compact_messages(s, summary, s.active_objective))
+''')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });
