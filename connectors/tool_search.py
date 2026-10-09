@@ -20,7 +20,7 @@ _WORDS = re.compile(r"[^\W_]{2,}", re.UNICODE)
 _NOISE = frozenset((
     "the", "for", "with", "from", "this", "that", "into", "then", "please",
     "use", "tool", "tools", "mcp", "and", "can", "you", "get", "show",
-    "phone", "android", "service",
+    "phone", "android", "service", "on", "in", "of", "to", "as", "it", "we", "do", "my", "me", "work",
     "من", "في", "على", "هذا", "هذه", "الى", "إلى", "بدي", "عندي", "عبر", "مع",
 ))
 
@@ -50,11 +50,11 @@ def _score(item, query):
     for word in words:
         if word in tokens:
             score += 9
-        elif word in name:
+        elif len(word) >= 4 and word in name:
             score += 5
         if word in description_tokens:
             score += 3
-        elif word in desc:
+        elif len(word) >= 4 and word in desc:
             score += 1
     exact = str(query or "").strip().casefold()
     if len(exact) > 3 and exact in searchable:
