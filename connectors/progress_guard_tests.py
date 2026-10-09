@@ -111,5 +111,51 @@ class ProgressGuardTests(unittest.TestCase):
         self.assertEqual(g.before("read", {"path": "existing.html"}, "read"), "")
 
 
+class ShellInspectionLoopTests(unittest.TestCase):
+    def test_cd_prefixed_and_piped_probes_are_inspections(self):
+        workspace = "/data/app/files/home/.newal-code/workspaces/Musab new"
+        self.assertTrue(progress_guard.is_observation(
+            "bash", {"command": 'cd "%s" && find . -maxdepth 2 -type f 2>&1 | head -50' % workspace}, "run"))
+        self.assertTrue(progress_guard.is_observation("bash", {"command": "cd x && ls -la"}, "run"))
+
+    def test_writes_and_destructive_probes_are_not_inspections(self):
+        for command in ("cat game.html > out.txt", "cd x && python3 app.py",
+                        "find . -name '*.tmp' -delete", "find . -exec rm {} \\;",
+                        "ls $(rm -rf x)", "ls <<EOF"):
+            self.assertFalse(progress_guard.is_observation("bash", {"command": command}, "run"), command)
+
+    def test_many_different_probes_without_action_hit_the_run_limit(self):
+        guard = progress_guard.Guard(make_session())
+        for i in range(progress_guard.CONSECUTIVE_INSPECTION_LIMIT):
+            command = {"command": "ls part%d" % i}
+            self.assertEqual(guard.before("bash", command, "run"), "")
+            guard.after("bash", command, "run", "part%d.txt" % i)
+        self.assertIn("no-progress loop", guard.before("bash", {"command": "find . -name x"}, "run"))
+
+    def test_inspections_interleaved_with_actions_are_not_a_loop(self):
+        guard = progress_guard.Guard(make_session())
+        for i in range(3 * progress_guard.CONSECUTIVE_INSPECTION_LIMIT):
+            self.assertEqual(guard.before("read", {"path": "page%d.html" % i}, "read"), "")
+            guard.after("read", {"path": "page%d.html" % i}, "read", "ok")
+            self.assertEqual(guard.before("phone", {"action": "tap"}, "run"), "")
+            guard.after("phone", {"action": "tap"}, "run", "Tapped the button")
+
+    def test_failed_actions_do_not_end_an_inspection_run(self):
+        guard = progress_guard.Guard(make_session())
+        for i in range(progress_guard.CONSECUTIVE_INSPECTION_LIMIT):
+            guard.before("read", {"path": "a%d" % i}, "read")
+            guard.after("read", {"path": "a%d" % i}, "read", "ok")
+            guard.after("phone", {"action": "open"}, "run", "not allowed: user declined")
+        self.assertIn("no-progress loop", guard.before("read", {"path": "last"}, "read"))
+
+    def test_near_limit_warning_asks_for_a_different_action(self):
+        guard = progress_guard.Guard(make_session())
+        last = ""
+        for i in range(progress_guard.CONSECUTIVE_INSPECTION_LIMIT - 2):
+            guard.before("read", {"path": "f%d" % i}, "read")
+            last = guard.after("read", {"path": "f%d" % i}, "read", "ok")
+        self.assertIn("Stop inspecting", last)
+
+
 if __name__ == "__main__":
     unittest.main()
