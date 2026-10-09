@@ -126,6 +126,7 @@ class TaskSupervisor:
         self.last_checkpoint_at = 0.0
         self.last_event = "start"
         self.last_tool = ""
+        self._probe_args = {}
         self.step = 0
         self.recoveries = 0
         self.task_id = "auto-%s-turn-%d" % (str(session.id)[:40], self.turn)
@@ -223,6 +224,10 @@ class TaskSupervisor:
                 pass
             if kind == "tool_start":
                 self.last_tool = str((ev or {}).get("name") or "")[:120]
+                self._remember_args(ev)
+        if kind == "tool_end" and self._is_probe_completion(ev):
+            # Read-only probes prove no planned step; keep the last durable checkpoint.
+            return
         if kind == "tool_end":
             meta = (ev or {}).get("meta") or {}
             ok = bool((ev or {}).get("ok")) and meta.get("ok") is not False and not meta.get("error") and not meta.get("isError")
@@ -246,6 +251,29 @@ class TaskSupervisor:
                 next_step="Continue from the verified state." if ok else "Fix the verified failure before moving on.",
                 evidence=str((ev or {}).get("command") or "")[:task_state.MAX_EVIDENCE],
             )
+
+    def _remember_args(self, ev):
+        """Keep the arguments of a started tool so its completion can be classified."""
+        key = str((ev or {}).get("id") or "")
+        args = (ev or {}).get("args")
+        if not key or not isinstance(args, dict):
+            return
+        probes = getattr(self, "_probe_args", None)
+        if probes is None:
+            probes = self._probe_args = {}
+        if len(probes) >= 64:
+            probes.clear()
+        probes[key] = args
+
+    def _is_probe_completion(self, ev):
+        """True when a completed tool only inspected state, e.g. cd x && find ..."""
+        from . import progress_guard, tools
+        name = str((ev or {}).get("name") or "")
+        tool = tools.REGISTRY.get(name)
+        with self._lock:
+            probes = getattr(self, "_probe_args", None) or {}
+            args = probes.pop(str((ev or {}).get("id") or ""), None) or {}
+        return progress_guard.is_observation(name, args, tool.kind if tool else "")
 
     def mark_progress(self, label="recovery"):
         with self._lock:
