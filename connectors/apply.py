@@ -30,7 +30,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("request_context", "continuity", "continuity_tests", "progress_guard", "progress_guard_tests", "tool_search", "tool_search_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
+    for name in ("request_context", "continuity", "continuity_tests", "task_identity", "task_identity_tests", "progress_guard", "progress_guard_tests", "tool_search", "tool_search_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
@@ -537,6 +537,61 @@ def apply(root):
                 # A read, a task_resume or a status probe does not prove that any
                 # planned step was completed. Keep the previous durable checkpoint.
                 return
+''')
+    # Task identity comes from the latest real user instruction, never the last
+    # project checkpoint or an assistant-authored compaction note.
+    replace(package / "session.py", '        self.active_objective = ""\n'
+            '        self.compact_since_tool = 0\n',
+            '        self.active_objective = ""\n'
+            '        self.compact_since_tool = 0\n'
+            '        self.active_task_id = ""\n'
+            '        self.active_task_anchor = ""\n')
+    replace(package / "session.py", '"active_objective": self.active_objective, "compact_since_tool":',
+            '"active_objective": self.active_objective, '
+            '"active_task_id": self.active_task_id, "active_task_anchor": self.active_task_anchor, '
+            '"compact_since_tool":')
+    replace(package / "session.py", '        s.active_objective = meta.get("active_objective", "")\n'
+            '        s.compact_since_tool = int(meta.get("compact_since_tool") or 0)\n',
+            '        s.active_objective = meta.get("active_objective", "")\n'
+            '        s.active_task_id = meta.get("active_task_id", "")\n'
+            '        s.active_task_anchor = meta.get("active_task_anchor", "")\n'
+            '        s.compact_since_tool = int(meta.get("compact_since_tool") or 0)\n')
+    replace(package / "agent.py", '        self._memory_task = text\n'
+            '        supervisor_context = []\n',
+            '        self._memory_task = text\n'
+            '        if self.depth == 0:\n'
+            '            from . import task_identity\n'
+            '            task_identity.activate(s, text)\n'
+            '        supervisor_context = []\n')
+    # A fresh explicit command must not append to an old game's model history.
+    # Disk transcript/events and files are untouched; only request context is reset.
+    replace(package / "agent.py", '            s.save_meta()\n'
+            '        if s.turn == 1 and self.depth == 0:\n',
+            '            s.save_meta()\n'
+            '        if s.turn == 1 and self.depth == 0:\n')
+    # Automatic compaction must not spend model calls repeating stale summaries.
+    # One deterministic task-specific reduction per progress epoch is enough.
+    replace(package / "agent.py",
+            '        if not force and getattr(s, "compact_since_tool", 0) >= 2:\n'
+            '            raise providers.ProviderError("Repeated automatic compaction without tool progress; '
+            'the task remains resumable. Reduce tool/context load or change model.")\n'
+            '        hook_cfg = self.cfg.get("hooks") or {}\n',
+            '''        if not force and getattr(s, "compact_since_tool", 0) >= 1:
+            # Already compacted to a bounded working set in this progress epoch.
+            # The remaining cost is largely fixed prompt/tools/provider cache:
+            # summarizing it again cannot reclaim it and must not stop the task.
+            return False
+        if not force:
+            from . import continuity
+            s.replace_messages(
+                continuity.compact_messages(s, "", getattr(s, "active_objective", "")),
+                note="task-scoped-auto-compact")
+            s.compact_since_tool = 1
+            s.last_prompt_tokens = 0
+            s.save_meta()
+            self.emit({"type": "compacted", "summary": "Recovered current task from durable records."})
+            return True
+        hook_cfg = self.cfg.get("hooks") or {}
 ''')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
