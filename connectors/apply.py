@@ -405,7 +405,7 @@ def apply(root):
 ''')
     replace(package / "agent.py", '        comp = self.client.chat(msgs, tools=self.schemas(), owner=s.id, max_tokens=700, reasoning="off",\n',
             '        comp = self.client.chat(msgs, tools=None, owner=s.id, max_tokens=700, reasoning="off",\n')
-    replace(package / "agent.py", '''        summary = (comp.content or "").strip() or "(no summary)"
+    replace(package / "agent.py", r'''        summary = (comp.content or "").strip() or "(no summary)"
         first_user = next((m for m in s.messages if m.get("role") == "user"), None)
         keep = []
         if first_user and isinstance(first_user.get("content"), str) and "<context>" in first_user["content"]:
