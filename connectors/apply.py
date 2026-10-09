@@ -30,7 +30,7 @@ def apply(root):
     here = Path(__file__).resolve().parent
     shutil.copyfile(here / "runtime.py", package / "connectors.py")
     shutil.copyfile(here.parent / "desktop/autonomy/test_memory.py", package / "autonomy_tests.py")
-    for name in ("request_context", "continuity", "continuity_tests", "tool_search", "tool_search_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
+    for name in ("request_context", "continuity", "continuity_tests", "progress_guard", "progress_guard_tests", "tool_search", "tool_search_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
@@ -475,6 +475,69 @@ def apply(root):
             'the task remains resumable. Reduce tool/context load or change model.")\n'
             '        hook_cfg = self.cfg.get("hooks") or {}\n'
             '        if hooks.configured(hook_cfg, "PreCompact"):\n')
+    # Evidence-based no-progress guard. Read-only calls (including task_resume)
+    # cannot reset compaction or overwrite the last meaningful checkpoint.
+    replace(package / "session.py", '        self.compact_since_tool = 0\n',
+            '        self.compact_since_tool = 0\n        self.read_attempts = {}\n')
+    replace(package / "session.py", '"compact_since_tool": self.compact_since_tool, "goal_progress":',
+            '"compact_since_tool": self.compact_since_tool, "read_attempts": self.read_attempts, "goal_progress":')
+    replace(package / "session.py", '        s.compact_since_tool = int(meta.get("compact_since_tool") or 0)\n',
+            '        s.compact_since_tool = int(meta.get("compact_since_tool") or 0)\n'
+            '        s.read_attempts = dict(meta.get("read_attempts") or {})\n')
+    replace(package / "agent.py", '            s.active_objective = str(text or "")[:2000]\n'
+            '            s.compact_since_tool = 0\n'
+            '            s.save_meta()\n',
+            '''            from . import progress_guard
+            if not progress_guard.is_continuation(text):
+                s.active_objective = str(text or "")[:2000]
+                s.compact_since_tool = 0
+                s.read_attempts = {}
+            elif not s.active_objective:
+                s.active_objective = str(text or "")[:2000]
+            s.save_meta()
+''')
+    replace(package / "agent.py", '        from . import continuity\n        recovered_continuity = False\n',
+            '        from . import continuity, progress_guard\n'
+            '        self.progress_guard = progress_guard.Guard(s) if self.depth == 0 else None\n'
+            '        recovered_continuity = False\n')
+    replace(package / "agent.py", '            s.add({"role": "tool", "tool_call_id": c["id"], "content": text})\n'
+            '            s.compact_since_tool = 0\n',
+            '            s.add({"role": "tool", "tool_call_id": c["id"], "content": text})\n')
+    replace(package / "agent.py", '                    self._run_tools(ctx, comp.tool_calls)\n',
+            '''                    self._run_tools(ctx, comp.tool_calls)
+                    if self.depth == 0 and self.progress_guard and self.progress_guard.halted:
+                        answer = self.progress_guard.safe_message(s.active_objective)
+                        error = "no_progress_loop"
+                        self.emit({"type": "notice", "text": answer})
+                        break
+''')
+    replace(package / "agent.py", '        started = time.time()\n        ok = True\n        meta = {}\n',
+            '''        guard = getattr(self, "progress_guard", None)
+        if guard is not None:
+            duplicate = guard.before(name, args, kind)
+            if duplicate:
+                self.emit({"type": "tool_end", "id": cid, "name": name, "ok": False,
+                           "text": duplicate, "blocked": True})
+                return duplicate
+        started = time.time()
+        ok = True
+        meta = {}
+''')
+    replace(package / "agent.py", '        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))\n',
+            '''        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))
+        if guard is not None and not failed:
+            text = guard.after(name, args, kind, text)
+''')
+    replace(package / "task_supervisor.py", '        if kind == "tool_end":\n',
+            '''        if kind == "tool_end":
+            from . import progress_guard, tools
+            name = str((ev or {}).get("name") or "")
+            tool = tools.REGISTRY.get(name)
+            if progress_guard.is_observation(name, {}, tool.kind if tool else ""):
+                # A read, a task_resume or a status probe does not prove that any
+                # planned step was completed. Keep the previous durable checkpoint.
+                return
+''')
     # Surgical changes for independent workspace sessions; repository tasks remain a separate feature.
     replace(package / "ui/app.js", '    if (!root) return pickFolder(r => newThread(r));', '''    if (!root && pref("env") === "cloud") {
       const d = await api("/api/workspaces", { model: pref("model"), mode: pref("mode") });
