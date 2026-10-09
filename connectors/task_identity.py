@@ -72,6 +72,9 @@ def activate(session, instruction):
     session.active_task_anchor = instruction
     session.active_task_id = ""
     if switched:
+        session.read_attempts = {}
+        session.consecutive_inspections = 0
+        session.compact_since_tool = 0
         session.todo = []
         session.goal = ""
         session.goal_progress = 0
