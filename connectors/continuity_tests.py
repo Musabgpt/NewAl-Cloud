@@ -39,6 +39,38 @@ class TaskContinuityTests(unittest.TestCase):
         self.assertFalse(continuity.lost_task_reply("I don't have a task.", ""))
         self.assertFalse(continuity.lost_task_reply("Game needs game.js.", "make a game"))
 
+    def test_repeated_compaction_without_tool_progress_stops_instead_of_looping(self):
+        from .agent import Agent
+        from . import providers
+        s = SimpleNamespace(
+            messages=[{"role":"user","content":"Build HTML plane and tank game"},
+                      {"role":"assistant","content":"Started work"},
+                      {"role":"assistant","content":"Still inspecting"},
+                      {"role":"user","content":"Continue testing"}],
+            goal="", todo=[{"content":"Run browser tests","status":"pending"}],
+            active_objective="Continue testing", last_prompt_tokens=980,
+            compact_since_tool=0, id="test")
+        s.replace_messages = lambda msgs, note="": setattr(s, "messages", msgs)
+        s.save_meta = Mock()
+        a = Agent.__new__(Agent)
+        a.session = s
+        a.cfg = {"auto_compact": .8}
+        a.client = SimpleNamespace(context=lambda: 1000,
+                                   chat=Mock(return_value=SimpleNamespace(content="Summary")))
+        a.request_messages = lambda: list(s.messages)
+        a.cancel = threading.Event()
+        a.emit = Mock()
+        a._prune_outputs = lambda: 0
+        for turn in range(2):
+            self.assertTrue(a._maybe_compact())
+            self.assertEqual(s.compact_since_tool, turn + 1)
+            s.messages.append({"role":"assistant","content":"Waiting without tool progress"})
+            s.last_prompt_tokens = 950
+        with self.assertRaises(providers.ProviderError):
+            a._maybe_compact()
+        self.assertEqual(a.client.chat.call_count, 2,
+                         "No third summary request may be sent without tool progress")
+
     def test_patched_agent_compaction(self):
         from .agent import Agent
         s = SimpleNamespace(
@@ -48,6 +80,8 @@ class TaskContinuityTests(unittest.TestCase):
                       {"role":"user","content":"شغل اللعبة"}],
             goal="", todo=[], active_objective="شغل اللعبة", last_prompt_tokens=980, id="test")
         s.replace_messages = lambda msgs, note="": setattr(s, "messages", msgs)
+        s.save_meta = Mock()
+        s.compact_since_tool = 0
         agent = Agent.__new__(Agent)
         agent.session = s
         agent.cfg = {"auto_compact": .8}
