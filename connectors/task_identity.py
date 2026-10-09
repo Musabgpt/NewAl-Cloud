@@ -26,6 +26,24 @@ def matches(left, right):
     return bool(normalized(left)) and normalized(left) == normalized(right)
 
 
+_TOPICS = (
+    ("game", "لعب", "html", "canvas", "طيارة", "دبابة"),
+    ("whatsapp", "واتساب", "واتس"),
+    ("gmail", "بريد", "ايميل", "email"),
+    ("browser", "متصفح", "chrome", "playwright"),
+    ("github", "مستودع", "repository", "git"),
+)
+
+
+def same_project_followup(previous, instruction):
+    """Explicitly reuse the task only when both turns name its domain."""
+    a, b = normalized(previous), normalized(instruction)
+    for terms in _TOPICS:
+        if any(t in a for t in terms) and any(t in b for t in terms):
+            return True
+    return False
+
+
 def activate(session, instruction):
     """Anchor an actual user message before supervisor creation.
 
@@ -45,6 +63,10 @@ def activate(session, instruction):
         session.active_task_id = ""
         return instruction
 
+    related = bool(prior and same_project_followup(prior, instruction))
+    if related:
+        # 'شغل اللعبة' is the next step of the existing game, not a new game.
+        return prior
     switched = bool(prior and not matches(prior, instruction))
     session.active_objective = instruction
     session.active_task_anchor = instruction
