@@ -122,7 +122,15 @@ def compact_messages(session, summary, active_objective=""):
         summary = "The automatic summary did not provide reliable details. Inspect the project and checkpoint."
     summary = summary[:MAX_SUMMARY]
     todo = _compact_todo(getattr(session, "todo", []))
-    evidence = _recent_evidence(messages)
+    scoped_messages = messages
+    if pinned:
+        from . import task_identity
+        start = next((i for i in reversed(range(len(messages)))
+                      if _actual_user(messages[i]) and task_identity.matches(
+                          _text(messages[i].get("content")).split("</context>")[-1].strip(),
+                          pinned)), None)
+        scoped_messages = messages[start:] if start is not None else []
+    evidence = _recent_evidence(scoped_messages)
     checkpoint = ""
     task_id = str(getattr(session, "active_task_id", "") or "")
     if task_id and getattr(session, "root", None):
