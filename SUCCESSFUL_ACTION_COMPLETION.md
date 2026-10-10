@@ -54,4 +54,25 @@ passed. Final repeat-count/termination checks passed. The original engine suite
 passed 146 tests with 19 existing platform skips. Clean Android CI is still
 required before delivery.
 
-Publication and APK verification evidence will be recorded after CI completes.
+## Verified delivery
+
+Android [build 372](https://github.com/Musabgpt/NewAl-Cloud/actions/runs/38042791100)
+completed successfully, including all required CI gates. Source commit:
+`c3cfcb27512bbdefed5e0a057f00a922b8bad242`; tree
+`17527f15a6360e3d1f5ab70f6ea206caff2b26a6` exactly matched the local tested tree.
+Branch: `fix/successful-action-stop`. Artifact: `11665939422`.
+
+- Delivered APK: `MusabAI-372.apk`, 40,110,206 bytes.
+- APK SHA-256: `e94cfaa56122812398203cc4e0c8ca3ac0dca91ff1a369b1f5e55a552a6087d2`.
+- Artifact ZIP SHA-256: `ddf607bbfb8fad9673762d5b40acfbbc6808258e385a57fb3f9db9fce3fa0172`.
+- Independent Google apksig validation passed, signature schemes v2 and v3.
+- Certificate SHA-256: `6af53b6b3e2574eed16aaae7ce92ade3dcde702a74af1dfae994c9c87609cbb6`,
+  matching the approved signing identity.
+- Eleven engine files inside the actual APK match the tested sources byte for
+  byte. The packaged original-feature gate also passed.
+- The hot-update bundle identifies this same commit and run; all 158 listed file
+  hashes verified. No production update channel change or merge to main occurred.
+
+The native-phone responses and repeating provider were simulated in the agent
+integration tests. Actual Samsung UI and live provider execution remain untested
+here; the APK, build gates, packaged source and signature were independently checked.

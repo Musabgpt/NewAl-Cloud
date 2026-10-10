@@ -1,12 +1,5 @@
 {
-  "active_operation": {
-    "branch": "fix/successful-action-stop",
-    "id": "publish-successful-action-stop",
-    "kind": "git-publication",
-    "parent": "e72109179446a32815b70db8f53d61d37f4f7877",
-    "repository": "Musabgpt/NewAl-Cloud",
-    "status": "planned"
-  },
+  "active_operation": null,
   "blockers": [
     "Automatic approval review rejected git push; no Android CI or signed APK yet"
   ],
@@ -23,7 +16,10 @@
     "Hot-update manifest provenance and 156 file hashes verified",
     "Successful-action loop initial suite: 65 passed",
     "Original engine after completion repair: 146 passed; 19 existing skips",
-    "Completion respects project verification, permissions, restart and explicit new requests"
+    "Completion respects project verification, permissions, restart and explicit new requests",
+    "Android 372 full CI passed",
+    "APK e94cfaa56122812398203cc4e0c8ca3ac0dca91ff1a369b1f5e55a552a6087d2 verified and saved",
+    "11 packaged engine files match tested source; approved v2/v3 signer; 158 bundle hashes verified"
   ],
   "decisions": [
     "2026-10-09 user explicitly approved push and Android build; previous approval blocker is resolved",
@@ -31,39 +27,30 @@
     "All historical approval, transport and environment blockers are resolved; no active blocker remains",
     "Delivered MusabAI-371.apk; device and live-provider behavior remain untested",
     "Continue authorized repair and GitHub Android delivery for remaining success-without-termination defect",
-    "Preserve actual tool protocol through compaction; use exact single-action completion contracts and durable replay receipts without treating an arbitrary successful tool as whole-task completion"
+    "Preserve actual tool protocol through compaction; use exact single-action completion contracts and durable replay receipts without treating an arbitrary successful tool as whole-task completion",
+    "Success-loop repair delivery complete; no current blockers; device and live-provider tests were not performed"
   ],
   "git": {
-    "branch": "fix/successful-action-stop",
+    "branch": "delivery/successful-action-stop",
     "dirty_paths": [
-      "github/workflows/android.yml",
-      ".m1/events.jsonl",
+      "m1/events.jsonl",
       ".m1/handoff.md",
       ".m1/state.json",
-      "connectors/agent_policy.py",
-      "connectors/agent_prompt.md",
-      "connectors/apply.py",
-      "connectors/continuity.py",
-      "connectors/progress_guard.py",
-      "connectors/task_supervisor.py",
-      "connectors/verify_package.py",
-      ".m1/.lock",
       "SUCCESSFUL_ACTION_COMPLETION.md",
-      "connectors/action_completion.py",
-      "connectors/action_completion_tests.py"
+      ".m1/.lock"
     ],
-    "head": "e72109179446a32815b70db8f53d61d37f4f7877",
+    "head": "c3cfcb27512bbdefed5e0a057f00a922b8bad242",
     "repository_root": "/workspace/scratch/d607775b5ad3/NewAl-Cloud"
   },
   "goal": "Fix MusabAI task contamination and repeated context-compaction loop shown in 95884.jpg; build and verify Android update",
-  "last_verified_step": "Four baseline failures repaired. Expanded 104-check run had only prompt-budget failure, corrected and verified with 3 passing prompt tests. Final replay and completion checks pass. Original engine 146 tests pass with 19 existing skips.",
-  "next_action": "Publish exact tested tree on fix/successful-action-stop and verify Android CI",
-  "phase": "publish-success-loop",
+  "last_verified_step": "CI 372 run 38042791100 succeeded. Downloaded artifact 11665939422; archive and APK hashes, v2/v3 signatures, approved certificate, eleven packaged source matches, original features and 158 update file hashes verified. MusabAI-372.apk saved for delivery.",
+  "next_action": null,
+  "phase": "delivered-372",
   "run_id": "e21c2c2df1e24ccc",
   "schema_version": 1,
-  "status": "active",
+  "status": "completed",
   "unverified_claims": [
     "User reports WhatsApp opens successfully but agent keeps invoking phone"
   ],
-  "updated_at": "2026-10-10T09:49:38.297915Z"
+  "updated_at": "2026-10-10T09:56:48.008592Z"
 }
