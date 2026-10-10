@@ -34,6 +34,21 @@ _TOPICS = (
     ("github", "مستودع", "repository", "git"),
 )
 
+_FOLLOWUP = re.compile(
+    r"^(?:(?:نعم|اجل|أجل|تمام|طيب|اوكي|ok|okay|yes|do it|go ahead)[.!؟?\s]*$|"
+    r"(?:fix it|test it|run it|make it|change it|try again|اختبرها|اختبره|شغلها|شغله|"
+    r"صلحها|صلحه|عدّلها|عدلها|عدل عليه|خلي|خلّي|خليه|خليها|غير لون|جرّب|جرب)\b)", re.I,
+)
+
+
+def _reset_working_state(session):
+    session.read_attempts = {}
+    session.consecutive_inspections = 0
+    session.compact_since_tool = 0
+    session.todo = []
+    session.goal = ""
+    session.goal_progress = 0
+
 
 def same_project_followup(previous, instruction):
     """Explicitly reuse the task only when both turns name its domain."""
@@ -51,7 +66,17 @@ def activate(session, instruction):
     former task's Todo list into a distinct command such as 'افتح واتساب'.
     """
     instruction = str(instruction or "").strip()[:2000]
-    prior = str(getattr(session, "active_objective", "") or "").strip()
+    prior = str(getattr(session, "active_task_anchor", "") or
+                getattr(session, "active_objective", "") or "").strip()
+    session._task_migrated = bool(prior and not getattr(session, "active_task_anchor", ""))
+    if session._task_migrated:
+        # Old releases never assigned the checklist to an objective. Its ownership
+        # cannot be proven; recover progress from the matching durable checkpoint.
+        # The old transcript and project files remain intact.
+        _reset_working_state(session)
+        session.active_task_anchor = prior
+    if prior:
+        session.active_objective = prior
     if continuation(instruction):
         if prior and not continuation(prior):
             session.active_objective = prior
@@ -63,7 +88,11 @@ def activate(session, instruction):
         session.active_task_id = ""
         return instruction
 
-    related = bool(prior and same_project_followup(prior, instruction))
+    related = bool(prior and (matches(prior, instruction) or
+                             same_project_followup(prior, instruction) or
+                             (_FOLLOWUP.search(instruction) and not (
+                                 any(t in normalized(instruction) for terms in _TOPICS for t in terms)
+                                 and not same_project_followup(prior, instruction)))))
     if related:
         # 'شغل اللعبة' is the next step of the existing game, not a new game.
         return prior
@@ -72,12 +101,7 @@ def activate(session, instruction):
     session.active_task_anchor = instruction
     session.active_task_id = ""
     if switched:
-        session.read_attempts = {}
-        session.consecutive_inspections = 0
-        session.compact_since_tool = 0
-        session.todo = []
-        session.goal = ""
-        session.goal_progress = 0
+        _reset_working_state(session)
     return instruction
 
 

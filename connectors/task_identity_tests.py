@@ -1,12 +1,14 @@
 """Regression: same workspace can host HTML-game and WhatsApp tasks safely."""
+import json
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from . import continuity, task_identity, task_state, task_supervisor
+from . import agent as agentmod, continuity, providers, session as sessions, settings
+from . import task_identity, task_state, task_supervisor, tools
 
 
 class TaskIdentityTests(unittest.TestCase):
@@ -121,6 +123,147 @@ class TaskIdentityTests(unittest.TestCase):
             blob = " ".join(str(m["content"]) for m in s.messages)
             self.assertNotIn("لعبة HTML", blob)
             self.assertIn("افتح واتساب", blob)
+
+    def test_compaction_keeps_followup_constraints(self):
+        s = self.session
+        task_identity.activate(s, "اعمل لعبة HTML")
+        s.messages = [{"role": "user", "content": text} for text in (
+            "اعمل لعبة HTML", "خلي التحكم باللمس", "شغل اللعبة", "كمل")]
+        for _ in range(3):
+            s.messages = continuity.compact_messages(s, "")
+            requests = [m["content"] for m in s.messages if m["role"] == "user"]
+            self.assertEqual(requests, ["اعمل لعبة HTML", "خلي التحكم باللمس", "شغل اللعبة", "كمل"])
+
+    def test_short_followup_preserves_task_and_checklist(self):
+        s = self.session
+        task_identity.activate(s, "اعمل لعبة HTML")
+        s.active_task_id = "game-task"
+        s.todo = [{"text": "Test touch controls", "status": "pending"}]
+        for text in ("اختبرها", "خلي التحكم باللمس", "اجل", "تمام", "fix it"):
+            task_identity.activate(s, text)
+            self.assertEqual(s.active_task_anchor, "اعمل لعبة HTML", text)
+            self.assertEqual(s.active_task_id, "game-task", text)
+            self.assertEqual(len(s.todo), 1, text)
+
+    def test_compaction_retains_last_tool_evidence_without_replaying_tools(self):
+        s = self.session
+        task_identity.activate(s, "اعمل لعبة HTML")
+        s.messages = [{"role": "user", "content": "اعمل لعبة HTML"},
+                      {"role": "tool", "content": "created game.html", "tool_call_id": "write-1"}]
+        for _ in range(3):
+            s.messages = continuity.compact_messages(s, "")
+            self.assertIn("created game.html", str(s.messages))
+            self.assertFalse(any(m["role"] == "tool" for m in s.messages))
+
+
+class TaskBoundaryIntegrationTests(unittest.TestCase):
+    """Run the assembled agent, persistence and compaction, not helper mocks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.root = base / "project"
+        self.root.mkdir()
+        for name in ("HOME", "SESSIONS", "CHECKPOINTS", "CONFIG"):
+            p = patch.object(settings, name, str(base / name.lower()))
+            p.start()
+            self.addCleanup(p.stop)
+        self.session = sessions.Session(str(self.root), mode="auto-edit")
+        self.events = []
+        self.requests = []
+
+    def make_agent(self, script=None):
+        def reply(messages, **kwargs):
+            self.requests.append(messages)
+            out = providers.Completion()
+            item = script.pop(0) if script is not None else "Saved current progress."
+            if isinstance(item, list):
+                out.tool_calls = [{"id": "call-%d-%d" % (len(self.requests), i),
+                                   "name": name, "arguments": json.dumps(args)}
+                                  for i, (name, args) in enumerate(item)]
+            else:
+                out.content = item
+            out.finish = "stop"
+            return out
+        client = SimpleNamespace(id="offline-regression", spec={"id": "offline-regression", "provider": "openai"},
+                                 local=False, on_device=False, context=lambda: 32768,
+                                 default_reasoning=lambda: "off", chat=Mock(side_effect=reply))
+        a = agentmod.Agent(self.session, client=client, emit=self.events.append)
+        a.cfg.update(verify=False, test_after_edit=False, auto_context=False, sandbox="off")
+        self.addCleanup(a.memory.close)
+        return a
+
+    def test_compaction_during_real_write_edit_run_keeps_followup(self):
+        a = self.make_agent([
+            [("write", {"path": "game.html", "content": "<html>game</html>"})], "File created."])
+        a.run("اعمل لعبة HTML")
+        self.assertEqual((self.root / "game.html").read_text(), "<html>game</html>")
+        a = self.make_agent([
+            [("edit", {"path": "game.html", "old": "game", "new": "touch game"})], "Controls updated."])
+        self.session.last_prompt_tokens = 32000
+        a.run("خلي التحكم باللمس")
+        self.assertEqual((self.root / "game.html").read_text(), "<html>touch game</html>")
+        self.assertEqual(a.client.chat.call_count, 2, "Compaction must not consume a model step")
+        self.assertIn("خلي التحكم باللمس", str(self.requests[-1]))
+        self.assertTrue(any(e["type"] == "compacted" for e in self.events))
+        self.assertFalse(any(e["type"] == "error" for e in self.events))
+
+    def test_followup_restart_and_compaction_share_one_checkpoint(self):
+        s = self.session
+        a = self.make_agent()
+        s.todo = [{"content": "Run game in browser", "status": "pending"}]
+        a.run("اعمل لعبة HTML")
+        pinned = s.active_task_id
+        a.run("شغل اللعبة")
+        self.assertEqual(s.active_objective, "اعمل لعبة HTML")
+        self.assertEqual(s.active_task_id, pinned)
+        self.assertEqual(task_state.resume(s.root, pinned)["objective"], s.active_task_anchor)
+        s.replace_messages(continuity.compact_messages(s, ""))
+        self.session = sessions.Session.load(s.id)
+        a = self.make_agent()
+        a.run("كمل")
+        self.assertEqual(self.session.active_task_id, pinned)
+        sent = str(self.requests[-1])
+        self.assertIn("شغل اللعبة", sent)
+        self.assertIn("Run game in browser", sent)
+
+    def test_switch_keeps_real_wrapped_message_and_image(self):
+        a = self.make_agent()
+        a.run("اعمل لعبة HTML")
+        image_url = "data:image/png;base64,dGVzdA=="
+        instruction = "افتح واتساب " + "تفاصيل " * 350 + "لا ترسل أي رسالة"
+        a.run(instruction, images=[image_url])
+        users = [m for m in self.requests[-1] if m["role"] == "user"]
+        self.assertIn(image_url, str(users))
+        self.assertIn("لا ترسل أي رسالة", str(users))
+        self.assertNotIn("اعمل لعبة HTML", str(users))
+        self.assertFalse(any(k.startswith("_") for m in self.requests[-1] for k in m))
+
+    def test_legacy_conflicting_checklist_is_not_migrated_to_whatsapp(self):
+        s = self.session
+        s.active_objective = "افتح واتساب"
+        s.todo = [{"content": "Write and test game.html", "status": "pending"}]
+        s.messages = [{"role": "user", "content": "اعمل لعبة HTML"},
+                      {"role": "user", "content": "افتح واتساب"}]
+        a = self.make_agent()
+        a.run("كمل")
+        self.assertNotIn("game.html", str(self.requests[-1]))
+        self.assertEqual(s.todo, [])
+
+    def test_model_checkpoint_is_the_checkpoint_used_on_resume(self):
+        s = self.session
+        a = self.make_agent()
+        s.todo = [{"content": "Run browser", "status": "pending"}]
+        a.run("اعمل لعبة HTML")
+        pinned = s.active_task_id
+        payload, meta = tools.call(agentmod.ToolContext(a), "task_checkpoint", {
+            "progress": "game.html saved", "next_step": "Launch browser on game.html",
+            "evidence": "file verified"})
+        self.assertEqual(meta["task_id"], pinned)
+        a.supervisor.observe({"type": "tool_end", "name": "task_checkpoint", "ok": True, "meta": meta})
+        a.run("كمل")
+        self.assertIn("Launch browser on game.html", str(self.requests[-1]))
 
 
 if __name__ == "__main__":

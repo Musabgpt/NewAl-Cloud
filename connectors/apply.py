@@ -599,7 +599,7 @@ def apply(root):
             '        supervisor_context = []\n',
             '            previous = str(getattr(s, "active_objective", "") or "")\n'
             '            task_identity.activate(s, text)\n'
-            '            self._task_switched = bool(previous and previous != s.active_objective)\n'
+            '            self._task_switched = bool(previous and previous != s.active_objective) or s._task_migrated\n'
             '        supervisor_context = []\n')
     replace(package / "agent.py",
             '            s.save_meta()\n'
@@ -611,6 +611,32 @@ def apply(root):
                     s, "", s.active_objective), note="new-task-boundary")
         if s.turn == 1 and self.depth == 0:
 ''')
+    # activate() is the only writer of the task identity. The earlier continuity
+    # layer used to overwrite it after the supervisor had selected a checkpoint.
+    replace(package / "agent.py", '''            from . import progress_guard
+            if not progress_guard.is_continuation(text):
+                s.active_objective = str(text or "")[:2000]
+                s.compact_since_tool = 0
+                s.read_attempts = {}
+            elif not s.active_objective:
+                s.active_objective = str(text or "")[:2000]
+            s.save_meta()
+''', '            s.save_meta()\n')
+    # Store exact actual input separately from injected runtime context. This
+    # metadata survives disk reload but never leaves the app in provider requests.
+    replace(package / "agent.py", '        s.add({"role": "user", "content": content})\n',
+            '        s.add({"role": "user", "_user_text": str(text or ""), "content": content,\n'
+            '               "_task_anchor": getattr(s, "active_task_anchor", "")})\n')
+    agent_text = (package / "agent.py").read_text()
+    internal_user = 's.add({"role": "user", "content": '
+    if agent_text.count(internal_user) != 8:
+        raise SystemExit("Unsafe patch refused: internal user reminder count changed")
+    (package / "agent.py").write_text(agent_text.replace(
+        internal_user, 's.add({"role": "user", "_internal": True, "content": '))
+    replace(package / "agent.py",
+            '    calls = m.get("tool_calls") if m.get("role") == "assistant" else None\n',
+            '    m = {k: v for k, v in m.items() if not k.startswith("_")}\n'
+            '    calls = m.get("tool_calls") if m.get("role") == "assistant" else None\n')
     # Two pinned upstream tests encoded old automatic, model-authored summaries.
     # Keep the disk-resume and output-pruning assertions, but assert task-scoped,
     # deterministic context rather than a stale assistant summary.
@@ -619,9 +645,9 @@ def apply(root):
             '        self.assertIn("<context>", s.messages[0]["content"])\n'
             '        self.assertIn("SUMMARY", s.messages[1]["content"])\n'
             '        self.assertEqual(s.messages[-1]["content"], "more")\n',
-            '        self.assertEqual([m["role"] for m in s.messages], ["assistant", "user"])\n'
-            '        self.assertIn("do it", s.messages[-1]["content"])\n'
-            '        self.assertNotIn("more", s.messages[-1]["content"])\n'
+            '        self.assertEqual([m["role"] for m in s.messages], ["user", "assistant", "user"])\n'
+            '        self.assertIn("do it", s.messages[0]["content"])\n'
+            '        self.assertEqual(s.messages[-1]["content"], "more")\n'
             '        self.assertNotIn("SUMMARY: user asked one thing.", str(s.messages))\n')
     replace(root / "desktop/tests/test_newal_code.py",
             '        self.assertIn("The user fixed add; tests pass.", sess.messages[0]["content"])\n',

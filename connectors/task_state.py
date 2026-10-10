@@ -232,7 +232,7 @@ def install():
         "task_checkpoint",
         "Persist a bounded local project checkpoint for long work. Stores summaries only; it does not run in the background.",
         {
-            "task_id": {"type": "string", "description": "existing checkpoint id; omit to create one"},
+            "task_id": {"type": "string", "description": "existing checkpoint id; omit to update the active conversation task, or create one if none is active"},
             "objective": {"type": "string", "description": "stable task objective; required for a new checkpoint"},
             "progress": {"type": "string", "description": "what has actually been completed"},
             "next_step": {"type": "string", "description": "specific next action"},
@@ -243,6 +243,13 @@ def install():
         "meta",
     )
     def task_checkpoint(ctx, task_id="", objective="", progress="", next_step="", blocker="", evidence=""):
+        from . import task_identity
+        current = task_identity.previous_checkpoint(ctx.session, True)
+        if current and (not task_id or task_id == current["id"]):
+            task_id = current["id"]
+            objective = current["objective"]
+        elif not task_id and not objective:
+            objective = getattr(ctx.session, "active_task_anchor", "")
         row = checkpoint(ctx.session.root, task_id, objective, progress, next_step, blocker, evidence, session_id=ctx.session.id)
         return json.dumps(row, ensure_ascii=False), {"task_id": row["id"], "checkpointed": True}
 
@@ -314,7 +321,8 @@ def route(handler, method, path, body=None):
         running = bool(worker and worker.is_alive())
         owner = getattr(service, 'agents', {}).get(sid)
         supervisor = getattr(owner, 'supervisor', None)
-        active = resume(sess.root, session_id=sid)
+        from . import task_identity
+        active = task_identity.previous_checkpoint(sess, True)
         handler._json({'tasks': rows, 'active_task': active.get('id') if active else '',
                        'running': running, 'supervisor': supervisor.snapshot() if running and supervisor else {}})
     except (ValueError, KeyError, OSError, tools.ToolError) as error:

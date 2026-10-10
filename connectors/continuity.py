@@ -12,6 +12,7 @@ import re
 MAX_OBJECTIVE = 2000
 MAX_SUMMARY = 3600
 MAX_TOOL_EVIDENCE = 900
+MAX_USER_TURNS = 24
 
 _LEGACY_SUMMARY = re.compile(
     r"(?:^Summary of the conversation so far:|^Conversation compacted:|"
@@ -52,6 +53,53 @@ def _actual_user(message):
     return bool(body)
 
 
+def _instruction(message):
+    return str(message.get("_user_text") or _text(message.get("content", ""))).strip()
+
+
+def _scope(messages, pinned):
+    if not pinned:
+        return messages
+    from . import task_identity
+    def from_start(start):
+        if start and messages[start - 1].get("_continuity_note") and task_identity.matches(
+                messages[start - 1].get("_task_anchor"), pinned):
+            start -= 1
+        return messages[start:]
+    marked = [i for i, m in enumerate(messages) if _actual_user(m) and
+              task_identity.matches(m.get("_task_anchor"), pinned)]
+    if marked:
+        return from_start(marked[0])
+    # Migrate old transcripts whose user turns include injected runtime context.
+    for i in reversed(range(len(messages))):
+        m = messages[i]
+        if not _actual_user(m):
+            continue
+        body = _instruction(m).split("</context>")[-1].strip()
+        if task_identity.matches(body, pinned) or body.endswith("\n\n" + pinned):
+            return from_start(i)
+    return []
+
+
+def _compact_user(message):
+    """Remove repeated runtime boilerplate, preserving exact text and images."""
+    if "_user_text" not in message:
+        return message
+    out = dict(message)
+    content = message.get("content")
+    text = message["_user_text"]
+    # Keep project instructions from the original context block once.
+    original = _text(content)
+    if original.startswith("<context>") and "</context>" in original:
+        text = original.split("</context>", 1)[0] + "</context>\n\n" + text
+    if isinstance(content, list):
+        out["content"] = [{"type": "text", "text": text}] + [
+            p for p in content if isinstance(p, dict) and p.get("type") != "text"]
+    else:
+        out["content"] = text
+    return out
+
+
 def _compact_todo(todo):
     if not isinstance(todo, list):
         return ""
@@ -72,6 +120,15 @@ def _recent_evidence(messages):
     """Keep a bounded trace; never say an operation succeeded just because it started."""
     rows = []
     for msg in reversed(messages):
+        if msg.get("_continuity_note"):
+            for value in reversed(msg.get("_tool_evidence") or []):
+                if value not in rows:
+                    rows.append(value)
+                if len(rows) == 3:
+                    break
+            if len(rows) == 3:
+                break
+            continue
         if msg.get("role") != "tool":
             continue
         value = _text(msg.get("content"))
@@ -82,7 +139,7 @@ def _recent_evidence(messages):
             re.sub(r"\s+", " ", value)[:170]))
         if len(rows) == 3:
             break
-    return " | ".join(reversed(rows))[:MAX_TOOL_EVIDENCE]
+    return list(reversed(rows))
 
 
 def compact_messages(session, summary, active_objective=""):
@@ -92,20 +149,16 @@ def compact_messages(session, summary, active_objective=""):
     The original request survives repeated compactions unchanged.
     """
     messages = list(getattr(session, "messages", ()) or ())
-    real = [m for m in messages if _actual_user(m)]
-    # Keep only the live task's actual user message, never the first unrelated
-    # request from a shared conversation (e.g. an old HTML game).
+    # One scope for user instructions, images, evidence and checkpoints.
     pinned = str(getattr(session, "active_task_anchor", "") or "").strip()
-    if pinned:
-        from . import task_identity
-        matches = [m for m in real if task_identity.matches(
-            _text(m.get("content", "")).split("</context>")[-1].strip(), pinned)]
-        if matches:
-            index = real.index(matches[-1])
-            real = [matches[-1]] + [m for m in real[index + 1:]
-                   if task_identity.continuation(_text(m.get("content", "")).strip())]
-        else:
-            real = [{"role": "user", "content": pinned}]
+    scoped_messages = _scope(messages, pinned)
+    real = [_compact_user(m) for m in scoped_messages if _actual_user(m)]
+    if pinned and not real:
+        real = [{"role": "user", "content": pinned, "_user_text": pinned,
+                 "_task_anchor": pinned}]
+    omitted = len(real) > MAX_USER_TURNS
+    if omitted:
+        real = [real[0]] + real[-(MAX_USER_TURNS - 1):]
     first = real[0] if real else None
     latest = real[-1] if real else None
     objective = str(active_objective or getattr(session, "active_objective", "")
@@ -122,22 +175,16 @@ def compact_messages(session, summary, active_objective=""):
         summary = "The automatic summary did not provide reliable details. Inspect the project and checkpoint."
     summary = summary[:MAX_SUMMARY]
     todo = _compact_todo(getattr(session, "todo", []))
-    scoped_messages = messages
-    if pinned:
-        from . import task_identity
-        start = next((i for i in reversed(range(len(messages)))
-                      if _actual_user(messages[i]) and task_identity.matches(
-                          _text(messages[i].get("content")).split("</context>")[-1].strip(),
-                          pinned)), None)
-        scoped_messages = messages[start:] if start is not None else []
-    evidence = _recent_evidence(scoped_messages)
+    evidence_rows = _recent_evidence(scoped_messages)
+    evidence = " | ".join(evidence_rows)[:MAX_TOOL_EVIDENCE]
     checkpoint = ""
     task_id = str(getattr(session, "active_task_id", "") or "")
     if task_id and getattr(session, "root", None):
         try:
             from . import task_state, task_identity
             row = task_state.resume(session.root, task_id=task_id)
-            if row and row.get("status") == "active" and (
+            if row and row.get("status") == "active" and row.get("session_id") in (
+                    None, "", getattr(session, "id", "")) and (
                     not pinned or task_identity.matches(row.get("objective"), pinned)):
                 point = row.get("checkpoint") or {}
                 checkpoint = "Progress: %s; Next: %s; Blocker: %s" % (
@@ -158,13 +205,17 @@ def compact_messages(session, summary, active_objective=""):
              "Keep executing the active request with available tools. "
              "Do not ask for a new task merely because this conversation was compacted. "
              "Do not claim completion without a verified result."]
-    note = {"role": "assistant", "content": "\n".join(parts)}
+    if omitted:
+        parts.append("Older user turns are in the saved transcript; consult it before assuming their constraints.")
+    note = {"role": "assistant", "content": "\n".join(parts),
+            "_continuity_note": True, "_task_anchor": pinned,
+            "_tool_evidence": evidence_rows}
     keep = []
     if first is not None:
         keep.append(first)
     keep.append(note)
     if latest is not None and latest is not first:
-        keep.append(latest)
+        keep.extend(real[1:])
     # For a single user turn, end on the original user request (not a fabricated turn).
     if latest is first and first is not None:
         keep = [note, first]

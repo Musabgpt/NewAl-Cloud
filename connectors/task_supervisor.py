@@ -133,11 +133,12 @@ class TaskSupervisor:
         self._stop = threading.Event()
         self._lock = threading.RLock()
         from . import task_identity
-        is_continue = task_identity.continuation(self.objective)
         original = str(getattr(session, "active_objective", "") or "").strip()
-        self.previous = task_identity.previous_checkpoint(session, is_continue)
+        # activate() has already classified this user turn. Any follow-up on the
+        # same active objective must reuse its checkpoint, not just the word 'continue'.
+        self.previous = task_identity.previous_checkpoint(session, True)
         self._latest_checkpoint = {}
-        if is_continue and original and not task_identity.continuation(original):
+        if original and not task_identity.continuation(original):
             self.objective = original
         if self.previous:
             self.task_id = self.previous["id"]
@@ -146,7 +147,7 @@ class TaskSupervisor:
 
     def resume_context(self, text):
         row = self.previous
-        if not row or row.get("status") != "active" or not _CONTINUATION.search(str(text or "")):
+        if not row or row.get("status") != "active":
             return ""
         cp = row.get("checkpoint") or {}
         return (
@@ -236,6 +237,15 @@ class TaskSupervisor:
             meta = (ev or {}).get("meta") or {}
             ok = bool((ev or {}).get("ok")) and meta.get("ok") is not False and not meta.get("error") and not meta.get("isError")
             ok = ok and all(meta.get(field) in (None, 0) for field in ("exit", "exit_code", "returncode"))
+            if ok and (ev or {}).get("name") == "task_checkpoint":
+                # This tool wrote the actual progress/next action. Do not replace
+                # it with a generic 'Completed task_checkpoint' event.
+                if meta.get("task_id") == self.task_id:
+                    row = task_state.resume(self.session.root, self.task_id)
+                    if row:
+                        with self._lock:
+                            self._latest_checkpoint = dict(row.get("checkpoint") or {})
+                return
             pending = bool(meta.get("pending")) or meta.get("status") == "running"
             if ok and not pending:
                 with self._lock:
