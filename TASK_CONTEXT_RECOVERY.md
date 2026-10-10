@@ -28,12 +28,12 @@ requests strip that metadata. Model-generated summaries are never task authority
 - The original engine suite and full connector suite remain required in Android CI.
 - The signed APK must match `android-lite/signing-cert-sha256.txt` before delivery.
 
-Current local results: **58 targeted tests passed; 146 upstream tests passed
-(19 existing platform skips)**. The GitHub push was rejected by automatic
-approval review, which requires explicit authorization for the repository
-destination. No remote branch, CI build, APK or installable hot-update bundle
-was produced. The bundle builder requires successful full CI, so its release
-checks have not been bypassed.
+Local results: **58 targeted tests passed; 146 upstream tests passed
+(19 existing platform skips)**. After the user explicitly authorized publication,
+the exact tested tree was published to `fix/durable-task-boundaries` as commit
+`bf327befcc4cd6c05033346e4f292ce32958b15d` (tree
+`72012840295c0428d4835b6f8720736dd9dbc27b`). The initial approval and transport
+blockers are resolved.
 
 Initial local wide testing exposed missing pytest in the isolated upstream test
 environment, installed host skills affecting the empty-skill fixture, and a
@@ -42,6 +42,23 @@ recorded rather than weakening those gates; clean GitHub CI is the release gate.
 A controlled child-process check confirmed that this host hides the process
 environment marker used by the bridge restart identity check, even though its
 start time is visible.
+
+## Verified Android delivery
+
+[Android build 371](https://github.com/Musabgpt/NewAl-Cloud/actions/runs/38013030424)
+completed successfully on 2026-10-10, including the full CI suites, real npm MCP
+validation, packaging, and release signing. Artifact `11654466973` was downloaded
+and verified against GitHub's archive digest.
+
+- APK: `MusabAI-371.apk`, 40,101,973 bytes.
+- APK SHA-256: `27fc1f4fb954608c283b216eaca84abd6b94332e32e9c73d00458854e6ee3b6c`.
+- Google apksig verification passed for APK Signature Schemes v2 and v3.
+- Signer SHA-256: `6af53b6b3e2574eed16aaae7ce92ade3dcde702a74af1dfae994c9c87609cbb6`,
+  matching the repository's approved certificate.
+- Seven repaired engine files inside the APK match the tested assembled engine
+  byte for byte; the original packaged-feature verification also passed.
+- The hot-update manifest identifies the same source commit and build; all 156
+  listed file hashes verified. The production update channel was not changed.
 
 ## Limits
 
