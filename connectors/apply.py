@@ -25,6 +25,102 @@ def maybe_replace(path, before, after):
         path.write_text(text.replace(before, after, 1))
 
 
+def apply_completion_guard(package):
+    replace(package / "phone.py", '       "screen, call screen to see it. Not for files or code: write files with write, run programs with bash.")',
+            '       "screen, inspect it before further UI interaction. If the request is only to open an app, a successful "\n'
+            '       "open_app completes it: reply and stop. Not for files or code: write files with write, run programs with bash.")')
+    replace(package / "session.py", '        self.active_task_anchor = ""\n',
+            '        self.active_task_anchor = ""\n        self.action_state = {}\n')
+    replace(package / "session.py", '"active_task_anchor": self.active_task_anchor, ',
+            '"active_task_anchor": self.active_task_anchor, "action_state": self.action_state, ')
+    replace(package / "session.py", '        s.active_task_anchor = meta.get("active_task_anchor", "")\n',
+            '        s.active_task_anchor = meta.get("active_task_anchor", "")\n'
+            '        s.action_state = dict(meta.get("action_state") or {})\n')
+    replace(package / "tools.py", '        text = r.get("text") or ("done" if r.get("ok", True) else json.dumps(r, ensure_ascii=False))\n',
+            '        if r.get("ok") is not True:\n'
+            '            raise ToolError(r.get("error") or r.get("text") or "Phone did not confirm success")\n'
+            '        text = r.get("text") or "done"\n')
+    replace(package / "agent.py", '        self.progress_guard = progress_guard.Guard(s) if self.depth == 0 else None\n',
+            '        self.progress_guard = progress_guard.Guard(s) if self.depth == 0 else None\n'
+            '        from .action_completion import CompletionGuard\n'
+            '        self.completion_guard = CompletionGuard(s, text) if self.depth == 0 else None\n')
+    replace(package / "agent.py", '                self._maybe_compact()\n                comp = self._call()\n',
+            '''                if self.completion_guard and self.completion_guard.answer():
+                    comp = providers.Completion()
+                    comp.content = self.completion_guard.answer()
+                    self.emit({"type": "assistant", "text": comp.content, "final": True})
+                else:
+                    self._maybe_compact()
+                    comp = self._call()
+''')
+    replace(package / "agent.py", '                    self._run_tools(ctx, comp.tool_calls)\n',
+            '''                    self._run_tools(ctx, comp.tool_calls)
+                    if self.completion_guard and self.completion_guard.halted:
+                        error = "repeated_success_loop"
+                        answer = self.completion_guard.halted
+                        self.emit({"type": "notice", "text": answer})
+                        break
+''')
+    replace(package / "agent.py", '                    continue\n                answer = shown(comp.content)\n',
+            '''                    if self.completion_guard and self.completion_guard.answer():
+                        comp.content = self.completion_guard.answer()
+                        s.add({"role": "assistant", "content": comp.content})
+                        self.emit({"type": "assistant", "text": comp.content, "final": True})
+                    else:
+                        continue
+                answer = shown(comp.content)
+''')
+    replace(package / "agent.py", '                if not acted and not nudged and not question and s.mode != "read-only" and \\\n',
+            '                if not (self.completion_guard and self.completion_guard.answer()) and not acted and not nudged and not question and s.mode != "read-only" and \\\n')
+    replace(package / "agent.py", '                    if h.block and h.reason:\n                        stop_rounds += 1\n',
+            '                    if h.block and h.reason:\n'
+            '                        if self.completion_guard:\n'
+            '                            self.completion_guard.clear_completion()\n'
+            '                        stop_rounds += 1\n')
+    replace(package / "agent.py", '                    if ok is False:\n                        if verify_rounds >= MAX_VERIFY:\n',
+            '                    if ok is False:\n'
+            '                        if self.completion_guard:\n'
+            '                            self.completion_guard.clear_completion()\n'
+            '                        if verify_rounds >= MAX_VERIFY:\n')
+    replace(package / "agent.py", '            if h.block and h.reason:\n                text += "\\n\\nHook feedback: %s" % h.reason\n',
+            '            if h.block and h.reason:\n'
+            '                if completion is not None:\n'
+            '                    completion.clear_completion()\n'
+            '                text += "\\n\\nHook feedback: %s" % h.reason\n')
+    replace(package / "agent.py", '        if self.depth == 0 and supervisor is not None:\n            supervisor.finish(error=error, answer=answer)\n',
+            '        if self.completion_guard is not None:\n'
+            '            self.completion_guard.finish(error=error)\n'
+            '        if self.depth == 0 and supervisor is not None:\n'
+            '            supervisor.finish(error=error, answer=answer)\n')
+    replace(package / "agent.py", '        self.emit({"type": "tool_start", "id": cid, "name": name, "args": _short_args(name, args)})\n',
+            '''        completion = getattr(self, "completion_guard", None)
+        if completion is not None and completion.answer():
+            text = "Not executed: the requested task already has a successful completion receipt."
+            self.emit({"type": "tool_end", "id": cid, "name": name, "ok": True,
+                       "text": text, "meta": {"skipped": True}})
+            return text
+        self.emit({"type": "tool_start", "id": cid, "name": name, "args": _short_args(name, args)})
+''')
+    replace(package / "agent.py", '        guard = getattr(self, "progress_guard", None)\n',
+            '''        if completion is not None:
+            receipt = completion.replay(name, args, kind)
+            if receipt:
+                self.emit({"type": "tool_end", "id": cid, "name": name, "ok": True,
+                           "text": receipt, "meta": {"reused": True}})
+                return receipt
+        guard = getattr(self, "progress_guard", None)
+''')
+    replace(package / "agent.py", '        failed = not ok or (name in permissions.COMMAND_TOOLS and meta.get("exit") not in (0, None))\n',
+            '''        failed = (not ok or meta.get("ok") is False or bool(meta.get("error") or meta.get("isError"))
+                  or any(meta.get(k) not in (None, 0) for k in ("exit", "exit_code", "returncode")))
+        ok = not failed
+        if completion is not None:
+            completion.observe(name, args, kind, text, meta, ok)
+''')
+    replace(package / "agent.py", '        if self.depth == 0 and not acted and not error and not question and claims(answer):\n',
+            '        if self.depth == 0 and not acted and not error and not question and claims(answer) and not (self.completion_guard and self.completion_guard.answer()):\n')
+
+
 def apply(root):
     package = root / "desktop/newal_code"
     here = Path(__file__).resolve().parent
@@ -33,6 +129,8 @@ def apply(root):
     for name in ("request_context", "continuity", "continuity_tests", "task_identity", "task_identity_tests", "progress_guard", "progress_guard_tests", "tool_search", "tool_search_tests", "tool_protocol", "tool_protocol_tests", "managed_linux", "managed_linux_tests", "auto_update", "auto_update_tests", "automation", "automation_tests", "documents", "evolution", "addons", "memory_api", "agent_policy", "workbench", "workbench_tests", "mcp_config", "mcp_config_tests", "mcp_bundles", "mcp_bundles_tests", "mcp_registry", "mcp_registry_tests", "browser_router", "browser_router_tests", "search_router", "search_router_tests", "document_engine", "document_engine_tests", "provider_pool", "provider_pool_tests", "free_provider_adapters", "free_provider_adapters_tests", "provider_keys", "provider_keys_tests", "document_tests", "evolution_tests", "addon_tests", "memory_tests", "prompt_tests", "project_rag", "project_rag_tests", "orchestrator", "orchestrator_tests", "execution", "execution_tests", "runtime_manager", "runtime_manager_tests", "termux_bridge_server", "termux_bridge_tests", "git_workspace", "git_workspace_tests", "observability", "observability_tests", "task_state", "task_state_tests", "task_supervisor", "task_supervisor_tests"):
         shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     shutil.copyfile(here / "agent_prompt.md", package / "agent_prompt.md")
+    for name in ("action_completion", "action_completion_tests"):
+        shutil.copyfile(here / (name + ".py"), package / (name + ".py"))
     replace(package / "tools.py", 'def t_bash(ctx, command, timeout=120, background=False):\n',
             'def t_bash(ctx, command, timeout=120, background=False):\n    from .automation import route_dependency_probe\n    routed = route_dependency_probe(ctx, str(command or "")) if not background else None\n    if routed is not None:\n        return routed\n')
     replace(package / "agent.py", '            elif kind == "tool_start":\n',
@@ -633,6 +731,7 @@ def apply(root):
         raise SystemExit("Unsafe patch refused: internal user reminder count changed")
     (package / "agent.py").write_text(agent_text.replace(
         internal_user, 's.add({"role": "user", "_internal": True, "content": '))
+    apply_completion_guard(package)
     replace(package / "agent.py",
             '    calls = m.get("tool_calls") if m.get("role") == "assistant" else None\n',
             '    m = {k: v for k, v in m.items() if not k.startswith("_")}\n'

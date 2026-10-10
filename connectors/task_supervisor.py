@@ -235,8 +235,12 @@ class TaskSupervisor:
             return
         if kind == "tool_end":
             meta = (ev or {}).get("meta") or {}
+            if meta.get("reused") or meta.get("skipped"):
+                return  # no new execution; do not overwrite actual progress
             ok = bool((ev or {}).get("ok")) and meta.get("ok") is not False and not meta.get("error") and not meta.get("isError")
             ok = ok and all(meta.get(field) in (None, 0) for field in ("exit", "exit_code", "returncode"))
+            if ok and (ev or {}).get("name") == "task_complete" and meta.get("completed"):
+                return  # the tool closed its task; a generic checkpoint would reopen it
             if ok and (ev or {}).get("name") == "task_checkpoint":
                 # This tool wrote the actual progress/next action. Do not replace
                 # it with a generic 'Completed task_checkpoint' event.

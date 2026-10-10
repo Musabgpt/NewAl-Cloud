@@ -6,6 +6,7 @@ model summary cannot erase the task or impersonate the user.
 """
 from __future__ import annotations
 
+import copy
 import json
 import re
 
@@ -13,6 +14,8 @@ MAX_OBJECTIVE = 2000
 MAX_SUMMARY = 3600
 MAX_TOOL_EVIDENCE = 900
 MAX_USER_TURNS = 24
+MAX_RECENT_EXCHANGES = 2
+MAX_EXCHANGE_CHARS = 12000
 
 _LEGACY_SUMMARY = re.compile(
     r"(?:^Summary of the conversation so far:|^Conversation compacted:|"
@@ -142,6 +145,47 @@ def _recent_evidence(messages):
     return list(reversed(rows))
 
 
+def _recent_exchanges(messages):
+    """Keep complete, bounded call/result pairs after the latest actual request.
+
+    A textual summary before a repeated user request is not equivalent to the
+    real tool response. Preserve the protocol and its order, including failures.
+    Never retain orphan results or cut JSON arguments into invalid fragments.
+    """
+    start = max((i for i, m in enumerate(messages) if _actual_user(m)), default=-1) + 1
+    groups = []
+    for i in range(start, len(messages)):
+        message = messages[i]
+        calls = message.get("tool_calls") if message.get("role") == "assistant" else None
+        if not calls or len(calls) > 8:
+            continue
+        ids = [c.get("id") for c in calls]
+        if not all(ids) or len(set(ids)) != len(ids):
+            continue
+        results = messages[i + 1:i + 1 + len(calls)]
+        if len(results) != len(calls) or any(m.get("role") != "tool" for m in results):
+            continue
+        if {m.get("tool_call_id") for m in results} != set(ids):
+            continue
+        group = copy.deepcopy([message] + results)
+        group[0]["content"] = _text(group[0].get("content"))[:500]
+        for result in group[1:]:
+            text = _text(result.get("content"))
+            if len(text) > 1600:
+                text = text[:1000] + "\n[Output shortened; full result is in the transcript.]\n" + text[-500:]
+            result["content"] = text
+        if len(json.dumps(group, ensure_ascii=False)) <= MAX_EXCHANGE_CHARS:
+            groups.append(group)
+    keep, used = [], 0
+    for group in reversed(groups[-MAX_RECENT_EXCHANGES:]):
+        size = len(json.dumps(group, ensure_ascii=False))
+        if used + size > MAX_EXCHANGE_CHARS:
+            break
+        keep[0:0] = group
+        used += size
+    return keep
+
+
 def compact_messages(session, summary, active_objective=""):
     """Return bounded history while preserving real user turns and active work.
 
@@ -176,6 +220,7 @@ def compact_messages(session, summary, active_objective=""):
     summary = summary[:MAX_SUMMARY]
     todo = _compact_todo(getattr(session, "todo", []))
     evidence_rows = _recent_evidence(scoped_messages)
+    exchanges = _recent_exchanges(scoped_messages)
     evidence = " | ".join(evidence_rows)[:MAX_TOOL_EVIDENCE]
     checkpoint = ""
     task_id = str(getattr(session, "active_task_id", "") or "")
@@ -202,7 +247,9 @@ def compact_messages(session, summary, active_objective=""):
              "Checklist: " + (todo or "(not recorded)"),
              "Current task checkpoint: " + (checkpoint or "(none)"),
              "Recent tool responses (not proof of overall completion): " + (evidence or "(none)"),
-             "Keep executing the active request with available tools. "
+             "Completed tool actions remain completed. Do not replay them. "
+             "If the verified results satisfy the request, reply briefly and stop. "
+             "Otherwise execute only the remaining steps. "
              "Do not ask for a new task merely because this conversation was compacted. "
              "Do not claim completion without a verified result."]
     if omitted:
@@ -217,8 +264,9 @@ def compact_messages(session, summary, active_objective=""):
     if latest is not None and latest is not first:
         keep.extend(real[1:])
     # For a single user turn, end on the original user request (not a fabricated turn).
-    if latest is first and first is not None:
+    if latest is first and first is not None and not exchanges:
         keep = [note, first]
+    keep.extend(exchanges)
     return keep
 
 

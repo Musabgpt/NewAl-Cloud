@@ -3,7 +3,7 @@ import sys
 import zipfile
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
-    required = ["automation.py", "auto_update.py", "automation_tests.py", "auto_update_tests.py", "native-compat.json", "ui/automatic_updates.js", "agent.py", "tools.py", "server.py", "plugins.py", "addons.py", "mcp.py", "session.py",
+    required = ["action_completion.py", "action_completion_tests.py", "automation.py", "auto_update.py", "automation_tests.py", "auto_update_tests.py", "native-compat.json", "ui/automatic_updates.js", "agent.py", "tools.py", "server.py", "plugins.py", "addons.py", "mcp.py", "session.py",
                 "autonomy.py", "autonomy_tests.py", "connectors.py", "documents.py", "evolution.py", "memory_api.py", "memory_tests.py", "document_tests.py", "evolution_tests.py", "addon_tests.py", "ui/workspace.js", "ui/app.js", "ui/connectors.js", "ui/connectors.css"]
     for path in required:
         assert "newal_code/" + path in archive.namelist(), "Missing packaged feature: " + path

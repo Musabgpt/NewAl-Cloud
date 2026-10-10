@@ -74,6 +74,10 @@ def is_read_only_shell(command):
 
 def is_observation(name, args, kind):
     """True for calls that only retrieve known state, including shell probes."""
+    if name == "phone":
+        from . import phone
+        return phone.looks_only(args) or (args or {}).get("action") in (
+            "screenshot", "notifications_read", "automation_list", "crash_reports")
     if name in _READ_NAMES or kind == "read":
         return True
     if name in _SHELL_NAMES:
@@ -81,10 +85,12 @@ def is_observation(name, args, kind):
     return False
 
 
-def meaningful(name, kind, response):
+def meaningful(name, kind, response, args=None):
     """Only verified tool-reported state changes reset no-progress compactions."""
     out = str(response or "")
     if _FAILURE.match(out) or _UNCHANGED.search(out):
+        return False
+    if args is not None and is_observation(name, args, kind):
         return False
     return kind == "edit" or name in _CHANGED_NAMES
 
@@ -158,7 +164,7 @@ class Guard:
 
     def after(self, name, args, kind, response):
         out = str(response or "")
-        if meaningful(name, kind, response):
+        if meaningful(name, kind, response, args):
             self.attempts.clear()
             self.inspections = 0
             self.duplicate = ""

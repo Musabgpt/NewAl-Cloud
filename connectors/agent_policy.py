@@ -1,12 +1,14 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v9'
+MARKER = 'MusabAI behavior profile v10'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
                   "automation_start/stop/list/replay; crash_reports reads MusabTestBridge files. It never grants "
-                  "root, Logcat or permission bypass.")
+                  "root, Logcat or permission bypass. When the user only asks to open an app, a successful "
+                  "open_app result completes that request: acknowledge it and stop. For additional work inside "
+                  "the app, inspect the screen and perform only the remaining steps; never relaunch as confirmation.")
 BROWSER_GUIDANCE = ("For browser tasks use browser_tool_selector when the best route is not obvious. Prefer a "
                     "connected service API, then a matching service MCP, then Playwright MCP, Browser Use, and "
                     "open-browser-use. If the task explicitly needs the user's existing logged-in browser session, "
@@ -41,10 +43,9 @@ TOOL_ARGUMENT_GUIDANCE = ("Send all required tool arguments together in one JSON
                           "content string; bash and runtime_exec need the actual command string. After a validation "
                           "error, correct the missing values before retrying; never repeat the incomplete call or "
                           "claim it ran. Read existing files before replacing their contents.")
-TASK_STATE_GUIDANCE = ("For long or multi-stage work that must survive app/session restarts, persist bounded verified summaries "
-                       "with task_checkpoint. When the user says continue, resume, or asks where work stopped, call task_resume "
-                       "before reconstructing state from guesses. Task checkpoints are local summaries only: they do not run in "
-                       "the background. Call task_complete only after the stated result has been verified.")
+TASK_STATE_GUIDANCE = ("Persist bounded verified progress with task_checkpoint. On continuation, use task_resume instead of "
+                       "guessing. These local summaries do not run work in the background. Finish remaining steps and "
+                       "verification, call task_complete, then stop.")
 
 
 def profile():
