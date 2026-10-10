@@ -138,7 +138,7 @@ final class WebBridge {
             return "not allowed";
         }
         try {
-            Termux.run(act, "newal-termux-preview start");
+            Termux.run(act, "newal-termux start");
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
@@ -196,17 +196,6 @@ final class WebBridge {
     @JavascriptInterface
     public String takeAction() {
         return Shared.takeAction();
-    }
-
-    @JavascriptInterface
-    public void saveDocument(String url, String name, String mime) {
-        act.runOnUiThread(() -> ((MainActivity) act).saveDocument(url, name, mime));
-    }
-
-    /** Applies an explicitly selected engine after the user requests a restart. */
-    @JavascriptInterface
-    public void restartEngine() {
-        act.runOnUiThread(() -> ((MainActivity) act).restartEngine());
     }
 
     /** What another app shared ({"text", "files"}), once; "" when nothing. */
