@@ -37,9 +37,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 
 /**
  * What the agent's `phone` tool does on the phone. Each action answers {"ok": true, "text": "..."}: the text is what
@@ -53,21 +50,9 @@ final class Phone {
 
     static JSONObject handle(Context ctx, JSONObject a) throws Exception {
         String action = a.optString("action");
-        AutomationStore.record(action, a);
         switch (action) {
-            case "document_pdf":
-                return DocumentFiles.pdf(ctx, a);
-            case "connector":
-                return Connectors.handle(ctx, a);
-            case "provider_secret_status":
-            case "provider_secret_get":
-            case "provider_secret_set":
-            case "provider_secret_remove":
-                return ProviderSecrets.handle(ctx, a);
             case "screen":
                 return PhoneControlService.need().screen();
-            case "screenshot":
-                return PhoneControlService.need().screenshot();
             case "tap":
                 return PhoneControlService.need().tap(a);
             case "type":
@@ -79,22 +64,8 @@ final class Phone {
                 return PhoneControlService.need().key(a.optString("name"));
             case "open_app":
                 return openApp(ctx, a.optString("name"));
-            case "install_apk":
-                return installApk(ctx, a.optString("path"));
-            case "notifications_read":
-                return ok(LocalNotificationAgentService.read(ctx));
-            case "automation_start":
-                return AutomationStore.start(a.optString("name", "workflow"));
-            case "automation_stop":
-                return AutomationStore.stop(ctx);
-            case "automation_list":
-                return AutomationStore.list(ctx);
-            case "automation_replay":
-                return AutomationStore.replay(ctx, a.optString("name"));
-            case "crash_reports":
-                return ok(TestBridgeReports.read(ctx));
             case "open_url":
-                return start(ctx, safeUrl(ctx, a.optString("url")),
+                return start(ctx, new Intent(Intent.ACTION_VIEW, Uri.parse(a.optString("url"))),
                         "opened " + a.optString("url"));
             case "apps":
                 return apps(ctx);
@@ -141,20 +112,6 @@ final class Phone {
         o.put("ok", true);
         o.put("text", text);
         return o;
-    }
-
-    private static Intent safeUrl(Context ctx, String raw) throws Exception {
-        Uri source=Uri.parse(raw); if (!"file".equalsIgnoreCase(source.getScheme())) return new Intent(Intent.ACTION_VIEW, source);
-        File f=new File(source.getPath()==null?"":source.getPath()).getCanonicalFile(), files=ctx.getFilesDir().getCanonicalFile(), shared=Environment.getExternalStorageDirectory().getCanonicalFile();
-        if(!f.getPath().startsWith(files.getPath()+File.separator)&&!f.getPath().startsWith(shared.getPath()+File.separator)) throw new SecurityException("file is outside NewAl storage");
-        if (f.getPath().startsWith(shared.getPath()+File.separator)) {
-            File copy=new File(ctx.getCacheDir(), "open-"+Long.toHexString(System.nanoTime())+"-"+f.getName());
-            try (FileInputStream in=new FileInputStream(f); FileOutputStream out=new FileOutputStream(copy)) { byte[] b=new byte[65536]; for(int n;(n=in.read(b))!=-1;) out.write(b,0,n); }
-            f=copy;
-        }
-        String base=ctx.getFilesDir().getParentFile().getCanonicalPath(); Uri content=Uri.parse("content://"+ctx.getPackageName()+".files/"+Uri.encode(f.getPath().substring(base.length()+1),"/"));
-        String e=android.webkit.MimeTypeMap.getFileExtensionFromUrl(f.getName()).toLowerCase(Locale.ROOT), m=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(e);
-        return new Intent(Intent.ACTION_VIEW).setDataAndType(content,m==null?"*/*":m).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
     }
 
     /** Runs on the main thread and waits for it (some of Android's classes want their calls there). */
@@ -237,14 +194,6 @@ final class Phone {
             throw new IllegalStateException(best[0] + " cannot be opened");
         }
         return start(ctx, i, "opened " + best[0]);
-    }
-
-    private static JSONObject installApk(Context ctx, String path) throws Exception {
-        if (path == null || path.trim().isEmpty()) throw new IllegalArgumentException("install_apk needs a local APK path");
-        Intent view = safeUrl(ctx, "file:" + path.trim());
-        view.setDataAndType(view.getData(), "application/vnd.android.package-archive");
-        view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        return start(ctx, view, "Android opened the install confirmation; the user must approve it");
     }
 
     private static JSONObject alarm(Context ctx, JSONObject a) throws Exception {
@@ -384,10 +333,6 @@ final class Phone {
                 break;
             case "notifications":
                 action = Settings.ACTION_APP_NOTIFICATION_SETTINGS;
-                break;
-            case "notification_access":
-            case "notification_listener":
-                action = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS";
                 break;
             case "storage":
                 action = Settings.ACTION_INTERNAL_STORAGE_SETTINGS;

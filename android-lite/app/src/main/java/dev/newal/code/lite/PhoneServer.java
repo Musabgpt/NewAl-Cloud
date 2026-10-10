@@ -25,7 +25,7 @@ import java.util.Map;
  * request without the key is refused.
  */
 final class PhoneServer implements Runnable {
-    static final int PORT = 8796;
+    static final int PORT = 8793;
     private static PhoneServer running;
 
     private final Context ctx;
