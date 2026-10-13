@@ -98,17 +98,27 @@ def outline(path, text):
             tree = ast.parse(text)
         except SyntaxError:
             tree = None
-        if tree is not None:
-            def walk(nodes, prefix=""):
-                for n in nodes:
-                    if isinstance(n, ast.ClassDef):
-                        out.append((n.lineno, "class", prefix + n.name))
-                        walk(n.body, prefix + n.name + ".")
-                    elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        out.append((n.lineno, "def", prefix + n.name))
-            walk(tree.body)
-            return out
+        if tree is None:
+            # Do not present a regex-derived partial outline for syntactically invalid Python.
+            return []
+
+        def walk(nodes, prefix=""):
+            for n in nodes:
+                if isinstance(n, ast.ClassDef):
+                    out.append((n.lineno, "class", prefix + n.name))
+                    walk(n.body, prefix + n.name + ".")
+                elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out.append((n.lineno, "def", prefix + n.name))
+                    # Nested functions/classes are valid symbols too; include them with a qualified name.
+                    walk(n.body, prefix + n.name + ".")
+        walk(tree.body)
+        return out
     rx = _JS_DEF if ext in (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".vue", ".svelte") else _GENERIC_DEF
+    java_method = re.compile(
+        r"^\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native|override|virtual|"
+        r"async|extern|internal|open|inline|suspend)\s+)*(?:[\w<>\[\],.?]+\s+)+"
+        r"([A-Za-z_][\w]*)\s*\([^;]*\)\s*(?:throws\s+[\w., ]+\s*)?(?:\{|=>|$)"
+    )
     for i, line in enumerate(text.splitlines(), 1):
         m = rx.match(line)
         if m:
@@ -116,6 +126,10 @@ def outline(path, text):
             kind = "class" if re.search(r"\b(class|struct|interface|enum|trait|object|type)\b", line[:m.start(0) + 40]) \
                 else "def"
             out.append((i, kind, name))
+        elif ext in (".java", ".kt", ".cs", ".cpp", ".hpp", ".h", ".c"):
+            method = java_method.match(line)
+            if method:
+                out.append((i, "def", method.group(1)))
     return out
 
 
