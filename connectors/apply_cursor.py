@@ -111,6 +111,7 @@ def apply(src, package, replace):
 
     # Code intelligence the agent uses itself (Cursor-style): problems, outline, definitions/references, VS Code.
     shutil.copyfile(src / "code_intel.py", package / "code_intel.py")
+    shutil.copyfile(src / "code_intel_tests.py", package / "code_intel_tests.py")
     tl = package / "tools.py"
     replace(tl, "_tool_search.install()\n", "_tool_search.install()\nfrom . import code_intel as _code_intel\n_code_intel.install()\n")
     replace(tl, " + _tool_search.NAMES\n", " + _tool_search.NAMES + _code_intel.NAMES\n")
