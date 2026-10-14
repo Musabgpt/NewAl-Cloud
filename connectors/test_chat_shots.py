@@ -14,8 +14,8 @@ spec = importlib.util.spec_from_file_location("session_images", ROOT / "session_
 shots = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(shots)
 
-JPEG = b"\\xff\\xd8\\xff\\xe0" + b"screen" * 200
-PNG = b"\\x89PNG\\r\\n\\x1a\\n" + b"pixels" * 50
+JPEG = b"\xff\xd8\xff\xe0" + b"screen" * 200
+PNG = b"\x89PNG\r\n\x1a\n" + b"pixels" * 50
 
 
 class ChatPicturesTest(unittest.TestCase):
