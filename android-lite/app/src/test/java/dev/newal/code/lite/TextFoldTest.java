@@ -25,6 +25,22 @@ public class TextFoldTest {
         assertEquals("", TextFold.fold(null));
     }
 
+    @Test public void arabicIndicDigitsAreDigits() {
+        assertEquals(TextFold.fold("١٢:٣٠"), TextFold.fold("12:30"));
+        assertEquals(TextFold.fold("۱۲"), TextFold.fold("12"));
+        assertEquals("الصفحه 3", TextFold.fold("الصفحة ٣"));
+    }
+
+    @Test public void theArticleGoesOnlyWhenItIsOne() {
+        assertEquals(TextFold.bare("الكاميرا"), TextFold.bare("كاميرا"));
+        assertEquals("ساعه", TextFold.bare("الساعة"));
+        assertEquals("اعدادات واي فاي", TextFold.bare("الإعدادات واي فاي"));
+        assertEquals("الغاء", TextFold.bare("إلغاء"));          // a hamza: no article to drop
+        assertEquals("الوان", TextFold.bare("ألوان"));
+        assertEquals("الله", TextFold.bare("الله"));             // three letters would not be left
+        assertEquals("", TextFold.bare(null));
+    }
+
     @Test public void aNumberThatTickedLeavesTheSameItem() {
         assertEquals(TextFold.withoutNumbers("Inbox (12)"), TextFold.withoutNumbers("Inbox (13)"));
         assertEquals(TextFold.withoutNumbers("منذ ٥ دقائق"), TextFold.withoutNumbers("منذ 15 دقائق"));

@@ -4,9 +4,10 @@ import java.util.Locale;
 
 /**
  * Text compared the way people type it: lower case, the Arabic letter forms people write interchangeably folded into
- * one (أ إ آ ٱ to ا, ة to ه, ى to ي), the diacritics and the tatweel removed, and runs of spaces made one. "الاعدادات"
- * then finds the app called "الإعدادات", and "ارسال" the button "إرسال". The same rules as phone_fast._norm and Apache
- * Lucene's Arabic normalizer (after Larkey et al., SIGIR 2002).
+ * one (أ إ آ ٱ to ا, ة to ه, ى to ي), the diacritics and the tatweel removed, Arabic-Indic digits made 0-9, and runs of
+ * spaces made one. "الاعدادات" then finds the app called "الإعدادات", and "ارسال" the button "إرسال". The same rules as
+ * phone_fast._norm and Apache Lucene's Arabic normalizer (after Larkey et al., SIGIR 2002). When nothing matches that
+ * way, a match without the article ال is tried (bare): "الكاميرا" finds "كاميرا".
  */
 final class TextFold {
     private TextFold() {
@@ -40,6 +41,11 @@ final class TextFold {
                 default:
                     break;
             }
+            if (c >= '٠' && c <= '٩') {
+                c = (char) ('0' + (c - '٠'));    // Arabic-Indic digits: ٣ is 3
+            } else if (c >= '۰' && c <= '۹') {
+                c = (char) ('0' + (c - '۰'));    // the Persian and Urdu forms: ۳ is 3
+            }
             if (Character.isWhitespace(c)) {
                 if (out.length() > 0 && !space) {
                     out.append(' ');
@@ -53,6 +59,32 @@ final class TextFold {
         int n = out.length();
         if (n > 0 && out.charAt(n - 1) == ' ') {
             out.setLength(n - 1);
+        }
+        return out.toString();
+    }
+
+    /**
+     * The text folded, its words without the article ال: "الكاميرا" -> "كاميرا", "الساعة" -> "ساعه". Only a real article
+     * goes: one written with a bare alef ("إلغاء" and "ألوان" keep their first letters), and only when three letters or
+     * more are left (Larkey's light stemming keeps short words whole: "الله" stays). For a second try, when the folded
+     * text matched nothing.
+     */
+    static String bare(CharSequence text) {
+        if (text == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(text.length());
+        for (String w : text.toString().trim().split("\\s+")) {
+            String f = fold(w);
+            if (w.startsWith("ال") && f.length() >= 5) {
+                f = f.substring(2);
+            }
+            if (!f.isEmpty()) {
+                if (out.length() > 0) {
+                    out.append(' ');
+                }
+                out.append(f);
+            }
         }
         return out.toString();
     }
