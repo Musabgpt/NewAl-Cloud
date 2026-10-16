@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "MusabAI page reader",
+  "version": "1.0",
+  "description": "Reads the page shown in MusabAI's browser pane for its agent (BrowserPane.java). Bump the version when content.js changes.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "browser@musabai.newal"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "permissions": ["nativeMessaging", "nativeMessagingFromContent", "geckoViewAddons"]
+}

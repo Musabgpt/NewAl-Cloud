@@ -99,7 +99,10 @@ final class PhoneServer implements Runnable {
                 out = error("wrong key");
             } else {
                 try {
-                    out = Phone.handle(ctx, new JSONObject(new String(body, StandardCharsets.UTF_8)));
+                    JSONObject action = new JSONObject(new String(body, StandardCharsets.UTF_8));
+                    // the in-app browser's actions (browser_open, browser_read, browser_close): BrowserPane
+                    out = action.optString("action").startsWith("browser_") ? BrowserPane.handle(ctx, action)
+                            : Phone.handle(ctx, action);
                 } catch (Exception e) {
                     status = 400;
                     out = error(e.getMessage() != null ? e.getMessage() : e.toString());

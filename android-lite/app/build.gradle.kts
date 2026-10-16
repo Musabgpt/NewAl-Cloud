@@ -3,6 +3,8 @@ plugins {
 }
 
 dependencies {
+    // The in-app browser (BrowserPane): Firefox's engine, the arm64 build only (the phones this app is for).
+    implementation("org.mozilla.geckoview:geckoview-arm64-v8a:158.0.20261007201254")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
 }
