@@ -190,7 +190,7 @@ jobs:
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: "9.6.0"
       - name: Build MusabAI APK with persistent release signing
         if: steps.signing.outputs.mode == 'release'
         shell: bash
