@@ -100,8 +100,8 @@ final class PhoneServer implements Runnable {
             } else {
                 try {
                     JSONObject action = new JSONObject(new String(body, StandardCharsets.UTF_8));
-                    // the in-app browser's actions (browser_open, browser_read, browser_close): BrowserPane
-                    out = action.optString("action").startsWith("browser_") ? BrowserPane.handle(ctx, action)
+                    // the agent's hidden browser (browser_open, browser_read, browser_click...): HeadlessBrowser
+                    out = action.optString("action").startsWith("browser_") ? HeadlessBrowser.handle(ctx, action)
                             : Phone.handle(ctx, action);
                 } catch (Exception e) {
                     status = 400;
