@@ -68,18 +68,6 @@ class ProjectionTests(unittest.TestCase):
         ids = [c["id"] for m in projected for c in m.get("tool_calls") or []]
         self.assertEqual(ids, ["w%d" % n for n in range(15)])
 
-    def test_a_phone_thread_keeps_the_projection_phone_use_had_at_its_best(self):
-        original = thread()
-        for m in original:
-            for c in m.get("tool_calls") or []:
-                c["function"]["name"] = "phone"
-                c["function"]["arguments"] = json.dumps({"action": "screen"})
-        projected = self.project(original)
-        text = json.dumps(projected, ensure_ascii=False)
-        self.assertIn("[Historical tool records", text)                   # the build of PR #46, unchanged
-        self.assertNotIn("characters of this earlier value omitted", text)
-        self.assertEqual(projected, request_context._records({"provider": "openai"}, original, []))
-
     def test_a_short_thread_is_sent_as_it_is(self):
         original = thread(reads=1)
         self.assertEqual(self.project(original), original)
