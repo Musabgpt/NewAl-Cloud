@@ -53,7 +53,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDir(layout.buildDirectory.dir("generated/newal-assets"))
+            // A plain folder: AGP 9 takes no Provider here (package_baseline.py fills it before the build).
+            assets.srcDir(layout.buildDirectory.dir("generated/newal-assets").get().asFile)
         }
     }
 
