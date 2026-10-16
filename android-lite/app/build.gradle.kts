@@ -2,6 +2,11 @@ plugins {
     id("com.android.application")
 }
 
+// CI: the build's errors become GitHub annotations (gradle-problems.json), readable without the log's sign-in.
+if (System.getenv("GITHUB_ACTIONS") == "true") {
+    println("::add-matcher::" + file("../gradle-problems.json").absolutePath)
+}
+
 dependencies {
     // The in-app browser (BrowserPane): Firefox's engine, the arm64 build only (the phones this app is for).
     implementation("org.mozilla.geckoview:geckoview-arm64-v8a:158.0.20261007201254")
