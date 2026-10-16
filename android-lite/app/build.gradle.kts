@@ -40,7 +40,7 @@ if (hasPartialReleaseSigning) {
 // native/prepare.sh into src/main/jniLibs and build/generated/assets; see README.md.
 android {
     namespace = "dev.newal.code.lite"
-    compileSdk = 35
+    compileSdk = 37            // GeckoView and its AndroidX libraries compile against recent APIs
     buildFeatures { buildConfig = true }
 
     defaultConfig {
@@ -94,5 +94,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        // The APK is installed directly, not from Google Play: targetSdk stays 35 on purpose (36 changes the back
+        // key and more), so Play's target-SDK deadline is not a build error.
+        disable += "ExpiredTargetSdkVersion"
     }
 }
