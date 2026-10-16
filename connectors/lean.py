@@ -3,8 +3,8 @@
 * Termux: bash, runtime_exec and runtime_process_* (node, npm, python, git and gh live there), termux_exec/result.
 * GitHub: github, github_monitor and the connected account's github_* operations.
 * Code checks: code_check (the language servers VS Code uses: pyright, typescript-language-server, in Termux).
-* The web: web_search, web_fetch, and MusabAI's own browser in a pane above the chat (browser_open, browser_read,
-  browser_close: browser_pane.py), where pages and local servers open; Chrome stays the phone's open_url.
+* The web: web_search, web_fetch, and MusabAI's own hidden browser (browser_open, browser_read, browser_click,
+  browser_type, browser_scroll, browser_back: web_browser.py); Chrome stays the phone's open_url.
 * The phone itself: phone, screen_look and phone_routine (saved routines replayed in one call).
 
 Everything else (documents, MCP servers and connected services other than GitHub and Termux, skills, sub-agents and
@@ -19,7 +19,7 @@ LEAN = (
     "github", "github_monitor",
     "code_check",
     "web_search", "web_fetch",
-    "browser_open", "browser_read", "browser_close",
+    "browser_open", "browser_read", "browser_click", "browser_type", "browser_scroll", "browser_back",
     "phone", "screen_look", "phone_routine",
 )
 CONNECTOR_PREFIXES = ("github_", "termux_")
