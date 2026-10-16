@@ -21,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -36,6 +37,7 @@ public class MainActivity extends Activity {
     private static final String HOME = "http://127.0.0.1:" + Setup.PORT + "/";
     private FrameLayout root;
     private WebView web;
+    private LinearLayout browserPane;
     private WebBridge bridge;
     private String key;
     private final EngineReadiness readiness = new EngineReadiness();
@@ -45,9 +47,18 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         root = new FrameLayout(this);
         web = new WebView(this);
-        root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        // The in-app browser's pane (BrowserPane) above the conversation, hidden until it is used.
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        browserPane = new LinearLayout(this);
+        browserPane.setOrientation(LinearLayout.VERTICAL);
+        browserPane.setVisibility(View.GONE);
+        column.addView(browserPane, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.8f));
+        column.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(column, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        BrowserPane.attach(this, browserPane);
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
         betweenBars();
@@ -89,6 +100,11 @@ public class MainActivity extends Activity {
                 }
                 if ("newal".equals(u.getScheme()) && "retry".equals(u.getHost())) {
                     startAgent(true);
+                    return true;
+                }
+                if ("newal".equals(u.getScheme()) && "browser".equals(u.getHost())) {   // the globe button
+                    String what = u.getLastPathSegment();
+                    BrowserPane.command(what == null ? "toggle" : what);
                     return true;
                 }
                 if ("127.0.0.1".equals(u.getHost())) {
@@ -294,6 +310,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         readiness.pause();
+        BrowserPane.detach(this);
         super.onDestroy();
     }
 
@@ -423,7 +440,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (web.canGoBack()) {
+        if (BrowserPane.visible()) {
+            BrowserPane.back();
+        } else if (web.canGoBack()) {
             web.goBack();
         } else {
             moveTaskToBack(true);        // keep working in the background (the service stays)
