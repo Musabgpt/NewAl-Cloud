@@ -40,7 +40,13 @@ if (hasPartialReleaseSigning) {
 // native/prepare.sh into src/main/jniLibs and build/generated/assets; see README.md.
 android {
     namespace = "dev.newal.code.lite"
-    compileSdk = 37            // GeckoView and its AndroidX libraries compile against recent APIs
+    // GeckoView 158 is compiled against Android 37.2 (Firefox's mobile/android/android-components/.config.yml):
+    // its users must compile against that API level or later.
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
     buildFeatures { buildConfig = true }
 
     defaultConfig {

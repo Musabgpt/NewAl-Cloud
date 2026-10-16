@@ -3,29 +3,69 @@
     {
       "owner": "musabai-javac",
       "pattern": [
-        {"regexp": "^(.+\\.java):(\\d+): error: (.+)$", "file": 1, "line": 2, "message": 3}
+        {
+          "regexp": "^(.+\\.java):(\\d+): error: (.+)$",
+          "file": 1,
+          "line": 2,
+          "message": 3
+        }
       ]
     },
     {
       "owner": "musabai-gradle",
       "severity": "error",
       "pattern": [
-        {"regexp": "^\\* What went wrong:$"},
-        {"regexp": "^(.+)$", "message": 1}
+        {
+          "regexp": "^\\* What went wrong:$"
+        },
+        {
+          "regexp": "^(.+)$",
+          "message": 1
+        }
       ]
     },
     {
       "owner": "musabai-gradle-cause",
       "severity": "error",
       "pattern": [
-        {"regexp": "^\\s+> (.+)$", "message": 1}
+        {
+          "regexp": "^\\s+> (.+)$",
+          "message": 1
+        }
       ]
     },
     {
       "owner": "musabai-aar-metadata",
       "severity": "error",
       "pattern": [
-        {"regexp": "^\\s+\\d+\\.\\s+(Dependency .+)$", "message": 1}
+        {
+          "regexp": "^\\s+\\d+\\.\\s+(Dependency .+)$",
+          "message": 1
+        }
+      ]
+    },
+    {
+      "owner": "musabai-aar-metadata-detail",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^\\s+\\d+\\.\\s+Dependency '([^']+)' requires .*$",
+          "file": 1
+        },
+        {
+          "regexp": "^\\s+(.+)$",
+          "message": 1
+        }
+      ]
+    },
+    {
+      "owner": "musabai-compiled-against",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^\\s+(:app is currently compiled against .+)$",
+          "message": 1
+        }
       ]
     }
   ]
