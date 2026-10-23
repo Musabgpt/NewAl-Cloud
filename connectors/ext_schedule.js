@@ -62,15 +62,35 @@
     kind.onchange = show;
     show();
     const need = () => { if (!sid()) { say(t("Open a thread in the project first.", "افتح محادثة في المشروع أولاً.")); return false; } return true; };
+    let editing = "";                    // the id of the task the form changes, or "" (the form adds one)
+    const submit = form.querySelector("button[type=submit]");
+    const reset = () => { editing = ""; form.querySelector("textarea").value = ""; submit.textContent = t("Schedule", "جدول"); };
+    const edit = x => {
+      editing = x.id;
+      const w = x.when || {};
+      form.querySelector("textarea").value = x.prompt || "";
+      kind.value = w.kind || "daily";
+      if (w.at) form.querySelector("[data-at]").value = w.at;
+      if (w.days) form.querySelector("[data-days]").value = w.days.map(d => ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][d]).join(",");
+      if (w.minutes) form.querySelector("[data-everyv]").value = w.minutes % 60 ? w.minutes + "m" : w.minutes / 60 + "h";
+      if (w.ts) { const d = new Date(w.ts * 1000); form.querySelector("[data-at]").value = d.toTimeString().slice(0, 5);
+        form.querySelector("[data-date]").value = d.toISOString().slice(0, 10); }
+      form.querySelector("[data-quiet]").checked = !!x.quiet;
+      submit.textContent = t("Save changes", "احفظ التعديل");
+      show();
+      form.scrollIntoView({ block: "nearest" });
+    };
     form.onsubmit = async ev => {
       ev.preventDefault();
       const prompt = form.querySelector("textarea").value.trim();
-      if (!prompt || !need()) return;
+      if (!prompt || (!editing && !need())) return;
       const v = s => form.querySelector(s).value;
+      const fields = { prompt, kind: kind.value, at: v("[data-at]"), date: v("[data-date]"), days: v("[data-days]"),
+        every: v("[data-everyv]"), quiet: form.querySelector("[data-quiet]").checked };
       try {
-        const d = await call("/api/schedules/add", { session: sid(), prompt, kind: kind.value, at: v("[data-at]"), date: v("[data-date]"),
-          days: v("[data-days]"), every: v("[data-everyv]"), quiet: form.querySelector("[data-quiet]").checked });
-        form.querySelector("textarea").value = "";
+        const d = editing ? await call("/api/schedules/edit", Object.assign({ id: editing }, fields))
+          : await call("/api/schedules/add", Object.assign({ session: sid() }, fields));
+        reset();
         say("⏰ " + d.task.name + " — " + t("next", "التالي") + ": " + when(d.task.next));
         render();
       } catch (e) { say(e.message); }
@@ -106,15 +126,18 @@
           x.pending ? "… " + t("due", "حان وقتها") : t("next", "التالي") + ": " + when(x.next);
         const l = x.last || {};
         row.innerHTML = '<div class="mf-head"><b>' + esc(x.name) + '</b><span class="mf-state">' + esc(st) + "</span></div>" +
-          '<div class="mf-meta">' + esc(x.schedule) + (x.quiet ? " · 🔕 " + t("only if important", "بس إذا مهم") : "") + (x.phone ? " · 📱 " + t("uses the screen", "بيستعمل الشاشة") : "") + "</div>" +
+          '<div class="mf-meta">' + esc(x.schedule) + (x.quiet ? " · 🔕 " + t("only if important", "بس إذا مهم") : "") + (x.phone ? " · 📱 " + t("uses the screen", "بيستعمل الشاشة") : "") +
+            (x.runs ? " · " + x.runs + " " + t("runs", "مرات تشغيل") : "") + "</div>" +
           (l.state && l.state !== "running" ? '<div class="mf-answer">' + (last[l.state] || "") + " " + esc(when(l.time)) + (l.answer ? " — " + esc(String(l.answer).slice(0, 220)) : "") + "</div>" : "") +
           '<div class="mf-acts"><button type="button" class="mf-btn primary" data-a="run">' + t("Run now", "شغّل الآن") + "</button>" +
           '<button type="button" class="mf-btn" data-a="' + (x.enabled ? "pause" : "resume") + '">' + (x.enabled ? t("Pause", "إيقاف") : t("Resume", "تشغيل")) + "</button>" +
-          (l.session ? '<button type="button" class="mf-btn" data-a="open">' + t("Open last run", "افتح آخر تشغيل") + "</button>" : "") +
+          '<button type="button" class="mf-btn" data-a="edit">' + t("Edit", "عدّل") + "</button>" +
+          (x.session ? '<button type="button" class="mf-btn" data-a="open">' + t("Its conversation", "محادثتها") + "</button>" : "") +
           '<button type="button" class="mf-btn danger" data-a="remove">' + t("Remove", "احذف") + "</button></div>";
         row.querySelectorAll("button").forEach(b => b.onclick = async () => {
           try {
-            if (b.dataset.a === "open") { o.hidden = true; if (window.NewAlOpenSession) window.NewAlOpenSession(l.session); return; }
+            if (b.dataset.a === "open") { o.hidden = true; if (window.NewAlOpenSession) window.NewAlOpenSession(x.session); return; }
+            if (b.dataset.a === "edit") { edit(x); return; }
             if (b.dataset.a === "remove" && !confirm(t("Remove this task?", "حذف هالمهمة؟"))) return;
             await call("/api/schedules/" + b.dataset.a, { id: x.id });
             render();

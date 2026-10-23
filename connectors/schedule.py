@@ -1,9 +1,12 @@
 """Scheduled tasks and a proactive assistant (Grok's Tasks, Claude Duet).
 
 A task is a request the agent does on its own at its time: once, every day, on some days of the week, or every N
-minutes (inside some hours of the day, when given). At its time it runs in a new thread of the project it was made in
-(listed with the background agents, with that thread's model and permission mode), and Android says how it went. A
-quiet task (the check-in) speaks only when something needs the user: its answer NOTHING_NEW posts nothing.
+minutes (inside some hours of the day, when given). Each task has one thread of its own (listed with the background
+agents, with the model and permission mode of the thread it was made in): every run continues it, so a run sees what
+the earlier runs did, and a journal of what each run did (its last answer) comes with every run, with the rule to
+never do again what is done (the same post twice). The user changes the task from that thread too ("make it 9pm"):
+schedule_task edits the thread's own task. Android says how a run went. A quiet task (the check-in) speaks only when
+something needs the user: its answer NOTHING_NEW posts nothing.
 
 /duet on adds two such tasks: the morning brief (every day at 08:00) and the check-in (every 3 hours, 08:00-22:00,
 quiet). What the thread's permission mode asks approval for still asks: the notification has Allow and Deny.
@@ -43,11 +46,18 @@ PHONE_WORDS = ("on the phone", "open the app", "tap ", "على الجوال", "�
 APP_VERBS = ("open", "send", "tap", "play", "post", "reply", "call", "افتح", "فتح", "ابعت", "ارسل", "أرسل", "رد ",
              "شغل", "شغّل", "اتصل", "انشر")
 
-BRIEF = ("\n\n(This is the scheduled task «%s» (%s), running on its own at its time: nobody is watching this thread. "
-         "Do the whole task without asking questions; when something is unclear make the reasonable choice and say "
-         "which. What your permission mode asks approval for is sent to the user's phone: if it is denied, do not "
-         "try another way, say so. Never send a message, pay, delete or publish anything the task did not ask for. "
-         "Your last answer becomes a phone notification: the result first, short.%s)")
+RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s): run %(n)d, %(now)s.\n\nThe task: %(prompt)s\n\n%(journal)s"
+       "(This thread is this task's own: every run continues it. Nobody is watching it now. Before acting, read what the "
+       "earlier runs did (this thread above, and the list): never do again what is already done - never post the same "
+       "text or picture twice, never send the same message twice, never repeat the same work; make this run's work "
+       "new, following on from the last one. If the task cannot be done without repeating, say so and do nothing. Do "
+       "the whole task without asking questions; when something is unclear make the reasonable choice and say which. "
+       "What your permission mode asks approval for is sent to the user's phone: if it is denied, do not try another "
+       "way, say so. Never send a message, pay, delete or publish anything the task did not ask for. End with what you "
+       "did exactly (e.g. the text you posted): the next runs read it, and your last answer becomes a phone "
+       "notification, the result first, short. The user may write in this thread to change the task (its time, "
+       "its instructions): schedule_task action=edit changes this thread's task.%(quiet)s)")
+JOURNAL = 12                         # the earlier runs listed with each run (all of them stay in the thread)
 QUIET_BRIEF = (" Speak only when something needs the user's attention now. If nothing does, answer exactly "
                + QUIET + " and nothing else.")
 
@@ -95,13 +105,16 @@ def save(tasks):
 
 
 def is_run(sid):
-    """A thread that is a scheduled task's run (it reports through the scheduler, not the end-of-turn notification)."""
+    """A scheduled run is going in this thread (it reports through the scheduler, not the end-of-turn notification)."""
+    return bool(sid) and sid in _runs
+
+
+def task_of(sid):
+    """The task whose own thread this is, or None."""
     if not sid:
-        return False
+        return None
     with _LOCK:
-        if sid in _runs:
-            return True
-        return any((t.get("last") or {}).get("session") == sid for t in load())
+        return next((t for t in load() if t.get("session") == sid), None)
 
 
 # ------------------------------------------------------------------ when
@@ -272,7 +285,10 @@ def _public(t):
     out["when"] = t["when"]
     out["schedule"] = describe(t["when"])
     out["last"] = dict(t.get("last") or {})
-    out["running"] = (t.get("last") or {}).get("session") in _runs
+    out["session"] = t.get("session") or ""
+    out["runs"] = t.get("runs") or 0
+    out["history"] = list(t.get("history") or [])[-5:]
+    out["running"] = bool(t.get("session")) and t.get("session") in _runs
     return out
 
 
@@ -309,10 +325,39 @@ def add(session, prompt, when, name="", quiet=False, phone=None, preset=None, no
         t["next"] = next_run(when, now)
         if t["next"] is None:
             raise ScheduleError("that time is already past")
+        if SERVICE is not None:
+            try:
+                t["session"] = _thread(SERVICE, t).id   # its own thread now: the user can open it and change it
+            except Exception:  # noqa: BLE001 - the first run makes it then
+                pass
         tasks.append(t)
         save(tasks)
     _arm()
     return t
+
+
+def _thread(service, t):
+    """The task's own thread: made once (again only when it was deleted), and every run continues it."""
+    from . import fleet
+    sid = t.get("session")
+    if sid:
+        try:
+            return service.get(sid)
+        except Exception:  # noqa: BLE001 - deleted: a new one
+            pass
+    root = t.get("root") or ""
+    if not os.path.isdir(root):
+        root = (service.projects() or [os.path.expanduser("~")])[0]
+    s = service.create(root, model=t.get("model") or None, mode=t.get("mode") or None)
+    s.title = "⏰ " + t["name"]
+    s.save_meta()
+    with fleet._LOCK:
+        reg = fleet._load()
+        reg[s.id] = {"parent": t.get("parent") or "", "name": "⏰ " + t["name"], "prompt": t["prompt"],
+                     "started": time.time(), "worktree": False, "root": root, "task": t["id"]}
+        fleet._save(reg)
+    t["session"] = s.id
+    return s
 
 
 def change(tid, **fields):
@@ -326,6 +371,7 @@ def change(tid, **fields):
         if fields.get("when"):
             t["when"] = fields["when"]
             t["next"] = next_run(t["when"], time.time())
+            t["enabled"] = t["next"] is not None     # a done one-time task with a new time runs again
         if fields.get("enabled") is not None:
             t["enabled"] = bool(fields["enabled"])
             if t["enabled"] and (not t.get("next") or t["next"] <= time.time()):
@@ -431,8 +477,8 @@ def tick(service, now=None):
         for t in sorted((t for t in tasks if t.get("pending")), key=lambda t: t.get("created", 0)):
             if len(running) >= MAX_RUNNING:
                 break
-            if (t.get("last") or {}).get("session") in running:
-                continue                                    # still running from its previous time
+            if t.get("session") and service.busy(t["session"]):
+                continue                    # its thread is working (its previous time, or the user writing in it)
             woke = False
             if t.get("phone"):
                 if screen:
@@ -462,26 +508,32 @@ def tick(service, now=None):
     _arm()
 
 
-def _start(service, t, woke):
-    from . import fleet
-    root = t.get("root") or ""
-    if not os.path.isdir(root):
-        root = (service.projects() or [os.path.expanduser("~")])[0]
-    s = service.create(root, model=t.get("model") or None, mode=t.get("mode") or None)
-    s.title = "⏰ " + t["name"]
-    s.save_meta()
-    with fleet._LOCK:
-        reg = fleet._load()
-        reg[s.id] = {"parent": t.get("parent") or "", "name": "⏰ " + t["name"], "prompt": t["prompt"],
-                     "started": time.time(), "worktree": False, "root": root, "task": t["id"]}
-        fleet._save(reg)
+def _journal(t):
+    done = [h for h in t.get("history") or [] if h.get("state") in ("done", "quiet")][-JOURNAL:]
+    if not done:
+        return "This is its first run.\n\n"
+    lines = ["- %s: %s" % (_fmt(h.get("time")), "nothing new" if h.get("state") == "quiet" else
+                           re.sub(r"\s+", " ", h.get("answer") or "")[:400]) for h in done]
+    return "What the earlier runs did (oldest first):\n" + "\n".join(lines) + "\n\n"
+
+
+def message(t, now=None):
+    """What a run sends to the task's thread: the task, the journal of the earlier runs, and the rules."""
     prev = (t.get("last") or {}).get("time")
     quiet = QUIET_BRIEF + (" The previous run was at %s." % _fmt(prev) if prev else "") if t.get("quiet") else ""
+    return RUN % {"id": t["id"], "name": t["name"], "when": describe(t["when"]), "n": (t.get("runs") or 0) + 1,
+                  "now": _fmt(time.time() if now is None else now), "prompt": t["prompt"], "journal": _journal(t),
+                  "quiet": " " + quiet.strip() if quiet else ""}
+
+
+def _start(service, t, woke):
+    s = _thread(service, t)
     _runs[s.id] = t["id"]
-    out = service.send(s.id, t["prompt"] + BRIEF % (t["name"], describe(t["when"]), quiet))
+    out = service.send(s.id, message(t))
     if not out.get("started"):
         _runs.pop(s.id, None)
         raise ScheduleError(out.get("reply") or "the task did not start")
+    t["runs"] = (t.get("runs") or 0) + 1
     t["last"] = {"time": round(time.time()), "session": s.id, "state": "running"}
     _phone_call("keep_awake", seconds=600)
     service.broadcast({"type": "fleet", "state": "start", "session": t.get("parent") or "", "agent": s.id,
@@ -516,6 +568,9 @@ def _watch(service, tid, sid, woke, poll=3):
                 name = t["name"]
                 t["last"] = dict(t.get("last") or {}, session=sid, state=state, answer=answer[:600],
                                  ended=round(time.time()))
+                # the journal the next runs read: what each run did, so none does it again
+                t["history"] = (list(t.get("history") or []) + [{k: t["last"].get(k) for k in
+                                                                 ("time", "state", "answer")}])[-30:]
         save(tasks)
     if not quiet:
         _phone_call("notify", title="⏰ " + name, text=answer[:600] or "انتهت المهمة بدون نتيجة / ended without an "
@@ -578,7 +633,9 @@ def install():
 
     @tools.tool("schedule_task",
                 "Scheduled tasks: work done on its own at a time - once, every day, some days of the week, or every N "
-                "minutes - in a new background thread of this project; the user's phone shows the result. Times are "
+                "minutes - in the task's own thread of this project (every run continues it and sees what the earlier "
+                "runs did); the user's phone shows the result. In a task's own thread, edit/pause/resume/remove/run "
+                "without id act on that task: when the user asks there to change it, edit it. Times are "
                 "the phone's local time (action=list shows the time now). action=add: prompt (the whole task, as an "
                 "instruction to yourself at that time), name, kind (once: at + date YYYY-MM-DD/today/tomorrow, or "
                 "in_minutes; daily: at HH:MM; weekly: at + days 'mon,thu'; every: every '3h'/'30m', hours '08-22'), "
@@ -599,11 +656,15 @@ def install():
                  "quiet": {"type": "boolean", "description": "notify only when something needs the user"},
                  "phone": {"type": "boolean", "description": "the task works the phone's screen"},
                  "on": {"type": "boolean", "description": "duet: turn the brief and check-in on (default) or off"},
-                 "id": tools._s("edit, pause, resume, remove, run: the task's id, e.g. t3")},
+                 "id": tools._s("edit, pause, resume, remove, run: the task's id, e.g. t3 (in a task's own thread: "
+                                "that task by default)")},
                 ["action"], "meta")
     def t_schedule_task(ctx, action, prompt="", name="", kind="", at="", date="", in_minutes=None, days="",
                         every="", hours="", quiet=None, phone=None, on=True, id=""):  # noqa: A002 - the param's name
         action = str(action or "").strip().lower()
+        if not str(id or "").strip() and action in ("edit", "pause", "resume", "remove", "run"):
+            own = task_of(getattr(ctx.session, "id", ""))
+            id = own["id"] if own else id  # noqa: A001
         try:
             if action == "add":
                 if getattr(ctx.agent, "depth", 0):
@@ -612,7 +673,8 @@ def install():
                 if when is None:
                     raise ScheduleError("kind: once, daily, weekly or every (or in_minutes)")
                 t = add(ctx.session, prompt, when, name=name, quiet=bool(quiet), phone=phone)
-                return ("Scheduled %s «%s»: %s; next run %s.%s" % (
+                return ("Scheduled %s «%s»: %s; next run %s. It has its own thread: every run continues it, and the "
+                        "user can change the task there.%s" % (
                     t["id"], t["name"], describe(t["when"]), _fmt(t["next"]),
                     " It works the phone's screen: it runs alone, with the screen turned on (a locked phone asks "
                     "the user to unlock)." if t["phone"] else "")), {"task": t["id"], "next": t["next"]}
@@ -634,7 +696,7 @@ def install():
                 if SERVICE is None:
                     raise ScheduleError("tasks run in the MusabAI app (its engine runs them)")
                 t = run_now(SERVICE, id)
-                return "%s «%s» starts now (a new background thread)." % (t["id"], t["name"]), {"task": t["id"]}
+                return "%s «%s» starts now (in its own thread)." % (t["id"], t["name"]), {"task": t["id"]}
             if action == "duet":
                 made = duet(ctx.session, on is not False, at=at or "08:00", every=every or "3h",
                             window=hours or "08-22")
@@ -743,6 +805,12 @@ def route(service, method, path, q=None, b=None):
             t = add(service.get(str(b.get("session") or "")), b.get("prompt"), when, name=b.get("name") or "",
                     quiet=bool(b.get("quiet")), phone=b.get("phone"))
             return {"ok": True, "task": _public(t)}
+        if act == "edit":
+            when = _when_from(b.get("kind"), b.get("at"), b.get("date"), b.get("days"), b.get("every"),
+                              b.get("in_minutes"), b.get("hours"))
+            return {"ok": True, "task": _public(change(b.get("id"), name=b.get("name") or None,
+                                                       prompt=b.get("prompt") or None, quiet=b.get("quiet"),
+                                                       phone=b.get("phone"), when=when))}
         if act in ("pause", "resume"):
             return {"ok": True, "task": _public(change(b.get("id"), enabled=act == "resume"))}
         if act == "remove":
