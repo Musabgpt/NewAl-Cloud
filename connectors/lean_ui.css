@@ -1,4 +1,6 @@
-/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, Chrome or the chat is not shown. */
+/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, Chrome or the chat is not shown. The
+   Activepieces card stays: scheduled tasks work through the services connected there (Facebook pages, Gmail...) with
+   the screen off, instead of opening the apps (schedule.py). */
 html.musab-lean #open-extensions,
 html.musab-lean #open-cloud,
 html.musab-lean #open-workspace,
@@ -7,7 +9,6 @@ html.musab-lean #musab-vscode,
 html.musab-lean #env-picker,
 html.musab-lean #sandbox-chip,
 html.musab-lean #quick,
-html.musab-lean #connector-dialog .activepieces-hub,
 html.musab-lean #connector-dialog .browser-router,
 html.musab-lean #connector-dialog .search-layer,
 html.musab-lean #connector-dialog .document-engine,
@@ -29,6 +30,8 @@ html.musab-lean #connector-dialog .connector-card.free-provider {
   padding: 12px 0;
 }
 html.musab-lean #connector-dialog .free-provider input { width: 100%; box-sizing: border-box; min-height: 40px; }
+html.musab-lean #connector-dialog .activepieces-hub input { width: 100%; box-sizing: border-box; min-height: 40px; }
+html.musab-lean #connector-dialog .activepieces-hub .connector-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 html.musab-lean #connector-dialog .free-provider .btn { justify-self: start; min-height: 40px; }
 
 /* ---- the look of the chat: presentation only (no element, text, request or model input changes).
