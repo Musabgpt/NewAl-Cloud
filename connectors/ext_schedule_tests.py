@@ -44,6 +44,7 @@ class FakeService:
 
     def send(self, sid, text):
         self.sent.append((sid, text))
+        self.sessions[sid].messages.append({"role": "user", "content": text})
         self.sessions[sid].messages.append({"role": "assistant", "content": self.answer})
         return {"started": True, "session": sid}
 
@@ -140,7 +141,7 @@ class ScheduleTests(unittest.TestCase):
         sid, text = svc.sent[0]
         self.assertIn("The task: لخصلي الأخبار", text)
         self.assertIn("Nobody is watching", text)
-        self.assertIn("first run", text)
+        self.assertIn("First run.", text)
         self.assertEqual(svc.sessions[sid].root, self.root + "/project")
         self.assertEqual((svc.sessions[sid].model, svc.sessions[sid].mode), ("auto", "auto-edit"))
         self.assertTrue(svc.sessions[sid].title.startswith("⏰"))
@@ -167,7 +168,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(len(svc.sessions), 1)
         self.assertIn("run 2", text)
         self.assertIn("صباح الخير يا جماعة", text)                       # what the first run posted
-        self.assertIn("never post the same", text)
+        self.assertIn("never repeat it (the same post", text)
         task = s.load()[0]
         self.assertEqual(task["runs"], 2)
         self.assertEqual([h["answer"] for h in task["history"]], ["Posted: «صباح الخير يا جماعة»",
@@ -250,7 +251,7 @@ class ScheduleTests(unittest.TestCase):
         s.tick(svc, now=ts(2030, 10, 23, 9, 0))
         self.finish_runs()
         self.assertNotIn("wake", [c for c, _ in self.calls])              # the screen is left off, the phone locked
-        self.assertIn("does not use the phone's screen", svc.sent[0][1])
+        self.assertIn("The screen is off for this run", svc.sent[0][1])
         s.change(t["id"], screen="yes")                                  # the user's choice wins
         self.assertTrue(s._public(s.load()[0])["phone"])
         s.change(t["id"], phone=False)
@@ -326,13 +327,13 @@ class ScheduleTests(unittest.TestCase):
         ctx = SimpleNamespace(session=self.session, agent=SimpleNamespace(depth=0), cancel=threading.Event(),
                               emit=lambda ev: None)
         text, meta = t.call(ctx, "schedule_task", {"action": "add", "prompt": "Check the CI of my repo",
-                                                    "kind": "weekly", "at": "09:00", "days": "sun"})
+                                                    "when": "weekly sun 09:00"})
         self.assertIn("Sun at 09:00", text)
         tid = meta["task"]
         text, _ = t.call(ctx, "schedule_task", {"action": "list"})
         self.assertIn("Now:", text)
         self.assertIn(tid, text)
-        text, _ = t.call(ctx, "schedule_task", {"action": "edit", "id": tid, "kind": "daily", "at": "10:00"})
+        text, _ = t.call(ctx, "schedule_task", {"action": "edit", "id": tid, "when": "daily 10:00"})
         self.assertIn("every day at 10:00", text)
         # in the task's own thread, "make it 9pm" needs no id
         self.schedule.change(tid)
@@ -341,15 +342,55 @@ class ScheduleTests(unittest.TestCase):
         self.schedule.save(tasks)
         own = SimpleNamespace(session=SimpleNamespace(id="own-thread", root=self.root, model="auto", mode="ask"),
                               agent=SimpleNamespace(depth=0), cancel=threading.Event(), emit=lambda ev: None)
-        text, _ = t.call(own, "schedule_task", {"action": "edit", "kind": "daily", "at": "21:00"})
+        text, _ = t.call(own, "schedule_task", {"action": "edit", "when": "daily 21:00"})
         self.assertIn("every day at 21:00", text)
         text, _ = t.call(own, "schedule_task", {"action": "pause"})
         self.assertIn("paused", text)
-        with self.assertRaises(t.ToolError):
-            t.call(ctx, "schedule_task", {"action": "add", "prompt": "x", "kind": "every", "every": "1m"})
+        for bad in ("every 1m", "tomorrow", "daily", "daily 08:00 and more"):
+            with self.assertRaises(t.ToolError):
+                t.call(ctx, "schedule_task", {"action": "add", "prompt": "x", "when": bad})
         with self.assertRaises(t.ToolError):
             t.call(ctx, "schedule_task", {"action": "remove", "id": "t99"})
         self.assertIn("schedule_task", t.default_set())
+        # it goes with every request on the phone: kept small
+        self.assertLess(len(__import__("json").dumps(t.REGISTRY["schedule_task"].schema(), ensure_ascii=False)), 1000)
+
+    def test_when_words(self):
+        s = self.schedule
+        now = ts(2026, 10, 23, 9, 0)
+        self.assertEqual(s.when_text("every 2h 09-17", now=now), {"kind": "every", "minutes": 120, "window": [9, 17]})
+        self.assertEqual(s.when_text("in 30m", now=now), {"kind": "once", "ts": round(now + 1800)})
+        self.assertEqual(s.when_text("once 2026-11-02 09:30", now=now)["ts"], ts(2026, 11, 2, 9, 30))
+        self.assertIsNone(s.parse("every 3h 09-17", now=now))            # a time without a task
+
+    def test_a_long_thread_keeps_only_its_last_run(self):
+        s, svc = self.schedule, FakeService(answer="Posted: «%s»" % ("x" * 30))
+        t = s.add(self.session, "انشر منشور", s.when_of("daily", at="09:00"), now=ts(2030, 10, 23, 8, 0))
+        s.tick(svc, now=ts(2030, 10, 23, 9, 0))
+        self.finish_runs()
+        thread = svc.sessions[svc.sent[0][0]]
+        thread.messages[0:0] = [{"role": "tool", "content": "App: Facebook\n" + "[1] item " * 3000}]   # a big screen
+        s.tick(svc, now=ts(2030, 10, 24, 9, 0))
+        self.finish_runs()
+        roles = [m["role"] for m in thread.messages]
+        self.assertEqual(roles, ["user", "assistant", "user", "assistant"])   # the last run, then the new one
+        self.assertLess(sum(len(str(m.get("content"))) for m in thread.messages), 9000)
+        self.assertIn("Posted:", svc.sent[1][1])                          # its journal still says what was done
+        self.assertEqual(s.load()[0]["runs"], 2)
+        self.assertEqual(t["screen"], "auto")
+
+    def test_the_users_own_thread_comes_first(self):
+        s, svc = self.schedule, FakeService()
+        svc.threads = {"chat": object()}
+        svc.busy_ids.add("chat")                                          # the user's turn is running
+        s.add(self.session, "check the build", s.when_of("daily", at="09:00"), now=ts(2030, 10, 23, 8, 0))
+        s.tick(svc, now=ts(2030, 10, 23, 9, 0))
+        self.assertEqual(svc.sent, [])
+        self.assertTrue(s.load()[0]["pending"])
+        svc.busy_ids.clear()                                              # it ended: the run starts
+        s.tick(svc, now=ts(2030, 10, 23, 9, 1))
+        self.finish_runs()
+        self.assertEqual(len(svc.sent), 1)
 
     def test_routes(self):
         s, svc = self.schedule, FakeService()

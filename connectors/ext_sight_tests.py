@@ -145,11 +145,11 @@ class SightTests(unittest.TestCase):
         text, meta = self.run_tool("phone_steps", FakeClient(), steps=[{"action": "wait", "seconds": 1}])
         self.assertTrue(meta["done"])
 
-    def test_offered_on_the_phone(self):
+    def test_not_in_the_phones_default_set(self):
         from . import claude_parity, lean, tools as t
         for name in ("screen_tap", "phone_steps"):
-            self.assertIn(name, lean.LEAN)
-            self.assertIn(name, claude_parity.CORE)
+            self.assertNotIn(name, lean.LEAN)               # lean mode: every tool there goes with every request
+            self.assertNotIn(name, claude_parity.CORE)      # elsewhere deferred until the model searches for it
             self.assertIn(name, t.REGISTRY)
 
 

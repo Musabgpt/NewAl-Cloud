@@ -63,27 +63,19 @@ SERVICES = {
 }
 WIDE_ALL = 25                        # a task's thread in lean mode gets every connected tool up to this many
 
-RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s): run %(n)d, %(now)s.\n\nThe task: %(prompt)s\n\n%(journal)s"
-       "(This thread is this task's own: every run continues it. Nobody is watching it now. Before acting, read what the "
-       "earlier runs did (this thread above, and the list): never do again what is already done - never post the same "
-       "text or picture twice, never send the same message twice, never repeat the same work; make this run's work "
-       "new, following on from the last one. If the task cannot be done without repeating, say so and do nothing. Do "
-       "the whole task without asking questions; when something is unclear make the reasonable choice and say which. "
-       "What your permission mode asks approval for is sent to the user's phone: if it is denied, do not try another "
-       "way, say so. Never send a message, pay, delete or publish anything the task did not ask for. End with what you "
-       "did exactly (e.g. the text you posted): the next runs read it, and your last answer becomes a phone "
-       "notification, the result first, short. The user may write in this thread to change the task (its time, "
-       "its instructions): schedule_task action=edit changes this thread's task. %(screen)s%(quiet)s)")
-SERVICE_TOOLS = ("the connected services' tools: a Facebook Page, Activepieces, Gmail, GitHub... (facebook_page_*, "
-                 "connected_*, mcp__*, gmail_*...)")
-SCREEN = ("The phone's screen is on for this run, but %s come first when they can do the work: use the apps on the "
-          "screen only for what they do not do." % SERVICE_TOOLS)
-NO_SCREEN = ("This run does not use the phone's screen (it may be off and locked): do the work through %s, the web "
-             "and files. If it can only be done in an app on the screen, do not try: say so, and that the task runs "
-             "on the screen once it is set to use it (⏰ Tasks > Edit > uses the screen)." % SERVICE_TOOLS)
-JOURNAL = 12                         # the earlier runs listed with each run (all of them stay in the thread)
-QUIET_BRIEF = (" Speak only when something needs the user's attention now. If nothing does, answer exactly "
-               + QUIET + " and nothing else.")
+RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s), run %(n)d, %(now)s.\nThe task: %(prompt)s\n%(journal)s"
+       "(Nobody is watching: do the whole task without questions. Read what the earlier runs did and never repeat it "
+       "(the same post or message twice): this run's work is new. Never send, pay, delete or publish what the task "
+       "did not ask for. End with exactly what you did, short: the next runs read it, and it becomes the phone's "
+       "notification.%(screen)s%(quiet)s)")
+SCREEN = (" A connected service's tools come first (facebook_page_*, gmail_*, connected_*...); the apps on the screen "
+          "only for the rest.")
+NO_SCREEN = (" The screen is off for this run: use the connected services' tools (facebook_page_*, gmail_*, "
+             "connected_*...), the web and files; if the task needs an app on the screen, say so in one line.")
+JOURNAL = 8                          # the earlier runs listed with each run
+JOURNAL_CHARS = 200                  # of each one's answer
+TRIM_CHARS = 20000                   # past this a task's thread keeps only its last run (the journal keeps the rest)
+QUIET_BRIEF = " Speak only when something needs the user now; if nothing does, answer exactly " + QUIET + "."
 
 MORNING = ("Morning brief. Look at what came in since yesterday: the phone's notifications (phone "
            "action=notifications_read, when it is on), GitHub (the project's Actions runs and pull requests) and the "
@@ -213,8 +205,29 @@ def task_mcp(sid, mcp):
                                    for s in wanted)]
 
 
+_ids = [None, frozenset()]           # (the schedules file and its mtime, the tasks' own thread ids)
+
+
+def _thread_ids():
+    """The tasks' own threads, read again only when the schedules file changed (this runs with every request)."""
+    try:
+        key = (_path(), os.stat(_path()).st_mtime_ns)
+    except OSError:
+        return frozenset(_threads)
+    if _ids[0] != key:
+        _ids[0], _ids[1] = key, frozenset(t["session"] for t in load() if t.get("session"))
+    return _ids[1] | _threads
+
+
 def _is_thread(sid):
-    return bool(sid) and (sid in _threads or task_of(sid) is not None)
+    return bool(sid) and sid in _thread_ids()
+
+
+def _user_busy(service):
+    """A thread of the user's (not a task's) is working: runs wait, so they never slow the user down."""
+    ids = _thread_ids()
+    return any(service.busy(sid) for sid in list(getattr(service, "threads", None) or {})
+               if sid not in _runs and sid not in ids)
 
 
 # ------------------------------------------------------------------ when
@@ -595,8 +608,9 @@ def tick(service, now=None):
                 changed = True
         running = [sid for sid in _runs if service.busy(sid)]
         screen = any(sid in _screen_runs for sid in running)
+        wait = any(t.get("pending") for t in tasks) and _user_busy(service)   # the user's turn first
         for t in sorted((t for t in tasks if t.get("pending")), key=lambda t: t.get("created", 0)):
-            if len(running) >= MAX_RUNNING:
+            if wait or len(running) >= MAX_RUNNING:
                 break
             if t.get("session") and service.busy(t["session"]):
                 continue                    # its thread is working (its previous time, or the user writing in it)
@@ -633,10 +647,35 @@ def tick(service, now=None):
 def _journal(t):
     done = [h for h in t.get("history") or [] if h.get("state") in ("done", "quiet")][-JOURNAL:]
     if not done:
-        return "This is its first run.\n\n"
+        return "First run.\n"
     lines = ["- %s: %s" % (_fmt(h.get("time")), "nothing new" if h.get("state") == "quiet" else
-                           re.sub(r"\s+", " ", h.get("answer") or "")[:400]) for h in done]
-    return "What the earlier runs did (oldest first):\n" + "\n".join(lines) + "\n\n"
+                           re.sub(r"\s+", " ", h.get("answer") or "")[:JOURNAL_CHARS]) for h in done]
+    return "What the earlier runs did (oldest first):\n" + "\n".join(lines) + "\n"
+
+
+def _text(content):
+    if isinstance(content, list):
+        return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return str(content or "")
+
+
+def trim(s):
+    """A task's thread stays small for the model: past TRIM_CHARS (screens and tool outputs add up run after run) it
+    keeps only its last run's request and answer. What every run did comes with each run in the journal."""
+    msgs = list(getattr(s, "messages", None) or [])
+    if sum(len(_text(m.get("content"))) + len(json.dumps(m.get("tool_calls") or "")) for m in msgs) <= TRIM_CHARS:
+        return False
+    asked = next((m for m in reversed(msgs) if m.get("role") == "user" and _text(m.get("content")).strip()), None)
+    said = next((m for m in reversed(msgs) if m.get("role") == "assistant" and not m.get("tool_calls")
+                 and _text(m.get("content")).strip()), None)
+    keep = [{"role": "user", "content": _text(asked["content"])[:1500]}] if asked else []
+    if said:
+        keep.append({"role": "assistant", "content": _text(said["content"])[:1500]})
+    if hasattr(s, "replace_messages"):
+        s.replace_messages(keep, note="task-run")
+    else:
+        s.messages = keep
+    return True
 
 
 def message(t, now=None, uses=None):
@@ -651,6 +690,7 @@ def message(t, now=None, uses=None):
 
 def _start(service, t, woke, uses=False):
     s = _thread(service, t)
+    trim(s)
     _runs[s.id] = t["id"]
     if uses:
         _screen_runs.add(s.id)
@@ -758,38 +798,19 @@ def _when_from(kind, at, date, days, every, in_minutes, window):
 def install():
     from . import tools
 
+    # Short on purpose: this description goes with every request on the phone.
     @tools.tool("schedule_task",
-                "Scheduled tasks: work done on its own at a time - once, every day, some days of the week, or every N "
-                "minutes - in the task's own thread of this project (every run continues it and sees what the earlier "
-                "runs did); the user's phone shows the result. In a task's own thread, edit/pause/resume/remove/run "
-                "without id act on that task: when the user asks there to change it, edit it. Times are "
-                "the phone's local time (action=list shows the time now). action=add: prompt (the whole task, as an "
-                "instruction to yourself at that time), name, kind (once: at + date YYYY-MM-DD/today/tomorrow, or "
-                "in_minutes; daily: at HH:MM; weekly: at + days 'mon,thu'; every: every '3h'/'30m', hours '08-22'), "
-                "quiet (only notify when something needs the user), phone (it works the phone's screen: guessed when "
-                "left out). Several tasks in one request: add each; if any time or task is unclear, list them back "
-                "and ask first. action=list; edit (id + fields); pause, resume, remove, run (id: now); duet "
-                "(on: true/false, at, every, hours): the morning brief and the quiet check-in.",
-                {"action": tools._s("add, list, edit, pause, resume, remove, run or duet"),
-                 "prompt": tools._s("add/edit: what to do at that time, complete"),
-                 "name": tools._s("add/edit: a short name"),
-                 "kind": tools._s("add/edit: once, daily, weekly or every"),
-                 "at": tools._s("once/daily/weekly; duet: the brief's time, HH:MM (24 h)"),
-                 "date": tools._s("once: YYYY-MM-DD, today or tomorrow (default: the next such time)"),
-                 "in_minutes": {"type": "integer", "description": "once: this many minutes from now"},
-                 "days": tools._s("weekly: days, e.g. mon,thu"),
-                 "every": tools._s("every; duet: the check-in's repeat, e.g. 3h or 30m (at least 15m)"),
-                 "hours": tools._s("every; duet: only between these hours, e.g. 08-22"),
-                 "quiet": {"type": "boolean", "description": "notify only when something needs the user"},
-                 "phone": {"type": "boolean", "description": "true: it must work apps on the phone's screen; false: "
-                                                             "it never needs the screen. Leave out to decide at each "
-                                                             "run: a connected service's tools first (no screen)"},
-                 "on": {"type": "boolean", "description": "duet: turn the brief and check-in on (default) or off"},
-                 "id": tools._s("edit, pause, resume, remove, run: the task's id, e.g. t3 (in a task's own thread: "
-                                "that task by default)")},
+                "Work to do LATER, on its own at a time (never for doing something now). Each task has its own thread, "
+                "which remembers its earlier runs. action=add: prompt (the whole task, as an instruction for then) and "
+                "when: 'daily 08:00', 'weekly mon,fri 18:00', 'every 3h', 'every 2h 09-17', 'once tomorrow 15:00' or "
+                "'in 30m' (the phone's time). Also list, edit (prompt or when), pause, resume, remove, run: by id, or "
+                "the task of the thread you are in.",
+                {"action": tools._s("add, list, edit, pause, resume, remove or run"),
+                 "prompt": tools._s("add, edit: the whole task"),
+                 "when": tools._s("add, edit: e.g. daily 08:00, every 3h, once tomorrow 15:00, in 30m"),
+                 "id": tools._s("the task's id, e.g. t3")},
                 ["action"], "meta")
-    def t_schedule_task(ctx, action, prompt="", name="", kind="", at="", date="", in_minutes=None, days="",
-                        every="", hours="", quiet=None, phone=None, on=True, id=""):  # noqa: A002 - the param's name
+    def t_schedule_task(ctx, action, prompt="", when="", id=""):  # noqa: A002 - the param's name
         action = str(action or "").strip().lower()
         if not str(id or "").strip() and action in ("edit", "pause", "resume", "remove", "run"):
             own = task_of(getattr(ctx.session, "id", ""))
@@ -798,21 +819,13 @@ def install():
             if action == "add":
                 if getattr(ctx.agent, "depth", 0):
                     raise ScheduleError("a sub-agent cannot schedule tasks")
-                when = _when_from(kind, at, date, days, every, in_minutes, hours)
-                if when is None:
-                    raise ScheduleError("kind: once, daily, weekly or every (or in_minutes)")
-                t = add(ctx.session, prompt, when, name=name, quiet=bool(quiet), phone=phone)
+                t = add(ctx.session, prompt, when_text(when))
                 p = _public(t)
-                if p["phone"]:
-                    how = (" It works the phone's screen: it runs alone, with the screen turned on (a locked phone "
-                           "asks the user to unlock).")
-                elif p["via"]:
-                    how = " It runs through the connected %s, with the screen off." % ", ".join(p["via"])
-                else:
-                    how = ""
-                return ("Scheduled %s «%s»: %s; next run %s. It has its own thread: every run continues it, and the "
-                        "user can change the task there.%s" % (t["id"], t["name"], describe(t["when"]),
-                                                               _fmt(t["next"]), how)), \
+                how = (" It uses the phone's screen (it turns it on; a locked phone waits for the user)." if p["phone"]
+                       else " It runs through the connected %s, with the screen off." % ", ".join(p["via"])
+                       if p["via"] else "")
+                return ("Scheduled %s «%s»: %s; next run %s.%s" % (t["id"], t["name"], describe(t["when"]),
+                                                                  _fmt(t["next"]), how)), \
                     {"task": t["id"], "next": t["next"]}
             if action == "list":
                 items = listing()
@@ -822,8 +835,7 @@ def install():
                 return "%s %s." % (t["id"], "paused" if action == "pause" else "resumed: next " + _fmt(t["next"])), \
                     {"task": t["id"]}
             if action == "edit":
-                t = change(id, name=name or None, prompt=prompt or None, quiet=quiet, phone=phone,
-                           when=_when_from(kind, at, date, days, every, in_minutes, hours))
+                t = change(id, prompt=prompt or None, when=when_text(when) if str(when or "").strip() else None)
                 return "Changed: " + _line(t), {"task": t["id"]}
             if action == "remove":
                 t = remove(id)
@@ -833,15 +845,9 @@ def install():
                     raise ScheduleError("tasks run in the MusabAI app (its engine runs them)")
                 t = run_now(SERVICE, id)
                 return "%s «%s» starts now (in its own thread)." % (t["id"], t["name"]), {"task": t["id"]}
-            if action == "duet":
-                made = duet(ctx.session, on is not False, at=at or "08:00", every=every or "3h",
-                            window=hours or "08-22")
-                if not made:
-                    return "The morning brief and the check-in are off.", {"tasks": 0}
-                return "On:\n" + "\n".join(_line(t) for t in made), {"tasks": len(made)}
         except ScheduleError as e:
             raise tools.ToolError(str(e))
-        raise tools.ToolError("action: add, list, edit, pause, resume, remove, run or duet")
+        raise tools.ToolError("action: add, list, edit, pause, resume, remove or run")
 
 
 # ------------------------------------------------------------------ slash commands and the app's routes
@@ -853,30 +859,48 @@ COMMANDS = [
 ]
 
 
+WHEN = "daily 08:00, weekly mon,fri 18:00, every 3h, every 2h 09-17, once tomorrow 15:00, once 2026-11-02 09:30, in 30m"
+
+
+def _split_when(words, now=None):
+    """(when, how many words it took) from the start of words, or None."""
+    if not words:
+        return None
+    head = words[0].lower()
+    if head == "daily" and len(words) >= 2:
+        return when_of("daily", at=words[1], now=now), 2
+    if head == "weekly" and len(words) >= 3:
+        return when_of("weekly", days=words[1], at=words[2], now=now), 3
+    if head == "every" and len(words) >= 2:
+        if len(words) >= 3 and re.fullmatch(r"\d{1,2}-\d{1,2}", _digits(words[2])):
+            return when_of("every", every=words[1], window=words[2], now=now), 3
+        return when_of("every", every=words[1], now=now), 2
+    if head == "in" and len(words) >= 2:
+        return when_of("once", in_minutes=_minutes_or_plain(words[1]), now=now), 2
+    if head == "once" and len(words) >= 2:
+        if re.fullmatch(r"\d{1,2}(:\d{2})?", _digits(words[1])):
+            return when_of("once", at=words[1], now=now), 2
+        if len(words) >= 3:
+            return when_of("once", date=words[1], at=words[2], now=now), 3
+    return None
+
+
+def when_text(text, now=None):
+    """The tool's when ("daily 08:00", "every 3h"...) -> the checked when."""
+    words = str(text or "").split()
+    got = _split_when(words, now)
+    if got is None or got[1] != len(words):
+        raise ScheduleError("when: " + WHEN)
+    return got[0]
+
+
 def parse(args, now=None):
     """'/schedule' text -> (when, task); None when it is not in the short form (the model reads it instead)."""
     words = str(args or "").split()
-    if len(words) < 2:
+    got = _split_when(words, now)
+    if got is None or len(words) <= got[1]:
         return None
-    head = words[0].lower()
-    if head == "daily" and len(words) >= 3:
-        return when_of("daily", at=words[1], now=now), " ".join(words[2:])
-    if head == "weekly" and len(words) >= 4:
-        return when_of("weekly", days=words[1], at=words[2], now=now), " ".join(words[3:])
-    if head == "every" and len(words) >= 3:
-        rest = words[2:]
-        window = None
-        if re.fullmatch(r"\d{1,2}-\d{1,2}", _digits(rest[0])) and len(rest) >= 2:
-            window, rest = rest[0], rest[1:]
-        return when_of("every", every=words[1], window=window, now=now), " ".join(rest)
-    if head == "in" and len(words) >= 3:
-        return when_of("once", in_minutes=_minutes_or_plain(words[1]), now=now), " ".join(words[2:])
-    if head == "once" and len(words) >= 3:
-        if re.fullmatch(r"\d{1,2}(:\d{2})?", _digits(words[1])):
-            return when_of("once", at=words[1], now=now), " ".join(words[2:])
-        if len(words) >= 4:
-            return when_of("once", date=words[1], at=words[2], now=now), " ".join(words[3:])
-    return None
+    return got[0], " ".join(words[got[1]:])
 
 
 def _minutes_or_plain(v):
