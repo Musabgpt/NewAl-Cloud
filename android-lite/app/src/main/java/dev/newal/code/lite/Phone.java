@@ -68,6 +68,8 @@ final class Phone {
                 return PhoneControlService.need().screen();
             case "screenshot":
                 return PhoneControlService.need().screenshot();
+            case "image_crop":
+                return ScreenSight.crop(ctx, a);
             case "tap":
                 return PhoneControlService.need().tap(a);
             case "type":
