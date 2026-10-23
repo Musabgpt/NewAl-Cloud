@@ -32,6 +32,8 @@ html.musab-lean #connector-dialog .connector-card.free-provider {
 html.musab-lean #connector-dialog .free-provider input { width: 100%; box-sizing: border-box; min-height: 40px; }
 html.musab-lean #connector-dialog .activepieces-hub input { width: 100%; box-sizing: border-box; min-height: 40px; }
 html.musab-lean #connector-dialog .activepieces-hub .connector-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+html.musab-lean #connector-dialog .facebook-page input { width: 100%; box-sizing: border-box; min-height: 40px; margin: 4px 0; }
+html.musab-lean #connector-dialog .facebook-page .connector-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 html.musab-lean #connector-dialog .free-provider .btn { justify-self: start; min-height: 40px; }
 
 /* ---- the look of the chat: presentation only (no element, text, request or model input changes).

@@ -74,7 +74,8 @@ RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s): run %(n)d, %(now)s.\n
        "did exactly (e.g. the text you posted): the next runs read it, and your last answer becomes a phone "
        "notification, the result first, short. The user may write in this thread to change the task (its time, "
        "its instructions): schedule_task action=edit changes this thread's task. %(screen)s%(quiet)s)")
-SERVICE_TOOLS = "the connected services' tools: Activepieces, Gmail, Drive, GitHub... (connected_*, mcp__*, gmail_*...)"
+SERVICE_TOOLS = ("the connected services' tools: a Facebook Page, Activepieces, Gmail, GitHub... (facebook_page_*, "
+                 "connected_*, mcp__*, gmail_*...)")
 SCREEN = ("The phone's screen is on for this run, but %s come first when they can do the work: use the apps on the "
           "screen only for what they do not do." % SERVICE_TOOLS)
 NO_SCREEN = ("This run does not use the phone's screen (it may be off and locked): do the work through %s, the web "
