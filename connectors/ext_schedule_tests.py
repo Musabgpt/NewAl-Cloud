@@ -1,7 +1,8 @@
 """Scheduled tasks (schedule.py): their times in the phone's local time, a missed time run once, every run in the
 task's own thread with the journal of the earlier runs (so none repeats them), a notification for each (none for a
-quiet check-in with nothing to say), the task changed from its own thread, the phone's screen used by one task at a
-time and a locked phone waited for, the /schedule and /duet commands and the schedule_task tool."""
+quiet check-in with nothing to say), the task changed from its own thread, a connected service used before the screen
+(and its tools offered to the task's thread in lean mode), the phone's screen used by one task at a time and a locked
+phone waited for, the /schedule and /duet commands and the schedule_task tool."""
 import datetime
 import os
 import tempfile
@@ -74,9 +75,13 @@ class ScheduleTests(unittest.TestCase):
                 return dict(self.lock_state, ok=True)
             return {"ok": True}
         self.patches.append(mock.patch.object(schedule, "_phone_call", side_effect=phone))
+        self.connected = []                  # the connected services' tools (Activepieces, Gmail...)
+        self.patches.append(mock.patch.object(schedule, "_connected", side_effect=lambda: list(self.connected)))
         for p in self.patches:
             p.start()
         schedule._runs.clear()
+        schedule._screen_runs.clear()
+        schedule._threads.clear()
         schedule._armed[0] = 0
         self.session = SimpleNamespace(id="parent-1", root=self.root + "/project", origin=self.root + "/project",
                                        model="auto", mode="auto-edit")
@@ -215,9 +220,9 @@ class ScheduleTests(unittest.TestCase):
                   now=ts(2030, 10, 23, 7, 0))
         b = s.add(self.session, "open youtube and play the news", s.when_of("daily", at="08:00"),
                   now=ts(2030, 10, 23, 7, 0))
-        self.assertTrue(a["phone"] and b["phone"])
-        self.assertFalse(s.add(self.session, "لخصلي إشعارات واتساب", s.when_of("daily", at="09:00"),
-                               now=ts(2030, 10, 23, 7, 0))["phone"])           # reading needs no screen
+        self.assertTrue(s._public(a)["phone"] and s._public(b)["phone"])
+        self.assertFalse(s._public(s.add(self.session, "لخصلي إشعارات واتساب", s.when_of("daily", at="09:00"),
+                                         now=ts(2030, 10, 23, 7, 0)))["phone"])   # reading needs no screen
         self.lock_state["locked"] = True
         s.tick(svc, now=ts(2030, 10, 23, 8, 0))
         s.tick(svc, now=ts(2030, 10, 23, 8, 1))
@@ -234,6 +239,59 @@ class ScheduleTests(unittest.TestCase):
         self.finish_runs()
         self.assertEqual(len(svc.sent), 2)
         self.assertIn(("sleep_screen", {}), self.calls)                  # turned on for the run, off after it
+
+    def test_a_connected_service_comes_before_the_screen(self):
+        s, svc = self.schedule, FakeService(answer="Posted on the page: «صباح الخير»")
+        t = s.add(self.session, "انشر منشور على فيسبوك", s.when_of("daily", at="09:00"), now=ts(2030, 10, 23, 8, 0))
+        self.assertTrue(s._public(t)["phone"])                            # nothing connected: the app, on the screen
+        self.connected = ["github_list_repos", "connected_activepieces_facebook_pages_cre_0123456789"]
+        p = s._public(t)
+        self.assertEqual((p["screen"], p["phone"], p["via"]), ("auto", False, ["facebook"]))
+        s.tick(svc, now=ts(2030, 10, 23, 9, 0))
+        self.finish_runs()
+        self.assertNotIn("wake", [c for c, _ in self.calls])              # the screen is left off, the phone locked
+        self.assertIn("does not use the phone's screen", svc.sent[0][1])
+        s.change(t["id"], screen="yes")                                  # the user's choice wins
+        self.assertTrue(s._public(s.load()[0])["phone"])
+        s.change(t["id"], phone=False)
+        self.assertEqual(s.load()[0]["screen"], "no")
+        self.assertRaises(s.ScheduleError, s.change, t["id"], screen="maybe")
+
+    def test_a_tasks_thread_gets_connected_services_tools_in_lean_mode(self):
+        s = self.schedule
+        t = s.add(self.session, "انشر منشور على فيسبوك", s.when_of("daily", at="09:00"), now=ts(2030, 10, 23, 8, 0))
+        tasks = s.load()
+        tasks[0]["session"] = "task-thread"
+        s.save(tasks)
+        few = ["github_list_repos", "termux_exec", "gmail_send", "connected_activepieces_facebook_pages_cre_0123456789"]
+        self.assertEqual(s.task_tools("other-thread", few), [])           # an ordinary thread: lean stays lean
+        self.assertEqual(s.task_tools("task-thread", few), ["gmail_send",
+                                                            "connected_activepieces_facebook_pages_cre_0123456789"])
+        many = ["connected_activepieces_piece%02d_0123456789" % i for i in range(40)] + few
+        self.assertEqual(s.task_tools("task-thread", many), ["connected_activepieces_facebook_pages_cre_0123456789"])
+        mcp = SimpleNamespace(schemas=lambda: [{"type": "function", "function": {"name": "mcp__ap__x%d" % i,
+                                                                                "description": "tool %d" % i}}
+                                               for i in range(30)] + [
+            {"type": "function", "function": {"name": "mcp__ap__post", "description": "Create a Facebook page post"}}])
+        self.assertEqual([d["function"]["name"] for d in s.task_mcp("task-thread", mcp)], ["mcp__ap__post"])
+        self.assertEqual(s.task_mcp("other-thread", mcp), [])
+        self.assertEqual(t["screen"], "auto")
+
+    def test_lean_agent_in_a_tasks_thread_sees_the_connected_tools(self):
+        from . import agent, connectors, phone, session, settings
+        with mock.patch.object(settings, "CONFIG", os.path.join(self.root, "private", "config.json")), \
+                mock.patch.object(phone, "available", lambda: True), \
+                mock.patch.object(connectors, "names", lambda: ["github_list_repos", "gmail_send"]):
+            client = SimpleNamespace(spec={}, local=False, on_device=False, context=lambda: 128000)
+            plain = agent.Agent(session.Session(self.root + "/project"), client=client)
+            own = agent.Agent(session.Session(self.root + "/project"), client=client)
+            self.addCleanup(plain.memory.close)
+            self.addCleanup(own.memory.close)
+            self.schedule._threads.add(own.session.id)
+            names = lambda a: [d["function"]["name"] for d in a.schemas()]  # noqa: E731
+            self.assertNotIn("gmail_send", names(plain))
+            self.assertIn("gmail_send", names(own))
+            self.assertIn("github_list_repos", names(plain))
 
     def test_phone_ext_leaves_scheduled_runs_to_the_scheduler(self):
         from . import phone_ext
@@ -297,9 +355,12 @@ class ScheduleTests(unittest.TestCase):
         s, svc = self.schedule, FakeService()
         svc.sessions["parent-1"] = self.session
         out = s.route(svc, "POST", "/api/schedules/add", b={"session": "parent-1", "prompt": "news", "kind": "daily",
-                                                           "at": "08:00", "quiet": True})
+                                                           "at": "08:00", "quiet": True, "screen": "no"})
         self.assertTrue(out["ok"])
         self.assertTrue(out["task"]["quiet"])
+        self.assertEqual(out["task"]["screen"], "no")
+        edited = s.route(svc, "POST", "/api/schedules/edit", b={"id": out["task"]["id"], "screen": "yes"})
+        self.assertTrue(edited["task"]["phone"])
         got = s.route(svc, "GET", "/api/schedules")
         self.assertEqual([x["prompt"] for x in got["tasks"]], ["news"])
         self.assertIn("error", s.route(svc, "POST", "/api/schedules/add", b={"session": "parent-1", "prompt": "x"}))

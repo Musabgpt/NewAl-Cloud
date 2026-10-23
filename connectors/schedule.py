@@ -11,9 +11,14 @@ something needs the user: its answer NOTHING_NEW posts nothing.
 /duet on adds two such tasks: the morning brief (every day at 08:00) and the check-in (every 3 hours, 08:00-22:00,
 quiet). What the thread's permission mode asks approval for still asks: the notification has Allow and Deny.
 
+Connected services come first: a task whose service the user connected (Activepieces, Gmail...: an API) runs through
+it, with the screen off and the phone locked, rather than in the app on the screen; its thread is offered those tools
+even in lean mode (only the ones its task names when there are many). Whether a task uses the screen is the user's
+choice (yes, no, or auto: decided at each run, a connected service first).
+
 On the phone, Android wakes the engine at the next task's time (an alarm the app sets and keeps across reboots), so a
-task runs with the screen off. A task that works the phone's screen (phone) runs one at a time and the app turns the
-screen on first. With a PIN, pattern or fingerprint lock Android lets no app unlock the phone: the task waits, a
+task runs with the screen off. A task that works the phone's screen runs one at a time and the app turns the screen
+on first. With a PIN, pattern or fingerprint lock Android lets no app unlock the phone: the task waits, a
 notification asks to unlock, and it starts within half a minute of the unlock. A time missed while the phone was off
 runs once when the engine is back, not once per missed time.
 """
@@ -45,6 +50,18 @@ PHONE_WORDS = ("on the phone", "open the app", "tap ", "على الجوال", "�
                "افتح التطبيق", "اضغط")
 APP_VERBS = ("open", "send", "tap", "play", "post", "reply", "call", "افتح", "فتح", "ابعت", "ارسل", "أرسل", "رد ",
              "شغل", "شغّل", "اتصل", "انشر")
+# the services a task names (its words -> the name a connected service's tools carry)
+SERVICES = {
+    "facebook": ("facebook", "فيسبوك", "فيس بوك", "الفيس"), "instagram": ("instagram", "انستغرام", "انستقرام",
+                                                                        "إنستغرام", "انستا"),
+    "telegram": ("telegram", "تلغرام", "تيليجرام", "تلجرام"), "whatsapp": ("whatsapp", "واتساب", "واتس"),
+    "twitter": ("twitter", "تويتر", " x ", "اكس"), "linkedin": ("linkedin", "لينكدان", "لينكد ان"),
+    "youtube": ("youtube", "يوتيوب"), "tiktok": ("tiktok", "تيك توك", "تيكتوك"), "gmail": ("gmail", "جيميل"),
+    "email": ("email", "e-mail", "ايميل", "إيميل", "بريد"), "slack": ("slack", "سلاك"),
+    "discord": ("discord", "ديسكورد"), "calendar": ("calendar", "تقويم"), "drive": ("drive", "درايف"),
+    "notion": ("notion", "نوشن"), "github": ("github", "جيتهاب"), "sheets": ("sheets", "شيت", "جدول بيانات"),
+}
+WIDE_ALL = 25                        # a task's thread in lean mode gets every connected tool up to this many
 
 RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s): run %(n)d, %(now)s.\n\nThe task: %(prompt)s\n\n%(journal)s"
        "(This thread is this task's own: every run continues it. Nobody is watching it now. Before acting, read what the "
@@ -56,7 +73,13 @@ RUN = ("⏰ Scheduled task %(id)s «%(name)s» (%(when)s): run %(n)d, %(now)s.\n
        "way, say so. Never send a message, pay, delete or publish anything the task did not ask for. End with what you "
        "did exactly (e.g. the text you posted): the next runs read it, and your last answer becomes a phone "
        "notification, the result first, short. The user may write in this thread to change the task (its time, "
-       "its instructions): schedule_task action=edit changes this thread's task.%(quiet)s)")
+       "its instructions): schedule_task action=edit changes this thread's task. %(screen)s%(quiet)s)")
+SERVICE_TOOLS = "the connected services' tools: Activepieces, Gmail, Drive, GitHub... (connected_*, mcp__*, gmail_*...)"
+SCREEN = ("The phone's screen is on for this run, but %s come first when they can do the work: use the apps on the "
+          "screen only for what they do not do." % SERVICE_TOOLS)
+NO_SCREEN = ("This run does not use the phone's screen (it may be off and locked): do the work through %s, the web "
+             "and files. If it can only be done in an app on the screen, do not try: say so, and that the task runs "
+             "on the screen once it is set to use it (⏰ Tasks > Edit > uses the screen)." % SERVICE_TOOLS)
 JOURNAL = 12                         # the earlier runs listed with each run (all of them stay in the thread)
 QUIET_BRIEF = (" Speak only when something needs the user's attention now. If nothing does, answer exactly "
                + QUIET + " and nothing else.")
@@ -74,6 +97,8 @@ CHECKIN = ("Check-in. Look at what came in since the previous run: the phone's n
 
 _LOCK = threading.RLock()
 _runs = {}                           # session id -> task id: the runs going now
+_screen_runs = set()                 # the runs among them that use the phone's screen
+_threads = set()                     # the tasks' own threads seen by this engine
 _armed = [0]                         # the alarm time the app was last given (0: none)
 
 
@@ -115,6 +140,80 @@ def task_of(sid):
         return None
     with _LOCK:
         return next((t for t in load() if t.get("session") == sid), None)
+
+
+def _services(text):
+    text = " " + str(text or "").lower() + " "
+    return [s for s, words in SERVICES.items() if any(w in text for w in words)]
+
+
+def _tool_text(name):
+    try:
+        from . import tools
+        d = tools.REGISTRY[name].schema()
+        d = d.get("function", d)
+        return (name + " " + str(d.get("description") or "")).lower()
+    except Exception:  # noqa: BLE001
+        return name.lower()
+
+
+def _connected():
+    """The connected services' tools (Activepieces, Gmail...: connected_*), when the phone app has any."""
+    try:
+        from . import connectors
+        return [n for n in connectors.names() if not n.startswith("termux_")]
+    except Exception:  # noqa: BLE001 - no connections: no such tools
+        return []
+
+
+def _via(t):
+    """The services the task names that a connected service's tools cover (it runs through them, no screen)."""
+    wanted = _services(t.get("prompt"))
+    if not wanted:
+        return []
+    texts = [_tool_text(n) for n in _connected()]
+    return [s for s in wanted if any(s in x for x in texts)]
+
+
+def _uses_screen(t):
+    """Whether a run uses the phone's screen: the user's choice, or (auto) a connected service first, else a guess
+    from the task's words (an app it opens, sends or posts in)."""
+    choice = t.get("screen") or "auto"
+    if choice in ("yes", "no"):
+        return choice == "yes"
+    return not _via(t) and _guess_phone(t.get("prompt"))
+
+
+def task_tools(sid, names):
+    """In lean mode (GitHub and Termux only) a task's thread also gets the other connected services' tools: all of them
+    when they are few, else those of the services its task names. So it does the work through them, not on the screen."""
+    if not _is_thread(sid):
+        return []
+    from . import lean
+    found = [n for n in names if not lean.connector(n)]
+    if len(found) <= WIDE_ALL:
+        return found
+    wanted = _services((task_of(sid) or {}).get("prompt"))
+    return [n for n in found if any(s in _tool_text(n) for s in wanted)]
+
+
+def task_mcp(sid, mcp):
+    """The same for the MCP servers the user added (mcp__*): none outside a task's thread in lean mode."""
+    if not _is_thread(sid):
+        return []
+    try:
+        defs = mcp.schemas()
+    except Exception:  # noqa: BLE001
+        return []
+    if len(defs) <= WIDE_ALL:
+        return defs
+    wanted = _services((task_of(sid) or {}).get("prompt"))
+    return [d for d in defs if any(s in (d["function"]["name"] + " " + d["function"].get("description", "")).lower()
+                                   for s in wanted)]
+
+
+def _is_thread(sid):
+    return bool(sid) and (sid in _threads or task_of(sid) is not None)
 
 
 # ------------------------------------------------------------------ when
@@ -280,8 +379,11 @@ def _guess_phone(prompt):
 
 
 def _public(t):
-    out = {k: t.get(k) for k in ("id", "name", "prompt", "enabled", "next", "quiet", "phone", "preset", "pending",
+    out = {k: t.get(k) for k in ("id", "name", "prompt", "enabled", "next", "quiet", "preset", "pending",
                                   "waiting_unlock", "created", "root")}
+    out["screen"] = t.get("screen") or "auto"
+    out["via"] = _via(t) if out["screen"] == "auto" else []
+    out["phone"] = _uses_screen(t)
     out["when"] = t["when"]
     out["schedule"] = describe(t["when"])
     out["last"] = dict(t.get("last") or {})
@@ -318,7 +420,7 @@ def add(session, prompt, when, name="", quiet=False, phone=None, preset=None, no
         words = re.sub(r"\s+", " ", prompt)
         t = {"id": "t%d" % num, "name": (str(name or "").strip() or (words[:40] + ("…" if len(words) > 40 else "")))[:60],
              "prompt": prompt[:4000], "when": when, "enabled": True, "quiet": bool(quiet),
-             "phone": _guess_phone(prompt) if phone is None else bool(phone), "preset": preset, "created": round(now),
+             "screen": _screen_choice(phone), "preset": preset, "created": round(now),
              "root": getattr(session, "origin", "") or getattr(session, "root", ""),
              "model": getattr(session, "model", None), "mode": getattr(session, "mode", None),
              "parent": getattr(session, "id", ""), "last": {}, "pending": False}
@@ -342,7 +444,9 @@ def _thread(service, t):
     sid = t.get("session")
     if sid:
         try:
-            return service.get(sid)
+            s = service.get(sid)
+            _threads.add(s.id)
+            return s
         except Exception:  # noqa: BLE001 - deleted: a new one
             pass
     root = t.get("root") or ""
@@ -357,17 +461,33 @@ def _thread(service, t):
                      "started": time.time(), "worktree": False, "root": root, "task": t["id"]}
         fleet._save(reg)
     t["session"] = s.id
+    _threads.add(s.id)
     return s
 
 
+def _screen_choice(v):
+    """yes / no / auto from the tool's phone (true, false, left out) or the panel's choice."""
+    if v is None or v == "" or str(v).lower() == "auto":
+        return "auto"
+    if isinstance(v, str):
+        v = v.strip().lower()
+        if v not in ("yes", "no", "true", "false"):
+            raise ScheduleError("screen: yes, no or auto")
+        return "yes" if v in ("yes", "true") else "no"
+    return "yes" if v else "no"
+
+
 def change(tid, **fields):
-    """pause (enabled=False), resume (enabled=True), or new fields (name, prompt, when, quiet, phone)."""
+    """pause (enabled=False), resume (enabled=True), or new fields (name, prompt, when, quiet, phone or screen)."""
     with _LOCK:
         tasks = load()
         t = _find(tasks, tid)
-        for k in ("name", "prompt", "quiet", "phone"):
+        for k in ("name", "prompt", "quiet"):
             if fields.get(k) is not None:
-                t[k] = fields[k] if k in ("quiet", "phone") else str(fields[k]).strip()[:4000 if k == "prompt" else 60]
+                t[k] = fields[k] if k == "quiet" else str(fields[k]).strip()[:4000 if k == "prompt" else 60]
+        for k in ("phone", "screen"):
+            if fields.get(k) is not None:
+                t["screen"] = _screen_choice(fields[k])
         if fields.get("when"):
             t["when"] = fields["when"]
             t["next"] = next_run(t["when"], time.time())
@@ -473,14 +593,15 @@ def tick(service, now=None):
                     t["enabled"] = False                    # a one-time task, done
                 changed = True
         running = [sid for sid in _runs if service.busy(sid)]
-        screen = any(_runs[sid] == t["id"] and t.get("phone") for sid in running for t in tasks)
+        screen = any(sid in _screen_runs for sid in running)
         for t in sorted((t for t in tasks if t.get("pending")), key=lambda t: t.get("created", 0)):
             if len(running) >= MAX_RUNNING:
                 break
             if t.get("session") and service.busy(t["session"]):
                 continue                    # its thread is working (its previous time, or the user writing in it)
             woke = False
-            if t.get("phone"):
+            uses = _uses_screen(t)
+            if uses:
                 if screen:
                     continue
                 state = _wake()
@@ -494,7 +615,7 @@ def tick(service, now=None):
                     continue
                 woke, screen = state == "woke", True
             try:
-                sid = _start(service, t, woke)
+                sid = _start(service, t, woke, uses)
             except Exception as e:  # noqa: BLE001 - one task's failure never stops the others
                 t["last"] = {"time": round(now), "state": "error", "answer": str(e)[:300]}
                 t["pending"] = False
@@ -517,21 +638,25 @@ def _journal(t):
     return "What the earlier runs did (oldest first):\n" + "\n".join(lines) + "\n\n"
 
 
-def message(t, now=None):
+def message(t, now=None, uses=None):
     """What a run sends to the task's thread: the task, the journal of the earlier runs, and the rules."""
     prev = (t.get("last") or {}).get("time")
     quiet = QUIET_BRIEF + (" The previous run was at %s." % _fmt(prev) if prev else "") if t.get("quiet") else ""
+    uses = _uses_screen(t) if uses is None else uses
     return RUN % {"id": t["id"], "name": t["name"], "when": describe(t["when"]), "n": (t.get("runs") or 0) + 1,
                   "now": _fmt(time.time() if now is None else now), "prompt": t["prompt"], "journal": _journal(t),
-                  "quiet": " " + quiet.strip() if quiet else ""}
+                  "quiet": " " + quiet.strip() if quiet else "", "screen": SCREEN if uses else NO_SCREEN}
 
 
-def _start(service, t, woke):
+def _start(service, t, woke, uses=False):
     s = _thread(service, t)
     _runs[s.id] = t["id"]
+    if uses:
+        _screen_runs.add(s.id)
     out = service.send(s.id, message(t))
     if not out.get("started"):
         _runs.pop(s.id, None)
+        _screen_runs.discard(s.id)
         raise ScheduleError(out.get("reply") or "the task did not start")
     t["runs"] = (t.get("runs") or 0) + 1
     t["last"] = {"time": round(time.time()), "session": s.id, "state": "running"}
@@ -562,6 +687,7 @@ def _watch(service, tid, sid, woke, poll=3):
     name = tid
     with _LOCK:
         _runs.pop(sid, None)
+        _screen_runs.discard(sid)
         tasks = load()
         for t in tasks:
             if t["id"] == tid:
@@ -654,7 +780,9 @@ def install():
                  "every": tools._s("every; duet: the check-in's repeat, e.g. 3h or 30m (at least 15m)"),
                  "hours": tools._s("every; duet: only between these hours, e.g. 08-22"),
                  "quiet": {"type": "boolean", "description": "notify only when something needs the user"},
-                 "phone": {"type": "boolean", "description": "the task works the phone's screen"},
+                 "phone": {"type": "boolean", "description": "true: it must work apps on the phone's screen; false: "
+                                                             "it never needs the screen. Leave out to decide at each "
+                                                             "run: a connected service's tools first (no screen)"},
                  "on": {"type": "boolean", "description": "duet: turn the brief and check-in on (default) or off"},
                  "id": tools._s("edit, pause, resume, remove, run: the task's id, e.g. t3 (in a task's own thread: "
                                 "that task by default)")},
@@ -673,11 +801,18 @@ def install():
                 if when is None:
                     raise ScheduleError("kind: once, daily, weekly or every (or in_minutes)")
                 t = add(ctx.session, prompt, when, name=name, quiet=bool(quiet), phone=phone)
+                p = _public(t)
+                if p["phone"]:
+                    how = (" It works the phone's screen: it runs alone, with the screen turned on (a locked phone "
+                           "asks the user to unlock).")
+                elif p["via"]:
+                    how = " It runs through the connected %s, with the screen off." % ", ".join(p["via"])
+                else:
+                    how = ""
                 return ("Scheduled %s «%s»: %s; next run %s. It has its own thread: every run continues it, and the "
-                        "user can change the task there.%s" % (
-                    t["id"], t["name"], describe(t["when"]), _fmt(t["next"]),
-                    " It works the phone's screen: it runs alone, with the screen turned on (a locked phone asks "
-                    "the user to unlock)." if t["phone"] else "")), {"task": t["id"], "next": t["next"]}
+                        "user can change the task there.%s" % (t["id"], t["name"], describe(t["when"]),
+                                                               _fmt(t["next"]), how)), \
+                    {"task": t["id"], "next": t["next"]}
             if action == "list":
                 items = listing()
                 return _report(items), {"tasks": len(items)}
@@ -803,14 +938,14 @@ def route(service, method, path, q=None, b=None):
             if when is None:
                 raise ScheduleError("kind: once, daily, weekly or every")
             t = add(service.get(str(b.get("session") or "")), b.get("prompt"), when, name=b.get("name") or "",
-                    quiet=bool(b.get("quiet")), phone=b.get("phone"))
+                    quiet=bool(b.get("quiet")), phone=b.get("screen", b.get("phone")))
             return {"ok": True, "task": _public(t)}
         if act == "edit":
             when = _when_from(b.get("kind"), b.get("at"), b.get("date"), b.get("days"), b.get("every"),
                               b.get("in_minutes"), b.get("hours"))
             return {"ok": True, "task": _public(change(b.get("id"), name=b.get("name") or None,
                                                        prompt=b.get("prompt") or None, quiet=b.get("quiet"),
-                                                       phone=b.get("phone"), when=when))}
+                                                       screen=b.get("screen", b.get("phone")), when=when))}
         if act in ("pause", "resume"):
             return {"ok": True, "task": _public(change(b.get("id"), enabled=act == "resume"))}
         if act == "remove":

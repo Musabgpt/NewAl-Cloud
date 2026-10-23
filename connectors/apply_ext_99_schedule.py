@@ -1,5 +1,6 @@
 """Scheduled tasks and the proactive assistant (schedule.py): the schedule_task tool, /schedule and /duet, the Tasks
-panel, and the clock that runs them (Android wakes the engine at a task's time)."""
+panel, the clock that runs them (Android wakes the engine at a task's time), and connected services' tools offered to a
+task's thread in lean mode."""
 import shutil
 
 
@@ -19,6 +20,17 @@ def apply(src, package, replace):
             '    "phone", "screen_look", "phone_routine",\n    "schedule_task",\n')
     replace(package / "claude_parity.py", '"background_agent", "github_monitor",\n',
             '"background_agent", "github_monitor", "schedule_task",\n')
+
+    # a task's thread is offered connected services' tools in lean mode too: it works through them, not on the screen
+    ag = package / "agent.py"
+    replace(ag, "                available_mcp = [] if lean.active() else self.mcp.schemas()\n",
+            "                from . import schedule\n"
+            "                available_mcp = (schedule.task_mcp(self.session.id, self.mcp) if lean.active()\n"
+            "                                 else self.mcp.schemas())\n")
+    replace(ag, "            available = [n for n in available if lean.connector(n)]\n",
+            "            from . import schedule\n"
+            "            wide = set(schedule.task_tools(self.session.id, available))\n"
+            "            available = [n for n in available if lean.connector(n) or n in wide]\n")
 
     sv = package / "service.py"
     replace(sv, "        fleet.SERVICE = self\n",

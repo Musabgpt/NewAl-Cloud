@@ -48,7 +48,10 @@
       '<div class="mf-meta" style="flex:1 1 auto"><select data-kind><option value="daily">' + t("Every day", "كل يوم") + '</option><option value="weekly">' + t("Some days", "أيام محددة") +
       '</option><option value="every">' + t("Every…", "كل…") + '</option><option value="once">' + t("Once", "مرة وحدة") + "</option></select> " +
       '<input type="time" value="08:00" data-at> <input type="date" data-date hidden> <input type="text" size="10" placeholder="mon,fri" data-days hidden>' +
-      ' <input type="text" size="4" value="3h" data-everyv hidden> <label><input type="checkbox" data-quiet> ' + t("Only if important", "بس إذا مهم") + "</label></div>" +
+       ' <input type="text" size="4" value="3h" data-everyv hidden> <label><input type="checkbox" data-quiet> ' + t("Only if important", "بس إذا مهم") + "</label>" +
+      ' <select data-screen title="' + esc(t("A connected service (Activepieces, Gmail…) is used first when it can do the task: no screen, no unlock.",
+        "الخدمة المربوطة (Activepieces، Gmail…) بتنستعمل أول إذا بتقدر تعمل المهمة: بلا شاشة وبلا فتح قفل.")) + '"><option value="auto">' + t("Screen: auto", "الشاشة: تلقائي") +
+      '</option><option value="yes">' + t("Uses the screen", "بتستعمل الشاشة") + '</option><option value="no">' + t("No screen", "بلا شاشة") + "</option></select></div>" +
       '<button type="submit" class="mf-btn primary">' + t("Schedule", "جدول") + "</button></form><div class=\"mf-list\"></div>";
     const form = body.querySelector("form"), list = body.querySelector(".mf-list");
     const kind = form.querySelector("[data-kind]");
@@ -64,7 +67,8 @@
     const need = () => { if (!sid()) { say(t("Open a thread in the project first.", "افتح محادثة في المشروع أولاً.")); return false; } return true; };
     let editing = "";                    // the id of the task the form changes, or "" (the form adds one)
     const submit = form.querySelector("button[type=submit]");
-    const reset = () => { editing = ""; form.querySelector("textarea").value = ""; submit.textContent = t("Schedule", "جدول"); };
+    const reset = () => { editing = ""; form.querySelector("textarea").value = ""; form.querySelector("[data-screen]").value = "auto";
+      submit.textContent = t("Schedule", "جدول"); };
     const edit = x => {
       editing = x.id;
       const w = x.when || {};
@@ -76,6 +80,7 @@
       if (w.ts) { const d = new Date(w.ts * 1000); form.querySelector("[data-at]").value = d.toTimeString().slice(0, 5);
         form.querySelector("[data-date]").value = d.toISOString().slice(0, 10); }
       form.querySelector("[data-quiet]").checked = !!x.quiet;
+      form.querySelector("[data-screen]").value = x.screen || "auto";
       submit.textContent = t("Save changes", "احفظ التعديل");
       show();
       form.scrollIntoView({ block: "nearest" });
@@ -86,7 +91,7 @@
       if (!prompt || (!editing && !need())) return;
       const v = s => form.querySelector(s).value;
       const fields = { prompt, kind: kind.value, at: v("[data-at]"), date: v("[data-date]"), days: v("[data-days]"),
-        every: v("[data-everyv]"), quiet: form.querySelector("[data-quiet]").checked };
+        every: v("[data-everyv]"), quiet: form.querySelector("[data-quiet]").checked, screen: v("[data-screen]") };
       try {
         const d = editing ? await call("/api/schedules/edit", Object.assign({ id: editing }, fields))
           : await call("/api/schedules/add", Object.assign({ session: sid() }, fields));
@@ -127,6 +132,7 @@
         const l = x.last || {};
         row.innerHTML = '<div class="mf-head"><b>' + esc(x.name) + '</b><span class="mf-state">' + esc(st) + "</span></div>" +
           '<div class="mf-meta">' + esc(x.schedule) + (x.quiet ? " · 🔕 " + t("only if important", "بس إذا مهم") : "") + (x.phone ? " · 📱 " + t("uses the screen", "بيستعمل الشاشة") : "") +
+            ((x.via || []).length ? " · 🔗 " + t("through", "عن طريق") + " " + esc(x.via.join(", ")) : "") +
             (x.runs ? " · " + x.runs + " " + t("runs", "مرات تشغيل") : "") + "</div>" +
           (l.state && l.state !== "running" ? '<div class="mf-answer">' + (last[l.state] || "") + " " + esc(when(l.time)) + (l.answer ? " — " + esc(String(l.answer).slice(0, 220)) : "") + "</div>" : "") +
           '<div class="mf-acts"><button type="button" class="mf-btn primary" data-a="run">' + t("Run now", "شغّل الآن") + "</button>" +
