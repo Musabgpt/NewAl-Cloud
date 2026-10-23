@@ -31,6 +31,14 @@ def _phone():
     return phone
 
 
+def _scheduled(sid):
+    try:
+        from . import schedule
+        return schedule.is_run(sid)
+    except Exception:  # noqa: BLE001 - without the scheduler no thread is a scheduled run
+        return False
+
+
 def phone_ready():
     try:
         return bool(_phone().available())
@@ -295,6 +303,8 @@ def finished(agent, answer, seconds, error="", changes=()):
         cfg = getattr(agent, "cfg", None) or {}
         if getattr(agent, "depth", 0) or cfg.get("notify_on_finish") is False or error == "interrupted":
             return
+        if _scheduled(getattr(getattr(agent, "session", None), "id", "")):
+            return                  # a scheduled task's run says how it went itself, or nothing (schedule.py)
         if float(seconds or 0) < float(cfg.get("notify_after_seconds") or NOTIFY_AFTER) or not phone_ready():
             return
     except Exception:  # noqa: BLE001
@@ -320,9 +330,11 @@ def approval_waiting(req, answered, pending=None, delay=15):
             return
         args = req.get("args") or {}
         what = str(args.get("command") or args.get("path") or args.get("url") or args.get("action") or "")[:160]
+        extra = {"approval": req["id"]} if req.get("id") else {}      # Allow / Deny on the notification itself
         try:
             _phone().call("notify", timeout=10, title="MusabAI ينتظر موافقتك",
-                          text=("%s: %s" % (req.get("tool") or "tool", what)).strip(": "), only_background=True)
+                          text=("%s: %s" % (req.get("tool") or "tool", what)).strip(": "), only_background=True,
+                          **extra)
         except Exception:  # noqa: BLE001 - a notification is a courtesy
             pass
     threading.Thread(target=run, name="musab-approval-notify", daemon=True).start()

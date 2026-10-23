@@ -113,7 +113,16 @@ final class Phone {
             case "clipboard":
                 return clipboard(ctx, a.has("text") ? a.optString("text") : null);
             case "notify":
-                return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"), a.optBoolean("only_background", false));
+                return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"),
+                        a.optBoolean("only_background", false), a.optString("approval"));
+            case "schedule_alarm":
+                return ScheduleAlarm.arm(ctx, a.optLong("at", 0));
+            case "keep_awake":
+                return ScheduleAlarm.keepAwake(ctx, a.optInt("seconds", 0));
+            case "wake":
+                return ScheduleAlarm.wake(ctx);
+            case "sleep_screen":
+                return ScheduleAlarm.sleepScreen();
             case "share":
                 return start(ctx, Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, a.optString("text")), null), "the share sheet is open");
@@ -334,7 +343,8 @@ final class Phone {
         });
     }
 
-    private static JSONObject notify(Context ctx, String title, String text, boolean onlyBackground) throws Exception {
+    private static JSONObject notify(Context ctx, String title, String text, boolean onlyBackground, String approval)
+            throws Exception {
         if (onlyBackground) {
             // the end-of-task summary: not while the user is looking at the app with the screen on
             ActivityManager.RunningAppProcessInfo me = new ActivityManager.RunningAppProcessInfo();
@@ -357,8 +367,10 @@ final class Phone {
             nb.setContentIntent(android.app.PendingIntent.getActivity(ctx, 7, open,
                     android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
         }
+        int id = (int) (System.currentTimeMillis() % 100000) + 10;
+        if (!approval.isEmpty()) ScheduleAlarm.approvalActions(ctx, nb, approval, id);   // Allow / Deny right here
         Notification n = nb.build();
-        nm.notify((int) (System.currentTimeMillis() % 100000) + 10, n);
+        nm.notify(id, n);
         return ok("notification posted");
     }
 
