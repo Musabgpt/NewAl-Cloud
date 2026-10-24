@@ -1,5 +1,19 @@
 # MusabAI
 
+## 📲 تحميل تطبيق MusabAI للأندرويد — Download APK
+
+**✅ النسخة الأصلية من GitHub Actions #432 — جاهزة للتنزيل المباشر (38.4 MB)**
+
+[![تحميل APK مباشرة - Download Android App](https://img.shields.io/badge/%E2%AC%87%20Download-MUSABAI%20APK%20%23432-2ea44f?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Musabgpt/NewAl-Cloud/releases/download/action-432/MusabAI-Connectors.apk)
+
+### ⬇️ [اضغط هنا لتحميل ملف MusabAI-Connectors.apk مباشرة](https://github.com/Musabgpt/NewAl-Cloud/releases/download/action-432/MusabAI-Connectors.apk)
+
+[📋 تفاصيل الإصدار #432](https://github.com/Musabgpt/NewAl-Cloud/releases/tag/action-432) · [🛡️ فحص سلامة الملف SHA-256](https://github.com/Musabgpt/NewAl-Cloud/releases/download/action-432/MusabAI-Connectors.apk.sha256)
+
+> هذا الرابط خاص بنسخة Action #432 حصراً، ولن ينتقل تلقائياً إلى بناء آخر.
+
+---
+
 Android coding assistant with persistent project memory, document tools, official OAuth/MCP connections, Termux execution and tested engine candidates.
 
 This development line starts from successful Action 216 (`d8a270382c51e009148fc2ae034beb40788fdf6c`). It keeps that build's pinned Action 43 Python engine and byte-verified Action 125 native libraries.
