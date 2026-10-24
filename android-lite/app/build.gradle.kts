@@ -29,8 +29,8 @@ if (hasPartialReleaseSigning) {
     )
 }
 
-// The native programs (python, llama-server) and the assets (Python's library, NewAl Code) are made by
-// native/prepare.sh into src/main/jniLibs and build/generated/assets; see README.md.
+// The native programs (python, llama-server) and the assets (Python's library, NewAl Code) are put into
+// src/main/jniLibs and build/generated/newal-assets by connectors/package_baseline.py (from the Action 125 APK).
 android {
     namespace = "dev.newal.code.lite"
     compileSdk = 35
