@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="580" viewBox="0 0 1200 580" role="img" aria-label="أذونات واضحة وتحكّم مسؤول">
+<defs>
+<linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#11192d"/><stop offset=".6" stop-color="#10283b"/><stop offset="1" stop-color="#0d1425"/></linearGradient>
+<linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#f0f6fa"/></linearGradient>
+<linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22dbb5"/><stop offset="1" stop-color="#36a8e6"/></linearGradient>
+<filter id="glow"><feGaussianBlur stdDeviation="54"/></filter>
+</defs>
+<rect x="0" y="0" width="1200" height="580" rx="0" fill="url(#b)" stroke="none" stroke-width="1"/>
+<circle cx="1050" cy="80" r="145" fill="#2332a3"/><circle cx="900" cy="470" r="165" fill="#0d736c"/>
+<g opacity=".26" filter="url(#glow)"><circle cx="1050" cy="80" r="145" fill="#324adc"/><circle cx="900" cy="470" r="160" fill="#10b58c"/></g>
+<rect x="42" y="34" width="1116" height="510" rx="30" fill="none" stroke="#335265" stroke-width="1"/>
+<rect x="66" y="64" width="145" height="39" rx="20" fill="#1e3246" stroke="#467381" stroke-width="1"/>
+<text x="140" y="91" fill="#a3f2df" font-size="16" font-weight="750" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >MUSABAI  /  GUIDE</text>
+<rect x="66" y="134" width="58" height="9" rx="5" fill="#29dbb3" stroke="none" stroke-width="1"/>
+<rect x="130" y="134" width="21" height="9" rx="5" fill="#46718b" stroke="none" stroke-width="1"/>
+<text x="704" y="116" fill="#89a6b9" font-size="22" font-weight="750" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >04 / 05</text>
+<text x="700" y="198" fill="#ffffff" font-size="45" font-weight="750" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >أذونات واضحة وتحكّم مسؤول</text>
+<text x="700" y="260" fill="#c6d7e1" font-size="26" font-weight="450" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >الوصول للملفات ليس إذناً بسيطاً</text>
+<text x="700" y="307" fill="#c6d7e1" font-size="25" font-weight="450" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >افهم الصلاحيات قبل منحها للتطبيق.</text>
+<rect x="64" y="355" width="610" height="111" rx="21" fill="#173546" stroke="#37647c" stroke-width="1"/>
+<circle cx="635" cy="389" r="7" fill="#35e4bf"/><text x="608" y="398" fill="#d3f9ee" font-size="22" font-weight="750" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >السلامة والخصوصية أولاً</text>
+<text x="641" y="435" fill="#97b6c6" font-size="17" font-weight="450" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >من صور النسخة 0.1.432 • شرح توضيحي</text>
+<rect x="790" y="60" width="332" height="470" rx="38" fill="#071520" stroke="#3d627a" stroke-width="3"/>
+<rect x="804" y="74" width="304" height="442" rx="27" fill="url(#screen)" stroke="none" stroke-width="1"/>
+<rect x="902" y="78" width="108" height="8" rx="4" fill="#cfdae3" stroke="none" stroke-width="1"/>
+<text x="1085" y="122" fill="#132d40" font-size="24" font-weight="750" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >أذونات التطبيق</text><path d="M806 141H1108" stroke="#d8e1e8"/><rect x="817" y="171" width="277" height="268" rx="19" fill="#fff" stroke="#d7e1e9" stroke-width="2"/><circle cx="955" cy="220" r="25" fill="#d8eee9"/><text x="955" y="228" fill="#087e78" font-size="25" font-weight="750" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >!</text><text x="955" y="272" fill="#183244" font-size="21" font-weight="750" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >الوصول إلى الملفات</text><text x="955" y="316" fill="#6b7d8d" font-size="17" font-weight="450" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >قراءة وتعديل وحذف</text><text x="955" y="344" fill="#6b7d8d" font-size="17" font-weight="450" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >ملفات الهاتف</text><rect x="829" y="374" width="115" height="43" rx="11" fill="#ffffff" stroke="#d8e3e9" stroke-width="1"/><text x="886.5" y="401.5" fill="#345066" font-size="16" font-weight="750" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >لاحقاً</text><rect x="960" y="374" width="118" height="43" rx="11" fill="#152938" stroke="#152938" stroke-width="1"/><text x="1019" y="401.5" fill="#ffffff" font-size="16" font-weight="750" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" >السماح</text>
+<text x="1095" y="548" fill="#a6d7d2" font-size="16" font-weight="750" text-anchor="end" font-family="Tahoma, Arial, sans-serif" >MUSABAI PREVIEW   •   ACTION #432</text>
+</svg>
