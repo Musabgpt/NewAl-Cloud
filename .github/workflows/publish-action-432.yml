@@ -1,0 +1,57 @@
+name: Publish exact MusabAI APK from Action #432
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-action-432.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-action-432:
+    if: github.repository == 'Musabgpt/NewAl-Cloud'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: "39943358897"
+      SOURCE_ARTIFACT: "MusabAI-Connectors"
+      EXPECTED_SHA256: "958f35878d0f07a8d70e1b587428ab5753c876bde14aa44d9dbe01ddcfad0468"
+      SOURCE_COMMIT: "aff7f36e771e9495ff82fd3acbbeef1ff4d73ad1"
+      RELEASE_TAG: "action-432"
+    steps:
+      - name: Download artifact from exact run #432 (never latest)
+        run: |
+          set -euo pipefail
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$SOURCE_ARTIFACT" --dir dist
+          test -f dist/MusabAI-Connectors.apk
+          test -f dist/MusabAI-Connectors.apk.sha256
+          test -f dist/signing-report.txt
+
+      - name: Verify APK is byte-identical to run #432
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          echo "$EXPECTED_SHA256  MusabAI-Connectors.apk" | sha256sum --check --status
+          sha256sum --check MusabAI-Connectors.apk.sha256
+          echo "Correct signed APK from CI run #432 verified"
+
+      - name: Publish dedicated GitHub prerelease with APK assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; not replacing it."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_COMMIT" \
+            --title "MusabAI Android APK - Exact Action #432" \
+            --notes "This is the original APK produced by GitHub Actions run #432 (run ID 39943358897), 23 October 2026. It was extracted without rebuilding, and verified against the artifact SHA-256: \`958f35878d0f07a8d70e1b587428ab5753c876bde14aa44d9dbe01ddcfad0468\`. Source commit: aff7f36e771e9495ff82fd3acbbeef1ff4d73ad1. Source run: https://github.com/Musabgpt/NewAl-Cloud/actions/runs/39943358897. This is *not* an APK from another run." \
+            --prerelease
