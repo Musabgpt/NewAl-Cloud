@@ -85,6 +85,7 @@
       if (failures[0]) list.append(element("p", failures[0], "connector-feedback"));
       for (const item of result.connectors) {
         if (item.id === "activepieces") continue; // configured in the dedicated Automation Hub card
+        if (item.id === "facebook") continue; // configured in its own card (ext_facebook.js): the token never comes here
         const row = element("section", "", "connector-card"), detail = element("div");
         detail.append(element("strong", item.name));
         const label = labels[item.status] || [item.status, item.status];

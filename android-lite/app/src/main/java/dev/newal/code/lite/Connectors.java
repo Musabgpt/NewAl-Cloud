@@ -26,6 +26,7 @@ final class Connectors {
     private final Context ctx;
     private final ConnectorVault vault;
     private final ActivepiecesMcp activepieces;
+    private final FacebookPage facebook;
     private final String broker;
     private final Set<String> polling = new HashSet<>();
     private JSONObject deployed = new JSONObject();
@@ -38,6 +39,7 @@ final class Connectors {
         ctx = c;
         vault = new ConnectorVault(c);
         activepieces = new ActivepiecesMcp(c, vault);
+        facebook = new FacebookPage(vault);
         JSONObject config;
         try (InputStream in = c.getAssets().open("connectors.json")) {
             config = new JSONObject(new String(read(in, 65536), StandardCharsets.UTF_8));
@@ -48,6 +50,11 @@ final class Connectors {
             if (!"https".equals(u.getProtocol()) || u.getUserInfo() != null || !u.getPath().isEmpty() || u.getQuery() != null || u.getRef() != null)
                 throw new SecurityException("Connector broker must be an HTTPS origin");
         }
+    }
+
+    /** The Facebook Page: connected from the interface only (WebBridge), so its token never passes through Python. */
+    FacebookPage facebook() {
+        return facebook;
     }
 
     private static void valid(String provider) {
@@ -77,6 +84,13 @@ final class Connectors {
             if (op.equals("mcp_call")) return new JSONObject().put("ok", true).put("data",
                     self.activepieces.call(a.getString("name"), a.optJSONObject("arguments")));
             throw new IllegalArgumentException("Unknown Activepieces operation");
+        }
+        if (provider.equals(FacebookPage.ID)) {
+            if (op.equals("disconnect")) return self.facebook.disconnect();
+            if (op.equals("test")) return self.facebook.test();
+            if (op.equals("post")) return self.facebook.post(a.optString("message"), a.optString("link"));
+            if (op.equals("recent")) return self.facebook.recent(a.optInt("limit", 10));
+            throw new IllegalArgumentException("Unknown Facebook Page operation");
         }
         valid(provider);
         if (op.equals("connect")) return self.connect(provider);
@@ -123,6 +137,7 @@ final class Connectors {
                     .put("generation", rec.optString("generation")).put("tool_count", rec.optInt("tool_count")));
         }
         list.put(activepieces.status());
+        list.put(facebook.status());
         list.put(termuxStatus());
         return new JSONObject().put("ok", true).put("connectors", list).put("remote_worker", false);
     }

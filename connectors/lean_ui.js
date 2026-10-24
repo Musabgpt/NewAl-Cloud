@@ -1,6 +1,7 @@
 /* MusabAI on the phone, focused: the interface shows Termux, GitHub and Chrome (Preview), and the phone's chat;
    VS Code, extensions and skills, repository (cloud) tasks, the workspace sheet, background agents, the cloud/worktree
-   picker, MCP runtimes and other services' cards are not shown (lean.py does the same for the agent's tools). */
+   picker, MCP runtimes and other services' cards are not shown (lean.py does the same for the agent's tools). The
+   Activepieces card stays (lean_ui.css): scheduled tasks use the services connected through it. */
 (() => {
   'use strict';
   document.documentElement.classList.add('musab-lean');

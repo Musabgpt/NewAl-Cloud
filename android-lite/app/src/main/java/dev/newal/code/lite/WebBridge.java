@@ -156,6 +156,54 @@ final class WebBridge {
         }
     }
 
+    /**
+     * Connections > Facebook Page: the access token goes from the page straight to the vault (FacebookPage), never
+     * through the engine. Answers the Page's status as JSON, or {"ok": false, "error": ...}.
+     */
+    @JavascriptInterface
+    public String facebookConnect(String token, String appId, String appSecret, String page) {
+        try {
+            return Connectors.get(act).facebook().connect(token, appId, appSecret, page).toString();
+        } catch (Exception e) {
+            return failure(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String facebookStatus() {
+        try {
+            return Connectors.get(act).facebook().status().put("ok", true).toString();
+        } catch (Exception e) {
+            return failure(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String facebookTest() {
+        try {
+            return Connectors.get(act).facebook().test().toString();
+        } catch (Exception e) {
+            return failure(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String facebookDisconnect() {
+        try {
+            return Connectors.get(act).facebook().disconnect().toString();
+        } catch (Exception e) {
+            return failure(e);
+        }
+    }
+
+    private static String failure(Exception e) {
+        try {
+            return new JSONObject().put("ok", false).put("error", String.valueOf(e.getMessage())).toString();
+        } catch (Exception ignored) {
+            return "{\"ok\":false}";
+        }
+    }
+
     /** Starts NewAl Code in Termux (once it was set up there), without opening Termux. */
     @JavascriptInterface
     public String termuxStart() {
