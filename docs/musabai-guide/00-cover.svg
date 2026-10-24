@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 490" width="1200" height="490" role="img" aria-label="MusabAI - دليل التطبيق المصور">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#081225"/><stop offset=".54" stop-color="#103044"/><stop offset="1" stop-color="#0c192e"/></linearGradient>
+<linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#22e3b6"/><stop offset=".52" stop-color="#28b1e1"/><stop offset="1" stop-color="#8761e4"/></linearGradient>
+<filter id="blur"><feGaussianBlur stdDeviation="48"/></filter>
+</defs>
+<rect width="1200" height="490" rx="32" fill="url(#bg)"/>
+<g opacity=".3" filter="url(#blur)"><circle cx="160" cy="430" r="154" fill="#11bfa8"/><circle cx="1050" cy="112" r="160" fill="#6559d6"/></g>
+<path d="M0 410C250 320 460 490 705 395S980 345 1200 410" fill="none" stroke="#198d98" stroke-width="1.5" opacity=".45"/>
+<rect x="48" y="44" width="1104" height="402" rx="25" fill="none" stroke="#3c6275"/>
+<rect x="73" y="70" width="144" height="36" rx="18" fill="#1b384a"/><text x="145" y="94" text-anchor="middle" font-size="16" font-weight="bold" fill="#91f3df" font-family="Arial,sans-serif">ACTION #432</text>
+<text x="684" y="160" font-size="68" font-weight="bold" text-anchor="end" fill="white" font-family="Tahoma,Arial,sans-serif">MusabAI</text>
+<text x="681" y="224" font-size="46" font-weight="bold" text-anchor="end" fill="#c5fff1" font-family="Tahoma,Arial,sans-serif">برمج من هاتفك</text>
+<text x="680" y="282" font-size="24" text-anchor="end" fill="#c8d9e4" font-family="Tahoma,Arial,sans-serif">محادثة ذكية  •  مشاريع  •  Termux  •  GitHub</text>
+<text x="681" y="319" font-size="24" text-anchor="end" fill="#c8d9e4" font-family="Tahoma,Arial,sans-serif">دليل عربي مصوّر من خمس محطات</text>
+<rect x="74" y="355" width="606" height="53" rx="17" fill="url(#accent)"/><text x="377" y="390" text-anchor="middle" fill="#071724" font-size="26" font-weight="bold" font-family="Tahoma,Arial,sans-serif">اكتشف التطبيق خطوة بخطوة  ←</text>
+<g transform="translate(796 33) rotate(6 155 216)">
+<rect x="0" y="0" width="304" height="428" rx="40" fill="#060f1a" stroke="#5d7d9a" stroke-width="4"/>
+<rect x="14" y="16" width="276" height="396" rx="28" fill="#f6f8fc"/>
+<rect x="107" y="21" width="91" height="8" rx="4" fill="#cdd5df"/>
+<text x="259" y="65" text-anchor="end" font-size="21" font-weight="bold" fill="#152b3d" font-family="Tahoma,Arial,sans-serif">محادثة جديدة</text>
+<path d="M18 80H286" stroke="#dfe7ef"/><rect x="106" y="119" width="93" height="93" rx="25" fill="url(#accent)"/>
+<path d="M138 166l-9-11 9-11M165 144l10 11-10 11" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+<text x="151" y="244" text-anchor="middle" font-size="24" font-weight="bold" fill="#152b3d" font-family="Tahoma,Arial,sans-serif">شو بدنا نبني؟</text>
+<rect x="43" y="267" width="218" height="45" rx="16" fill="white" stroke="#d2dde5"/>
+<text x="151" y="296" text-anchor="middle" font-size="17" fill="#283f50" font-family="Tahoma,Arial,sans-serif">فتح مشروع</text>
+<rect x="43" y="321" width="218" height="45" rx="16" fill="white" stroke="#d2dde5"/>
+<text x="151" y="350" text-anchor="middle" font-size="17" fill="#283f50" font-family="Tahoma,Arial,sans-serif">تنزيل نموذج</text>
+<rect x="44" y="383" width="218" height="10" rx="5" fill="#e0e8ed"/>
+</g>
+</svg>
